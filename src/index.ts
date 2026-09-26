@@ -11,16 +11,30 @@
  */
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { createServer } from "./server.js";
+import { createEngine } from "./laya/index.js";
 
 async function main(): Promise<void> {
   const headless = process.env.LAYA_BROWSER_HEADLESS !== "false";
   const channel = process.env.LAYA_BROWSER_CHANNEL;
+
+  // Build the Autopilot engine from the environment: LAYA_ENGINE=stub selects the
+  // deterministic stub; LAYA_MODEL_DIR points at a local ONNX bundle; otherwise the engine
+  // is unavailable and laya_run_goal degrades gracefully to the Assist-mode tools.
+  const engine = await createEngine();
+  if (engine.available) {
+    process.stderr.write("[laya-browser-mcp] Autopilot engine loaded.\n");
+  } else {
+    process.stderr.write(
+      "[laya-browser-mcp] no Laya weights; Autopilot will degrade to Assist mode.\n",
+    );
+  }
 
   const { server, session } = createServer({
     browser: {
       headless,
       ...(channel ? { channel } : {}),
     },
+    engine,
   });
 
   let closing = false;
@@ -31,6 +45,7 @@ async function main(): Promise<void> {
     process.stderr.write(`\n[laya-browser-mcp] received ${signal}, shutting down...\n`);
     try {
       await session.close();
+      await engine.close().catch(() => {});
     } finally {
       await server.close().catch(() => {});
       process.exit(0);

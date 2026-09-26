@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Apply filters</title>
+  </head>
+  <body>
+    <h1>Apply filters</h1>
+    <form id="filters" onsubmit="return false;">
+      <label for="keyword">Keyword</label>
+      <input id="keyword" name="keyword" type="text" placeholder="e.g. laptop" />
+
+      <label for="category">Category</label>
+      <select id="category" name="category">
+        <option value="">Any</option>
+        <option value="electronics">Electronics</option>
+        <option value="books">Books</option>
+        <option value="clothing">Clothing</option>
+      </select>
+
+      <button id="apply" type="button" onclick="applyFilters()">Apply</button>
+    </form>
+
+    <div id="status" aria-live="polite">No filters applied</div>
+
+    <script>
+      function applyFilters() {
+        const kw = document.getElementById("keyword").value.trim();
+        const cat = document.getElementById("category").value;
+        const status = document.getElementById("status");
+        if (kw) {
+          status.textContent = "Filtered " + kw + " in " + (cat || "all categories");
+          document.title = "Filtered results";
+        } else {
+          status.textContent = "Keyword required";
+        }
+      }
+    </script>
+  </body>
+</html>

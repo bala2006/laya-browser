@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Product search</title>
+  </head>
+  <body>
+    <h1>Product search</h1>
+    <form id="search-form" onsubmit="return false;">
+      <label for="query">Search</label>
+      <input id="query" name="search" type="search" placeholder="Search products" />
+
+      <button id="go" type="button" onclick="runSearch()">Search</button>
+    </form>
+
+    <div id="results" aria-live="polite"></div>
+
+    <script>
+      function runSearch() {
+        const q = document.getElementById("query").value.trim();
+        const results = document.getElementById("results");
+        if (q) {
+          results.textContent = "Showing results for " + q;
+          document.title = "Results for " + q;
+        } else {
+          results.textContent = "Please enter a search term.";
+        }
+      }
+    </script>
+  </body>
+</html>
