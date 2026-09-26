@@ -1,0 +1,577 @@
+{
+  "generatedAt": "2026-09-26T19:25:14.603Z",
+  "runs": 5,
+  "warmupDiscarded": 1,
+  "tasks": [
+    {
+      "id": "nav-basic",
+      "category": "navigation",
+      "description": "Navigate to a page and confirm its title",
+      "laya": {
+        "rate": 1,
+        "passed": true,
+        "medianMs": 152,
+        "p90Ms": 153,
+        "rt": 2
+      },
+      "playwright": {
+        "rate": 1,
+        "passed": true,
+        "medianMs": 398,
+        "p90Ms": 432,
+        "rt": 2
+      },
+      "autopilot": {
+        "na": true
+      }
+    },
+    {
+      "id": "search-type-submit",
+      "category": "forms",
+      "description": "Type a query into a search box and submit it",
+      "laya": {
+        "rate": 1,
+        "passed": true,
+        "medianMs": 203,
+        "p90Ms": 204,
+        "rt": 4
+      },
+      "playwright": {
+        "rate": 1,
+        "passed": true,
+        "medianMs": 978,
+        "p90Ms": 1013,
+        "rt": 4
+      },
+      "autopilot": {
+        "rate": 1,
+        "passed": true,
+        "medianMs": 238,
+        "rt": 2
+      }
+    },
+    {
+      "id": "login-fill-form",
+      "category": "multi-field-form",
+      "description": "Fill email, password, role select, remember checkbox, then submit",
+      "laya": {
+        "rate": 1,
+        "passed": true,
+        "medianMs": 313,
+        "p90Ms": 322,
+        "rt": 9
+      },
+      "playwright": {
+        "rate": 1,
+        "passed": true,
+        "medianMs": 1152,
+        "p90Ms": 1194,
+        "rt": 9
+      },
+      "autopilot": {
+        "rate": 0,
+        "passed": false,
+        "medianMs": 249,
+        "rt": 3
+      }
+    },
+    {
+      "id": "select-option",
+      "category": "selection",
+      "description": "Choose a value from a dropdown",
+      "laya": {
+        "rate": 1,
+        "passed": true,
+        "medianMs": 193,
+        "p90Ms": 201,
+        "rt": 4
+      },
+      "playwright": {
+        "rate": 1,
+        "passed": true,
+        "medianMs": 483,
+        "p90Ms": 540,
+        "rt": 4
+      },
+      "autopilot": {
+        "na": true
+      }
+    },
+    {
+      "id": "click-button",
+      "category": "click",
+      "description": "Click a button and confirm its side effect",
+      "laya": {
+        "rate": 1,
+        "passed": true,
+        "medianMs": 221,
+        "p90Ms": 236,
+        "rt": 4
+      },
+      "playwright": {
+        "rate": 1,
+        "passed": true,
+        "medianMs": 957,
+        "p90Ms": 980,
+        "rt": 4
+      },
+      "autopilot": {
+        "na": true
+      }
+    },
+    {
+      "id": "hover-reveal",
+      "category": "hover",
+      "description": "Hover an element to reveal hidden content",
+      "laya": {
+        "rate": 1,
+        "passed": true,
+        "medianMs": 223,
+        "p90Ms": 244,
+        "rt": 4
+      },
+      "playwright": {
+        "rate": 1,
+        "passed": true,
+        "medianMs": 444,
+        "p90Ms": 456,
+        "rt": 4
+      },
+      "autopilot": {
+        "na": true
+      }
+    },
+    {
+      "id": "wait-for-dynamic",
+      "category": "wait-for",
+      "description": "Wait for delayed text to appear after a timeout",
+      "laya": {
+        "rate": 1,
+        "passed": true,
+        "medianMs": 965,
+        "p90Ms": 968,
+        "rt": 3
+      },
+      "playwright": {
+        "rate": 1,
+        "passed": true,
+        "medianMs": 1197,
+        "p90Ms": 1276,
+        "rt": 3
+      },
+      "autopilot": {
+        "na": true
+      }
+    },
+    {
+      "id": "tabs-open",
+      "category": "tabs",
+      "description": "Open a second tab via window.open and list tabs",
+      "laya": {
+        "rate": 0,
+        "passed": false,
+        "medianMs": 224,
+        "p90Ms": 228,
+        "rt": 5
+      },
+      "playwright": {
+        "rate": 1,
+        "passed": true,
+        "medianMs": 972,
+        "p90Ms": 1018,
+        "rt": 5
+      },
+      "autopilot": {
+        "na": true
+      }
+    },
+    {
+      "id": "dialog-confirm",
+      "category": "dialogs",
+      "description": "Accept a confirm() dialog triggered by a click",
+      "laya": {
+        "rate": 1,
+        "passed": true,
+        "medianMs": 223,
+        "p90Ms": 236,
+        "rt": 6
+      },
+      "playwright": {
+        "rate": 1,
+        "passed": true,
+        "medianMs": 947,
+        "p90Ms": 1035,
+        "rt": 6
+      },
+      "autopilot": {
+        "na": true
+      }
+    },
+    {
+      "id": "console-capture",
+      "category": "console",
+      "description": "Capture a console.log emitted on page load",
+      "laya": {
+        "rate": 1,
+        "passed": true,
+        "medianMs": 152,
+        "p90Ms": 154,
+        "rt": 3
+      },
+      "playwright": {
+        "rate": 1,
+        "passed": true,
+        "medianMs": 439,
+        "p90Ms": 465,
+        "rt": 3
+      },
+      "autopilot": {
+        "na": true
+      }
+    },
+    {
+      "id": "network-capture",
+      "category": "network",
+      "description": "Observe a same-origin fetch() request",
+      "laya": {
+        "rate": 1,
+        "passed": true,
+        "medianMs": 155,
+        "p90Ms": 156,
+        "rt": 3
+      },
+      "playwright": {
+        "rate": 1,
+        "passed": true,
+        "medianMs": 420,
+        "p90Ms": 448,
+        "rt": 3
+      },
+      "autopilot": {
+        "na": true
+      }
+    },
+    {
+      "id": "screenshot",
+      "category": "screenshot",
+      "description": "Capture a screenshot of the page",
+      "laya": {
+        "rate": 1,
+        "passed": true,
+        "medianMs": 192,
+        "p90Ms": 196,
+        "rt": 2
+      },
+      "playwright": {
+        "rate": 1,
+        "passed": true,
+        "medianMs": 480,
+        "p90Ms": 532,
+        "rt": 2
+      },
+      "autopilot": {
+        "na": true
+      }
+    },
+    {
+      "id": "storage-cookies",
+      "category": "storage",
+      "description": "Read a cookie set by the page",
+      "laya": {
+        "rate": 1,
+        "passed": true,
+        "medianMs": 222,
+        "p90Ms": 224,
+        "rt": 5
+      },
+      "playwright": {
+        "na": true,
+        "note": "N/A: server lacks this capability"
+      },
+      "autopilot": {
+        "na": true
+      }
+    },
+    {
+      "id": "storage-localstorage",
+      "category": "storage",
+      "description": "Read a localStorage value set by the page",
+      "laya": {
+        "rate": 1,
+        "passed": true,
+        "medianMs": 227,
+        "p90Ms": 232,
+        "rt": 5
+      },
+      "playwright": {
+        "na": true,
+        "note": "N/A: server lacks this capability"
+      },
+      "autopilot": {
+        "na": true
+      }
+    },
+    {
+      "id": "evaluate",
+      "category": "evaluate",
+      "description": "Evaluate JavaScript against the page",
+      "laya": {
+        "rate": 1,
+        "passed": true,
+        "medianMs": 153,
+        "p90Ms": 157,
+        "rt": 2
+      },
+      "playwright": {
+        "rate": 1,
+        "passed": true,
+        "medianMs": 942,
+        "p90Ms": 976,
+        "rt": 2
+      },
+      "autopilot": {
+        "na": true
+      }
+    },
+    {
+      "id": "verify-text",
+      "category": "verify",
+      "description": "Assert that expected text is visible on the page",
+      "laya": {
+        "rate": 1,
+        "passed": true,
+        "medianMs": 212,
+        "p90Ms": 214,
+        "rt": 5
+      },
+      "playwright": {
+        "na": true,
+        "note": "N/A: server lacks this capability"
+      },
+      "autopilot": {
+        "na": true
+      }
+    }
+  ],
+  "categories": [
+    {
+      "category": "navigation",
+      "layaRate": 1,
+      "pwRate": 1,
+      "layaN": 1,
+      "pwN": 1
+    },
+    {
+      "category": "forms",
+      "layaRate": 1,
+      "pwRate": 1,
+      "layaN": 1,
+      "pwN": 1
+    },
+    {
+      "category": "multi-field-form",
+      "layaRate": 1,
+      "pwRate": 1,
+      "layaN": 1,
+      "pwN": 1
+    },
+    {
+      "category": "selection",
+      "layaRate": 1,
+      "pwRate": 1,
+      "layaN": 1,
+      "pwN": 1
+    },
+    {
+      "category": "click",
+      "layaRate": 1,
+      "pwRate": 1,
+      "layaN": 1,
+      "pwN": 1
+    },
+    {
+      "category": "hover",
+      "layaRate": 1,
+      "pwRate": 1,
+      "layaN": 1,
+      "pwN": 1
+    },
+    {
+      "category": "wait-for",
+      "layaRate": 1,
+      "pwRate": 1,
+      "layaN": 1,
+      "pwN": 1
+    },
+    {
+      "category": "tabs",
+      "layaRate": 0,
+      "pwRate": 1,
+      "layaN": 1,
+      "pwN": 1
+    },
+    {
+      "category": "dialogs",
+      "layaRate": 1,
+      "pwRate": 1,
+      "layaN": 1,
+      "pwN": 1
+    },
+    {
+      "category": "console",
+      "layaRate": 1,
+      "pwRate": 1,
+      "layaN": 1,
+      "pwN": 1
+    },
+    {
+      "category": "network",
+      "layaRate": 1,
+      "pwRate": 1,
+      "layaN": 1,
+      "pwN": 1
+    },
+    {
+      "category": "screenshot",
+      "layaRate": 1,
+      "pwRate": 1,
+      "layaN": 1,
+      "pwN": 1
+    },
+    {
+      "category": "storage",
+      "layaRate": 1,
+      "pwRate": null,
+      "layaN": 2,
+      "pwN": 0
+    },
+    {
+      "category": "evaluate",
+      "layaRate": 1,
+      "pwRate": 1,
+      "layaN": 1,
+      "pwN": 1
+    },
+    {
+      "category": "verify",
+      "layaRate": 1,
+      "pwRate": null,
+      "layaN": 1,
+      "pwN": 0
+    }
+  ],
+  "tasksBoth": [
+    {
+      "id": "nav-basic",
+      "layaMs": 152,
+      "pwMs": 398
+    },
+    {
+      "id": "search-type-submit",
+      "layaMs": 203,
+      "pwMs": 978
+    },
+    {
+      "id": "login-fill-form",
+      "layaMs": 313,
+      "pwMs": 1152
+    },
+    {
+      "id": "select-option",
+      "layaMs": 193,
+      "pwMs": 483
+    },
+    {
+      "id": "click-button",
+      "layaMs": 221,
+      "pwMs": 957
+    },
+    {
+      "id": "hover-reveal",
+      "layaMs": 223,
+      "pwMs": 444
+    },
+    {
+      "id": "wait-for-dynamic",
+      "layaMs": 965,
+      "pwMs": 1197
+    },
+    {
+      "id": "tabs-open",
+      "layaMs": 224,
+      "pwMs": 972
+    },
+    {
+      "id": "dialog-confirm",
+      "layaMs": 223,
+      "pwMs": 947
+    },
+    {
+      "id": "console-capture",
+      "layaMs": 152,
+      "pwMs": 439
+    },
+    {
+      "id": "network-capture",
+      "layaMs": 155,
+      "pwMs": 420
+    },
+    {
+      "id": "screenshot",
+      "layaMs": 192,
+      "pwMs": 480
+    },
+    {
+      "id": "evaluate",
+      "layaMs": 153,
+      "pwMs": 942
+    }
+  ],
+  "roundTripTasks": [
+    {
+      "id": "search-type-submit",
+      "layaRt": 4,
+      "pwRt": 4,
+      "autoRt": 2
+    },
+    {
+      "id": "login-fill-form",
+      "layaRt": 9,
+      "pwRt": 9,
+      "autoRt": 3
+    }
+  ],
+  "coverage": {
+    "layaTools": 72,
+    "pwTools": 24,
+    "layaCategories": 15,
+    "pwCategories": 13,
+    "layaPassed": 15,
+    "pwPassed": 13
+  },
+  "summary": {
+    "laya": {
+      "applicable": 16,
+      "passed": 15,
+      "rate": 0.9375,
+      "medianMs": 217
+    },
+    "playwright": {
+      "applicable": 13,
+      "passed": 13,
+      "rate": 1,
+      "medianMs": 942
+    },
+    "layaAutopilot": {
+      "applicable": 2,
+      "passed": 1,
+      "rate": 0.5,
+      "medianMs": 244
+    }
+  },
+  "toolCounts": {
+    "layaCore": 25,
+    "layaAll": 72,
+    "playwrightCore": 24
+  }
+}
