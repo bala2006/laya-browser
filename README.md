@@ -7,97 +7,60 @@ step's element/action choice **on-device** with a local Laya "System 1" model, s
 LLM is invoked far less often. When the local model is not confident, Autopilot escalates the
 single step to the client's own LLM via **MCP sampling**.
 
-## Honest positioning and limits
+- [What it is and honest positioning](#what-it-is-and-honest-positioning)
+- [Quick start (easy setup)](#quick-start-easy-setup)
+- [Tools](#tools)
+- [Benchmark results](#benchmark-results)
+- [Autopilot](#autopilot)
+- [How it works](#how-it-works)
+- [Configuration reference](#configuration-reference)
+- [Development](#development)
+- [Weights](#weights)
+- [License and attribution](#license-and-attribution)
 
-This is a **fast local decision layer with an LLM fallback**, not a magic autonomous agent.
-Please read this before deciding whether it fits your use case:
+## What it is and honest positioning
 
+laya-browser-mcp is a **drop-in superset of Playwright MCP** plus a **fast local decision
+layer with an LLM fallback**. It is not a magic autonomous agent. Please read this before
+deciding whether it fits your use case:
+
+- **Playwright-MCP superset.** Every core browser tool uses the same ref-based contract
+  (`browser_snapshot` gives `[ref=eN]` markers; you pass a ref as `target` to
+  `browser_click` / `browser_type` / ...). Migrating from Playwright MCP is a config change.
 - **Strong on clean, structured forms.** The web-agent checkpoint scores roughly **97.7%
   per-step** on clean synthetic forms (search boxes, filters, logins, checkouts).
 - **Weak on arbitrary real sites.** On real-world Mind2Web pages it is only right about
   **1 step in 5** end to end. Autopilot leans on deterministic rules and LLM escalation to
   cover the gap, and it still may fail on messy sites.
+- **The reference model is not web-tuned.** The bundled reference/stub decision layer is
+  deterministic rules, not a web-tuned model. Treat Autopilot numbers here as the rule
+  layer's behaviour, not a model benchmark.
 - **NOT a fully autonomous general web agent.** Do not deploy it unattended against sites
-  where a wrong click matters.
-- **`DONE` is not proof of success.** A `DONE` decision from the model is never trusted on
-  its own. After every run, Autopilot performs an **independent final-page verification**
-  (checking the goal's declared success marker directly on the page) and reports
-  `verified` separately from the operation the model chose.
+  where a wrong click matters. `DONE` is never trusted on its own: every run ends with an
+  **independent final-page verification**.
 - **Works with no weights.** Assist mode is fully standalone (no model needed). Autopilot
   degrades gracefully to an Assist-mode hint when weights are absent.
 
-## How it works
+## Quick start (easy setup)
 
-### Assist mode (standalone, no weights)
-
-A ref-based superset of Playwright MCP. You call `browser_snapshot` (or any navigating /
-mutating tool, which returns a fresh snapshot) to get stable `[ref=eN]` element references,
-then drive the page by passing a ref (or a raw Playwright selector) as the `target` of
-`browser_click` / `browser_type` / `browser_select_option`.
-
-We **own the ref boundary** ourselves: an in-page DOM walk stamps stable `data-laya-ref="eN"`
-attributes on interactive/landmark elements. Stable `playwright-core@1.63.0` does **not**
-expose a public `_snapshotForAI`/`snapshotForAI`, so nothing here depends on a Playwright
-private API.
-
-### Autopilot mode (`laya_run_goal`)
-
-Give it a natural-language goal and it drives the current (or a given) page:
-
-```
-snapshot -> compact typed PageState -> DECISION -> execute (Playwright) -> repeat
-```
-
-The **decision** stage follows the authoritative laya-ultrafast design lesson — *Laya answers
-narrow questions reliably but not the open "what next?"* — as a three-stage pipeline:
-
-1. **Deterministic-rule seed** (`src/autopilot/policy.ts`). High-confidence, transparent
-   rules: (1) fill the values the goal states, mapping each to a field (when two or more fields
-   are unfilled, batch them into ONE `FILL_FORM` step rather than N separate type steps);
-   (2) after typing into
-   or opening a control, prefer choosing from the options that just appeared; (3) once every
-   goal-stated field is filled, submit — then open/verify the named item.
-2. **Narrow Laya decision** (`src/laya/engine.ts`). When no rule fires, the local model
-   answers two narrow `choice` questions in one pass: *which operation?* and *which control?*
-3. **Confidence check + escalation** (`src/autopilot/escalation.ts`). If the operation or
-   target confidence is below the configured threshold, or the model returns `BLOCKED`, the
-   step is escalated to the client's LLM through the MCP `sampling/createMessage` request; the
-   structured answer is parsed back into a decision (`source: "llm"`). If the client does not
-   support sampling, escalation degrades to a clear `BLOCKED` (it never throws).
-
-Every step in the returned transcript records its **source** (`rule` / `laya` / `llm` /
-`stub`) and confidences. After the loop, the **independent final-page verification** runs
-regardless of how the loop ended.
-
-### Safety guards (`src/safety.ts`)
-
-- **Domain allow-list.** When `LAYA_ALLOWED_DOMAINS` is set, `browser_navigate` and every
-  Autopilot navigation are restricted to those hosts and their subdomains; off-list
-  navigation is rejected with a reason (fail-closed).
-- **Destructive-form guard.** This guard covers the **Autopilot auto-submit (`CLICK`) path
-  only** — the human-driven Assist tools (`browser_click`, `browser_type`, …) apply no
-  destructive check by design. Before Autopilot auto-submits, it inspects a **scoped** set of
-  signals for a destructive keyword
-  (`delete`/`remove`/`pay`/`purchase`/`confirm order`/`transfer`/`deactivate`):
-  the target control's own accessible name, current value, and option labels; and the names
-  of the other actionable controls (buttons/links) on the page. It also flags a form that
-  combines a password field with a payment-like field. It deliberately does **not** scan the
-  whole page's visible body text, so prose that merely mentions "delete" elsewhere on the page
-  does not trip it. When a signal is present the auto-submit is refused and the reason is
-  surfaced, so a human can confirm explicitly. The check errs toward refusing (fail-safe).
-  Disable with `LAYA_DESTRUCTIVE_GUARD=false`.
-
-## Install
+Requires **Node.js 22+** and `pnpm`.
 
 ```sh
+# 1. Install dependencies
 pnpm install
+
+# 2. Install the Chromium browser Playwright drives
 pnpm exec playwright install chromium
+
+# 3. Build the server (emits dist/index.js)
 pnpm run build
 ```
 
-Requires Node.js 22+.
+That is enough to run **Assist mode** with no model weights.
 
 ### MCP client configuration (stdio)
+
+Point your MCP client at the built entry with a stdio server block:
 
 ```jsonc
 {
@@ -106,6 +69,11 @@ Requires Node.js 22+.
       "command": "node",
       "args": ["/absolute/path/to/laya-browser-mcp/dist/index.js"],
       "env": {
+        // Optional: enable extra tool groups (default is core-only, like Playwright MCP)
+        "LAYA_CAPS": "network,storage,testing,devtools,pdf,vision,config",
+        // Optional: pick a browser engine (chromium | firefox | webkit)
+        "LAYA_BROWSER": "chromium",
+        // Optional (Autopilot): use local weights when present, else the stub
         "LAYA_ENGINE": "auto",
         "LAYA_MODEL_DIR": "/absolute/path/to/laya-onnx-bundle"
       }
@@ -114,38 +82,26 @@ Requires Node.js 22+.
 }
 ```
 
-Clients that intend to use Autopilot should advertise the `sampling` capability so the
-low-confidence escalation path is available. Autopilot still runs without it (it degrades to
-`BLOCKED` on low confidence).
+- **Enable extra tools** with `LAYA_CAPS` (comma or space separated). Unset means **core-only**,
+  matching Playwright MCP. See [capability groups](#capability-groups-laya_caps).
+- **Cross-browser** with `LAYA_BROWSER`. Chromium is preinstalled; Firefox / WebKit need
+  `pnpm exec playwright install firefox webkit` first.
+- Clients that intend to use Autopilot should advertise the `sampling` capability so the
+  low-confidence escalation path is available. Autopilot still runs without it (it degrades to
+  `BLOCKED` on low confidence).
 
-### Configuration (environment variables)
+## Tools
 
-All configuration is parsed **once** (`src/config.ts`) from environment + tool args +
-constructor options, then handed inward as typed config.
-
-| Variable | Default | Meaning |
-| --- | --- | --- |
-| `LAYA_BROWSER_HEADLESS` | `true` | `false` runs headed. |
-| `LAYA_BROWSER_CHANNEL` | — | Chromium channel (e.g. `chrome`). |
-| `LAYA_BROWSER_VIEWPORT` | `1280x800` | Viewport `WIDTHxHEIGHT`. |
-| `LAYA_ENGINE` | `auto` | `stub` forces the deterministic engine; `auto` uses weights when present. |
-| `LAYA_MODEL_DIR` | — | Local ONNX bundle directory (skips download). |
-| `LAYA_REPO` / `LAYA_SUBFOLDER` / `LAYA_REVISION` | — | Hugging Face source coordinates. |
-| `LAYA_CACHE` | `~/.cache/receptron-laya` | Download cache root. |
-| `LAYA_EXECUTION_PROVIDERS` | `cpu` | onnxruntime execution providers (comma-separated). |
-| `LAYA_CONFIDENCE_THRESHOLD` | `0.6` | Escalate below this operation/target confidence. |
-| `LAYA_MAX_STEPS` | `15` | Autopilot step budget. |
-| `LAYA_ALLOWED_DOMAINS` | — (allow all) | Comma-separated navigation allow-list. |
-| `LAYA_DESTRUCTIVE_GUARD` | `true` | `false` disables the destructive-form guard. |
-| `LAYA_CAPS` | (core-only) | Comma/space-separated tool capability groups to enable (see below). |
-| `LAYA_BROWSER` | `chromium` | Browser engine: `chromium`, `firefox`, or `webkit`. |
-| `LAYA_ALLOW_UNSAFE_CODE` | `false` | `true` lets `browser_run_code_unsafe` actually run raw Playwright snippets. |
+The full toolset is a capability-gating registry (`src/tools/index.ts`): a tool with no
+capability is **CORE** and always registered; a tool tagged with a capability is registered
+only when that capability is enabled via `LAYA_CAPS`. Core-only exposes **25 tools**; enabling
+every group exposes **72 tools**. The tables below list every tool grouped by capability.
 
 ### Capability groups (`LAYA_CAPS`)
 
-Like Playwright MCP, the server exposes only its **core** toolset by default. The extra tool
-groups are opt-in through `LAYA_CAPS`, a comma or space separated list. An unset or empty
-`LAYA_CAPS` registers **core-only**; unknown names are ignored.
+Like Playwright MCP, the server exposes only its **core** toolset by default. Extra groups are
+opt-in through `LAYA_CAPS`, a comma or space separated list. An unset or empty `LAYA_CAPS`
+registers **core-only**; unknown names are ignored.
 
 | Group | What it adds |
 | --- | --- |
@@ -157,42 +113,13 @@ groups are opt-in through `LAYA_CAPS`, a comma or space separated list. An unset
 | `vision` | Coordinate-based mouse primitives (move/click/drag/down/up/wheel). |
 | `config` | Report the resolved configuration. |
 
-Enable every group at once:
-
 ```sh
+# enable every group at once
 LAYA_CAPS=network,storage,testing,devtools,pdf,vision,config
 ```
 
 Only the core tools plus the groups you list are registered; everything else is neither listed
 nor callable.
-
-### Cross-browser (`LAYA_BROWSER`)
-
-The browser engine is selected once from `LAYA_BROWSER` (`chromium` by default). Chromium is
-preinstalled; **Firefox and WebKit must be installed first**:
-
-```sh
-pnpm exec playwright install firefox webkit
-```
-
-The Chromium `channel` option (e.g. `chrome`, `msedge`) is applied only for the `chromium`
-engine; Firefox and WebKit have no channel. Everything else (viewport, timeouts, multi-tab,
-console / network / dialog listeners, routing, storage, the ref boundary) is identical across
-engines because engine selection is confined to `src/browser.ts`.
-
-**Tested engines.** Chromium is the default and is exercised by the whole suite. **Firefox was
-smoke-tested** here: it really launches and drives the sign-in fixture to its literal
-signed-in outcome. **WebKit is gated in this sandbox**: the binary downloads, but launch fails
-on this host for lack of system shared libraries, so the WebKit smoke test probes real
-launchability once and `describe.skipIf`s itself rather than faking a pass. It runs
-automatically in an environment where WebKit can launch.
-
-## Tools
-
-The full toolset is a capability-gating registry (`src/tools/index.ts`): a tool with no
-capability is **CORE** and always registered; a tool tagged with a capability is registered
-only when that capability is enabled via `LAYA_CAPS`. The tables below list every tool grouped
-by capability.
 
 ### CORE tools (always registered)
 
@@ -326,7 +253,99 @@ faking success, each is deliberate and documented:
   honest text result explaining what the real interactive feature would do rather than
   pretending to succeed.
 
-## Autopilot tool
+## Benchmark results
+
+A fair, honest comparison against the **real Playwright MCP** (`@playwright/mcp`, the
+baseline), driving both servers over MCP stdio through the **identical** task scripts (the arg
+shapes match, so one script is fair to both) against **identical local loopback HTML fixtures**
+(no live sites, so no bot-detection or network-latency skew). Every success check re-probes the
+real DOM. N=5 runs per task, first discarded as warm-up, median reported. Full detail and the
+reproduce steps live in [`benchmark/RESULTS.md`](./benchmark/RESULTS.md).
+
+### Headline
+
+| Metric | laya-browser-mcp (Assist) | Playwright MCP |
+| --- | --- | --- |
+| Tasks applicable | 16 | 13 |
+| Tasks passed | 15 | 13 |
+| Success rate | 94% | 100% |
+| Median latency (applicable tasks) | 217 ms | 942 ms |
+| Tools exposed | 25 core / 72 all-caps | 24 core |
+
+### Per-task results
+
+| Task | Category | laya | laya ms | laya calls | Playwright | PW ms | PW calls |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| nav-basic | navigation | PASS | 150 | 2 | PASS | 399 | 2 |
+| search-type-submit | forms | PASS | 200 | 4 | PASS | 954 | 4 |
+| login-fill-form | multi-field-form | PASS | 313 | 9 | PASS | 1152 | 9 |
+| select-option | selection | PASS | 193 | 4 | PASS | 483 | 4 |
+| click-button | click | PASS | 225 | 4 | PASS | 974 | 4 |
+| hover-reveal | hover | PASS | 232 | 4 | PASS | 505 | 4 |
+| wait-for-dynamic | wait-for | PASS | 962 | 3 | PASS | 1177 | 3 |
+| tabs-open | tabs | FAIL | 225 | 5 | PASS | 987 | 5 |
+| dialog-confirm | dialogs | PASS | 219 | 6 | PASS | 945 | 6 |
+| console-capture | console | PASS | 148 | 3 | PASS | 427 | 3 |
+| network-capture | network | PASS | 148 | 3 | PASS | 406 | 3 |
+| screenshot | screenshot | PASS | 186 | 2 | PASS | 516 | 2 |
+| storage-cookies | storage | PASS | 215 | 5 | N/A | N/A | N/A |
+| storage-localstorage | storage | PASS | 223 | 5 | N/A | N/A | N/A |
+| evaluate | evaluate | PASS | 155 | 2 | PASS | 909 | 2 |
+| verify-text | verify | PASS | 208 | 5 | N/A | N/A | N/A |
+
+_(Absolute milliseconds are environment-specific; only the relative comparison is meaningful.
+Numbers above are one recorded run; re-running regenerates them.)_
+
+### Charts
+
+![Success rate by category](benchmark/charts/success-by-category.svg)
+
+![Median latency by task](benchmark/charts/latency-by-task.svg)
+
+![Round-trips per task](benchmark/charts/round-trips.svg)
+
+![Capability coverage](benchmark/charts/capability-coverage.svg)
+
+### What each side won and lost (honest)
+
+- **Playwright wins tab popups.** Playwright MCP auto-tracks a `window.open` popup as a tab;
+  laya-browser-mcp's tab tool tracks only tabs it opened, so laya honestly **FAILS**
+  `tabs-open` while Playwright passes. Shown as FAIL, not hidden.
+- **laya wins on latency here.** Against local fixtures laya's median per-task time is well
+  under Playwright MCP's. This is an in-process advantage on local pages, not a claim about
+  live-web robustness.
+- **N/A is honest, not a loss.** Cookie, localStorage, and verify/assert tasks are N/A for
+  Playwright MCP core because its core toolset has no such tools; laya offers them under its
+  `storage` / `testing` capabilities. Neither side is penalised for a capability the other
+  simply does not offer.
+- **Both pass all shared basics** (navigation, search, multi-field form, select, click, hover,
+  wait-for-dynamic, dialogs, console, network, screenshot, evaluate).
+
+### Limitations of this benchmark
+
+- **Local fixtures, not live sites.** Removes bot-detection and network-latency skew for a
+  deterministic, fair comparison; it is NOT a live-web robustness claim.
+- **Single machine, headless.** Latency includes per-task process spin-up, amortised by
+  discarding the warm-up run. Absolute milliseconds are environment-specific.
+- **Autopilot uses the reference stub (no weights),** so its success reflects the deterministic
+  rule layer, not a web-tuned model (see the [Autopilot](#autopilot) section).
+
+### Reproduce
+
+```sh
+pnpm install
+pnpm run build
+pnpm run bench:compare   # writes benchmark/results.json, benchmark/RESULTS.md, benchmark/charts/
+```
+
+`pnpm run bench:compare` starts the local fixture server, launches both MCP servers, runs the
+full matrix, and regenerates the results table, `results.json`, and the SVG charts. It installs
+the benchmark's own dev deps (`@playwright/mcp` + the MCP SDK) on first run.
+
+## Autopilot
+
+Give `laya_run_goal` a natural-language goal and it drives the current (or a given) page,
+resolving each step on-device and escalating only low-confidence steps to the client LLM.
 
 | Tool | Input schema | Description |
 | --- | --- | --- |
@@ -355,24 +374,146 @@ it so a single step can do more of the work, modelled as a **discriminated union
 So a `FILL_FORM` can never carry a lone `target`, a `PRESS_KEY` can never lack a `key`, and a
 targetless operation can never carry field payloads.
 
-### The "faster" mechanism (measured)
+### Faster automation: fewer round-trips (measured)
 
-The concrete speed-up is **fewer steps and zero remote round-trips** on multi-field goals. When
-the goal maps to **two or more** editable fields that are still unfilled, the deterministic
-layer (`src/autopilot/policy.ts`, `src/laya/stub.ts`) prefers **one `FILL_FORM` batch step**
-over N sequential `TYPE_TEXT` steps, then submits.
+The concrete speed-up is **fewer client<->server round-trips** on multi-step goals. A single
+`laya_run_goal` call runs the whole goal on-device/server-side; Playwright MCP has no
+single-call goal runner, so the same outcome needs a multi-call Assist script. This is a real
+architectural difference, not a defect on either side. From the benchmark
+([`benchmark/RESULTS.md`](./benchmark/RESULTS.md)):
 
-Measured offline (StubEngine + real headless Chromium, `pnpm run bench`) on a two-field
-`login-multi` goal (email + password):
+| Task | laya Assist calls | Playwright calls | laya Autopilot calls | Autopilot result |
+| --- | --- | --- | --- | --- |
+| search-type-submit | 4 | 4 | **2** | PASS |
+| login-fill-form | 9 | 9 | **3** | FAIL |
 
-- **3 total steps** (`FILL_FORM` + `CLICK` + `DONE`) versus **4** for the per-field path
-  (`TYPE_TEXT` + `TYPE_TEXT` + `CLICK` + `DONE`) = a **25% step reduction**.
-- **All steps resolved locally by the rule layer** (rule / laya / stub / llm = **3 / 0 / 0 /
-  0**): **zero escalations**, zero remote LLM round-trips.
-- Wall-clock **~80 to 90 ms** per offline case.
+On the search goal Autopilot completes in **2 round-trips vs 4** for the Assist script. On the
+multi-field login goal, the **reference stub** batch-fills the text fields and submits without
+choosing the role option, so it does not satisfy the stricter Assist-mode verify: it is shown
+honestly as **FAIL**. This reflects the deterministic rule layer with **no model weights**, not
+a web-tuned model. `DONE` is never trusted on its own: after the loop, the independent
+final-page verification runs regardless of how the loop ended.
 
-The `DONE` decision is still never trusted on its own: after the loop, the **independent
-final-page verification** runs regardless of how the loop ended.
+## How it works
+
+### Assist mode (standalone, no weights)
+
+A ref-based superset of Playwright MCP. You call `browser_snapshot` (or any navigating /
+mutating tool, which returns a fresh snapshot) to get stable `[ref=eN]` element references,
+then drive the page by passing a ref (or a raw Playwright selector) as the `target` of
+`browser_click` / `browser_type` / `browser_select_option`.
+
+We **own the ref boundary** ourselves: an in-page DOM walk stamps stable `data-laya-ref="eN"`
+attributes on interactive/landmark elements. Stable `playwright-core@1.63.0` does **not**
+expose a public `_snapshotForAI`/`snapshotForAI`, so nothing here depends on a Playwright
+private API.
+
+### Autopilot decision pipeline
+
+```
+snapshot -> compact typed PageState -> DECISION -> execute (Playwright) -> repeat
+```
+
+The **decision** stage follows the authoritative laya-ultrafast design lesson — *Laya answers
+narrow questions reliably but not the open "what next?"* — as a three-stage pipeline:
+
+1. **Deterministic-rule seed** (`src/autopilot/policy.ts`). High-confidence, transparent
+   rules: (1) fill the values the goal states, mapping each to a field (when two or more fields
+   are unfilled, batch them into ONE `FILL_FORM` step rather than N separate type steps);
+   (2) after typing into or opening a control, prefer choosing from the options that just
+   appeared; (3) once every goal-stated field is filled, submit — then open/verify the named
+   item.
+2. **Narrow Laya decision** (`src/laya/engine.ts`). When no rule fires, the local model
+   answers two narrow `choice` questions in one pass: *which operation?* and *which control?*
+3. **Confidence check + escalation** (`src/autopilot/escalation.ts`). If the operation or
+   target confidence is below the configured threshold, or the model returns `BLOCKED`, the
+   step is escalated to the client's LLM through the MCP `sampling/createMessage` request; the
+   structured answer is parsed back into a decision (`source: "llm"`). If the client does not
+   support sampling, escalation degrades to a clear `BLOCKED` (it never throws).
+
+Every step in the returned transcript records its **source** (`rule` / `laya` / `llm` /
+`stub`) and confidences. After the loop, the **independent final-page verification** runs
+regardless of how the loop ended.
+
+### Safety guards (`src/safety.ts`)
+
+- **Domain allow-list.** When `LAYA_ALLOWED_DOMAINS` is set, `browser_navigate` and every
+  Autopilot navigation are restricted to those hosts and their subdomains; off-list
+  navigation is rejected with a reason (fail-closed).
+- **Destructive-form guard.** This guard covers the **Autopilot auto-submit (`CLICK`) path
+  only** — the human-driven Assist tools (`browser_click`, `browser_type`, …) apply no
+  destructive check by design. Before Autopilot auto-submits, it inspects a **scoped** set of
+  signals for a destructive keyword
+  (`delete`/`remove`/`pay`/`purchase`/`confirm order`/`transfer`/`deactivate`): the target
+  control's own accessible name, current value, and option labels; and the names of the other
+  actionable controls (buttons/links) on the page. It also flags a form that combines a
+  password field with a payment-like field. It deliberately does **not** scan the whole page's
+  visible body text, so prose that merely mentions "delete" elsewhere on the page does not trip
+  it. When a signal is present the auto-submit is refused and the reason is surfaced, so a human
+  can confirm explicitly. The check errs toward refusing (fail-safe). Disable with
+  `LAYA_DESTRUCTIVE_GUARD=false`.
+
+## Configuration reference
+
+All configuration is parsed **once** (`src/config.ts`) from environment + tool args +
+constructor options, then handed inward as typed config.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `LAYA_BROWSER_HEADLESS` | `true` | `false` runs headed. |
+| `LAYA_BROWSER_CHANNEL` | — | Chromium channel (e.g. `chrome`). |
+| `LAYA_BROWSER_VIEWPORT` | `1280x800` | Viewport `WIDTHxHEIGHT`. |
+| `LAYA_ENGINE` | `auto` | `stub` forces the deterministic engine; `auto` uses weights when present. |
+| `LAYA_MODEL_DIR` | — | Local ONNX bundle directory (skips download). |
+| `LAYA_REPO` / `LAYA_SUBFOLDER` / `LAYA_REVISION` | — | Hugging Face source coordinates. |
+| `LAYA_CACHE` | `~/.cache/receptron-laya` | Download cache root. |
+| `LAYA_EXECUTION_PROVIDERS` | `cpu` | onnxruntime execution providers (comma-separated). |
+| `LAYA_CONFIDENCE_THRESHOLD` | `0.6` | Escalate below this operation/target confidence. |
+| `LAYA_MAX_STEPS` | `15` | Autopilot step budget. |
+| `LAYA_ALLOWED_DOMAINS` | — (allow all) | Comma-separated navigation allow-list. |
+| `LAYA_DESTRUCTIVE_GUARD` | `true` | `false` disables the destructive-form guard. |
+| `LAYA_CAPS` | (core-only) | Comma/space-separated tool capability groups to enable. |
+| `LAYA_BROWSER` | `chromium` | Browser engine: `chromium`, `firefox`, or `webkit`. |
+| `LAYA_ALLOW_UNSAFE_CODE` | `false` | `true` lets `browser_run_code_unsafe` actually run raw Playwright snippets. |
+
+### Cross-browser (`LAYA_BROWSER`)
+
+The browser engine is selected once from `LAYA_BROWSER` (`chromium` by default). Chromium is
+preinstalled; **Firefox and WebKit must be installed first**:
+
+```sh
+pnpm exec playwright install firefox webkit
+```
+
+The Chromium `channel` option (e.g. `chrome`, `msedge`) is applied only for the `chromium`
+engine; Firefox and WebKit have no channel. Everything else (viewport, timeouts, multi-tab,
+console / network / dialog listeners, routing, storage, the ref boundary) is identical across
+engines because engine selection is confined to `src/browser.ts`.
+
+**Tested engines.** Chromium is the default and is exercised by the whole suite. **Firefox was
+smoke-tested** here: it really launches and drives the sign-in fixture to its literal
+signed-in outcome. **WebKit is gated in this sandbox**: the binary downloads, but launch fails
+on this host for lack of system shared libraries, so the WebKit smoke test probes real
+launchability once and `describe.skipIf`s itself rather than faking a pass. It runs
+automatically in an environment where WebKit can launch.
+
+## Development
+
+```sh
+pnpm run typecheck    # tsc --noEmit
+pnpm run build        # tsc
+pnpm run test         # vitest (offline: stubbed Laya + local HTML fixtures)
+pnpm run bench        # offline goal benchmark over local fixtures with the stub engine
+pnpm run bench:compare # full comparison vs the real Playwright MCP (writes benchmark/ artifacts)
+```
+
+The offline goal benchmark (`pnpm run bench`) runs `laya_run_goal` with the StubEngine over the
+local structured-form fixtures under `test/fixtures/`, and prints a summary with two columns:
+**end-to-end success** (via the independent final-page check — the trustworthy signal) and
+**expected-ops coverage** (`ops-cov`). The coverage column is a subsequence match — the fraction
+of each fixture's expected operations that appear, in order, in the transcript — so it does
+**not** penalize extra or wrong steps and should not be read as precision/accuracy. When
+`LAYA_MODEL_DIR` is set, it also benchmarks the real engine.
 
 ## Weights
 
@@ -401,24 +542,6 @@ not export cleanly, a thin local Python sidecar using the `laya` pip package can
 decisions over a local socket. This loses the no-Python-at-runtime property and is a last
 resort. Independent of either path, the product and its whole test suite run **without any
 weights** (Assist mode standalone, Autopilot degrades gracefully, tests use a stubbed engine).
-
-## Development
-
-```sh
-pnpm run typecheck   # tsc --noEmit
-pnpm run build       # tsc
-pnpm run test        # vitest (offline: stubbed Laya + local HTML fixtures)
-pnpm run bench       # offline benchmark over local fixtures with the stub engine
-```
-
-The offline benchmark (`pnpm run bench`) runs `laya_run_goal` with the StubEngine over the
-local structured-form fixtures under `test/fixtures/`, and prints a summary table with two
-columns: **end-to-end success** (via the independent final-page check — the trustworthy
-signal) and **expected-ops coverage** (`ops-cov`). The coverage column is a
-subsequence match — the fraction of each fixture's expected operations that appear, in order,
-in the transcript — so it does **not** penalize extra or wrong steps and should not be read as
-precision/accuracy; a 100% coverage row only means every expected op was present in order.
-When `LAYA_MODEL_DIR` is set, it also benchmarks the real engine.
 
 ## License and attribution
 

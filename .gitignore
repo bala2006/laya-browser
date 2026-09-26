@@ -19,3 +19,6 @@ model/
 # Logs / OS
 *.log
 .DS_Store
+
+# Playwright MCP session output (created by the benchmark run)
+.playwright-mcp/
