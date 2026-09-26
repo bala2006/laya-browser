@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Mock fetch demo</title>
+  </head>
+  <body>
+    <h1>Mock fetch demo</h1>
+    <p id="status">idle</p>
+    <button id="load">Load</button>
+    <script>
+      // Fetch a SAME-ORIGIN endpoint served by the offline fixture server. A network
+      // route rule can intercept this request and fulfill it with canned JSON, which the
+      // page then displays verbatim so a test can assert on the mocked body. When offline,
+      // the fetch rejects and the status shows the error.
+      function load() {
+        document.getElementById("status").textContent = "loading";
+        fetch("api/data.json")
+          .then((res) => res.text())
+          .then((text) => {
+            document.getElementById("status").textContent = "ok:" + text.trim();
+          })
+          .catch((err) => {
+            document.getElementById("status").textContent = "error:" + err.message;
+          });
+      }
+      document.getElementById("load").addEventListener("click", load);
+    </script>
+  </body>
+</html>

@@ -19,6 +19,7 @@ import {
   chromium,
   type Browser,
   type BrowserContext,
+  type Cookie,
   type Locator,
   type Page,
 } from "playwright";
@@ -26,6 +27,7 @@ import type {
   ConsoleMessageRecord,
   DialogRecord,
   NetworkRequestRecord,
+  RouteRule,
   TabInfo,
 } from "./types.js";
 
@@ -87,6 +89,8 @@ export class BrowserSession {
   private nextDialog?: DialogDisposition;
   /** The most recent dialog seen, recorded after it was handled. */
   private lastDialog?: DialogRecord;
+  /** Active route-mocking rules, keyed by URL pattern (one rule per pattern). */
+  private routeRules = new Map<string, RouteRule>();
 
   constructor(options: BrowserSessionOptions = {}) {
     this.options = {
@@ -364,6 +368,236 @@ export class BrowserSession {
     }
   }
 
+  /** Return the browser context, launching the browser lazily if needed. */
+  private async getContext(): Promise<BrowserContext> {
+    await this.getPage();
+    if (!this.context) {
+      throw new Error("Cannot access the browser context before it exists.");
+    }
+    return this.context;
+  }
+
+  // --- Cookie storage boundary (capability: storage) ---
+
+  /** List all cookies in the current context. */
+  async listCookies(): Promise<Cookie[]> {
+    const context = await this.getContext();
+    return context.cookies();
+  }
+
+  /**
+   * Add (or overwrite) a cookie. A `url` or an explicit `domain`+`path` is required by
+   * Playwright; when neither is given, the active page's URL is used so a caller can set a
+   * cookie for the current page without spelling out the domain.
+   */
+  async setCookie(cookie: {
+    name: string;
+    value: string;
+    url?: string;
+    domain?: string;
+    path?: string;
+    expires?: number;
+    httpOnly?: boolean;
+    secure?: boolean;
+    sameSite?: "Strict" | "Lax" | "None";
+  }): Promise<void> {
+    const context = await this.getContext();
+    const hasDomainPath = cookie.domain !== undefined && cookie.path !== undefined;
+    const url = cookie.url ?? (hasDomainPath ? undefined : this.pages[this.activeIndex]?.url());
+    // Playwright requires either url or domain+path; assemble whichever the caller gave.
+    const toAdd: Parameters<BrowserContext["addCookies"]>[0][number] = {
+      name: cookie.name,
+      value: cookie.value,
+      ...(url ? { url } : {}),
+      ...(cookie.domain !== undefined ? { domain: cookie.domain } : {}),
+      ...(cookie.path !== undefined ? { path: cookie.path } : {}),
+      ...(cookie.expires !== undefined ? { expires: cookie.expires } : {}),
+      ...(cookie.httpOnly !== undefined ? { httpOnly: cookie.httpOnly } : {}),
+      ...(cookie.secure !== undefined ? { secure: cookie.secure } : {}),
+      ...(cookie.sameSite !== undefined ? { sameSite: cookie.sameSite } : {}),
+    };
+    await context.addCookies([toAdd]);
+  }
+
+  /**
+   * Delete the cookie(s) with the given name by clearing all cookies and re-adding the
+   * survivors. Playwright's `clearCookies` supports a name filter, which we use directly.
+   */
+  async deleteCookie(name: string): Promise<void> {
+    const context = await this.getContext();
+    await context.clearCookies({ name });
+  }
+
+  /** Remove all cookies from the current context. */
+  async clearCookies(): Promise<void> {
+    const context = await this.getContext();
+    await context.clearCookies();
+  }
+
+  // --- Web storage boundary (localStorage / sessionStorage; capability: storage) ---
+
+  /**
+   * Run an operation against `window.localStorage` or `window.sessionStorage` on the active
+   * page. Confining the `page.evaluate` here keeps every Playwright call inside this
+   * boundary; tools pass a plain `which` discriminator.
+   */
+  async webStorage(
+    which: "localStorage" | "sessionStorage",
+    op:
+      | { kind: "list" }
+      | { kind: "get"; key: string }
+      | { kind: "set"; key: string; value: string }
+      | { kind: "delete"; key: string }
+      | { kind: "clear" },
+  ): Promise<Record<string, string> | string | null | void> {
+    const page = await this.getPage();
+    switch (op.kind) {
+      case "list":
+        return page.evaluate((store) => {
+          const s = store === "localStorage" ? window.localStorage : window.sessionStorage;
+          const out: Record<string, string> = {};
+          for (let i = 0; i < s.length; i++) {
+            const k = s.key(i);
+            if (k !== null) out[k] = s.getItem(k) ?? "";
+          }
+          return out;
+        }, which);
+      case "get":
+        return page.evaluate(
+          ([store, key]) => {
+            const s = store === "localStorage" ? window.localStorage : window.sessionStorage;
+            return s.getItem(key);
+          },
+          [which, op.key] as const,
+        );
+      case "set":
+        await page.evaluate(
+          ([store, key, value]) => {
+            const s = store === "localStorage" ? window.localStorage : window.sessionStorage;
+            s.setItem(key, value);
+          },
+          [which, op.key, op.value] as const,
+        );
+        return;
+      case "delete":
+        await page.evaluate(
+          ([store, key]) => {
+            const s = store === "localStorage" ? window.localStorage : window.sessionStorage;
+            s.removeItem(key);
+          },
+          [which, op.key] as const,
+        );
+        return;
+      case "clear":
+        await page.evaluate((store) => {
+          const s = store === "localStorage" ? window.localStorage : window.sessionStorage;
+          s.clear();
+        }, which);
+        return;
+    }
+  }
+
+  // --- Storage state save/restore boundary (capability: storage) ---
+
+  /**
+   * Write the context's storage state (cookies + origin localStorage) to `path` as JSON
+   * and return the same state object, so a caller can persist and later restore a session.
+   */
+  async saveStorageState(path: string): Promise<Awaited<ReturnType<BrowserContext["storageState"]>>> {
+    const context = await this.getContext();
+    return context.storageState({ path });
+  }
+
+  /**
+   * Restore storage state previously written by {@link saveStorageState}. Cookies are added
+   * to the current context directly; localStorage is restored per-origin by navigating to
+   * the origin and replaying entries via `page.evaluate`. A full storageState is normally
+   * applied at context creation, but we restore into the live context so the session and its
+   * open tabs are preserved.
+   */
+  async restoreStorageState(state: {
+    cookies?: Cookie[];
+    origins?: Array<{ origin: string; localStorage: Array<{ name: string; value: string }> }>;
+  }): Promise<void> {
+    const context = await this.getContext();
+    if (state.cookies && state.cookies.length > 0) {
+      await context.addCookies(state.cookies);
+    }
+    const page = await this.getPage();
+    for (const origin of state.origins ?? []) {
+      if (origin.localStorage.length === 0) continue;
+      // localStorage is per-origin, so the page must be on that origin to write it.
+      if (!page.url().startsWith(origin.origin)) {
+        try {
+          await page.goto(origin.origin, { waitUntil: "domcontentloaded" });
+        } catch {
+          // Origin may be unreachable offline; skip restoring its localStorage.
+          continue;
+        }
+      }
+      await page.evaluate((entries) => {
+        for (const { name, value } of entries) {
+          window.localStorage.setItem(name, value);
+        }
+      }, origin.localStorage);
+    }
+  }
+
+  // --- Routing / network-mocking boundary (capability: network) ---
+
+  /**
+   * Register (or replace) a route-mocking rule. Matching requests are fulfilled with the
+   * rule's canned response or aborted, instead of hitting the network. The rule is recorded
+   * so {@link listRoutes} can enumerate active rules and {@link unroute} can remove one.
+   */
+  async route(rule: RouteRule): Promise<void> {
+    const context = await this.getContext();
+    // Replace any existing handler for this pattern so re-registering is idempotent.
+    if (this.routeRules.has(rule.urlPattern)) {
+      await context.unroute(rule.urlPattern);
+    }
+    this.routeRules.set(rule.urlPattern, { ...rule });
+    await context.route(rule.urlPattern, async (route) => {
+      // Read the latest rule for this pattern so an in-place update takes effect.
+      const active = this.routeRules.get(rule.urlPattern);
+      if (!active) {
+        await route.continue();
+        return;
+      }
+      if (active.action === "abort") {
+        await route.abort(active.errorCode ?? "failed");
+        return;
+      }
+      await route.fulfill({
+        status: active.status ?? 200,
+        ...(active.headers ? { headers: active.headers } : {}),
+        ...(active.body !== undefined ? { body: active.body } : {}),
+      });
+    });
+  }
+
+  /** List the active route-mocking rules, in insertion order. */
+  listRoutes(): RouteRule[] {
+    return Array.from(this.routeRules.values()).map((r) => ({ ...r }));
+  }
+
+  /**
+   * Remove the route-mocking rule for `urlPattern`. Returns true if a rule was present.
+   */
+  async unroute(urlPattern: string): Promise<boolean> {
+    const context = await this.getContext();
+    if (!this.routeRules.has(urlPattern)) return false;
+    this.routeRules.delete(urlPattern);
+    await context.unroute(urlPattern);
+    return true;
+  }
+
+  /** Toggle the context between offline and online. */
+  async setOffline(offline: boolean): Promise<void> {
+    const context = await this.getContext();
+    await context.setOffline(offline);
+  }
+
   /**
    * Run a raw Playwright snippet against the active page. The snippet is compiled as an
    * async function body receiving the `page` object, so callers can express arbitrary
@@ -404,5 +638,6 @@ export class BrowserSession {
     this.activeIndex = 0;
     this.context = undefined;
     this.browser = undefined;
+    this.routeRules.clear();
   }
 }

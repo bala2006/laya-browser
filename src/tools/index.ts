@@ -37,6 +37,11 @@ import * as consoleMessages from "./console_messages.js";
 import * as networkRequests from "./network_requests.js";
 import * as networkRequest from "./network_request.js";
 import * as runCodeUnsafe from "./run_code_unsafe.js";
+import * as cookies from "./cookies.js";
+import * as localStorageTools from "./localstorage.js";
+import * as sessionStorageTools from "./sessionstorage.js";
+import * as storageState from "./storage_state.js";
+import * as route from "./route.js";
 
 /**
  * The full Assist toolset as a capability-gating table. Every entry today is CORE
@@ -69,6 +74,31 @@ export const REGISTRY: readonly RegisteredTool[] = [
   { module: networkRequest as unknown as ToolModule },
   // Always listed (CORE) but refuses at call time unless allowUnsafeCode is set.
   { module: runCodeUnsafe as unknown as ToolModule },
+
+  // STORAGE capability group: cookies, localStorage, sessionStorage, storage state.
+  { module: cookies.listModule, capability: "storage" },
+  { module: cookies.getModule, capability: "storage" },
+  { module: cookies.setModule, capability: "storage" },
+  { module: cookies.deleteModule, capability: "storage" },
+  { module: cookies.clearModule, capability: "storage" },
+  { module: localStorageTools.list, capability: "storage" },
+  { module: localStorageTools.get, capability: "storage" },
+  { module: localStorageTools.set, capability: "storage" },
+  { module: localStorageTools.del, capability: "storage" },
+  { module: localStorageTools.clear, capability: "storage" },
+  { module: sessionStorageTools.list, capability: "storage" },
+  { module: sessionStorageTools.get, capability: "storage" },
+  { module: sessionStorageTools.set, capability: "storage" },
+  { module: sessionStorageTools.del, capability: "storage" },
+  { module: sessionStorageTools.clear, capability: "storage" },
+  { module: storageState.saveModule, capability: "storage" },
+  { module: storageState.restoreModule, capability: "storage" },
+
+  // NETWORK capability group: route mocking + connectivity toggle.
+  { module: route.routeModule, capability: "network" },
+  { module: route.listModule, capability: "network" },
+  { module: route.unrouteModule, capability: "network" },
+  { module: route.networkStateModule, capability: "network" },
 ];
 
 /** Whether a registry entry is enabled given the set of enabled capabilities. */
