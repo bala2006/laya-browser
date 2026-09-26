@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Drop demo</title>
+  </head>
+  <body>
+    <h1>Drop demo</h1>
+
+    <label for="upload">Upload</label>
+    <input id="upload" name="upload" type="file" />
+    <p id="file-status">no file</p>
+
+    <div id="zone">Drop data here</div>
+    <p id="data-status">no data</p>
+
+    <script>
+      const upload = document.getElementById("upload");
+      const fileStatus = document.getElementById("file-status");
+      upload.addEventListener("change", () => {
+        const file = upload.files[0];
+        fileStatus.textContent = file ? "file: " + file.name : "no file";
+      });
+
+      const zone = document.getElementById("zone");
+      const dataStatus = document.getElementById("data-status");
+      zone.addEventListener("drop", (e) => {
+        e.preventDefault();
+        const text = e.dataTransfer.getData("text/plain");
+        dataStatus.textContent = "data: " + text;
+      });
+    </script>
+  </body>
+</html>

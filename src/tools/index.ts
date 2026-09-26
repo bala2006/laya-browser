@@ -14,9 +14,17 @@ import type { ToolContext } from "./shared.js";
 import type { RegisteredTool, ToolModule } from "./registry.js";
 
 import * as navigate from "./navigate.js";
+import * as navigateBack from "./navigate_back.js";
+import * as resize from "./resize.js";
 import * as snapshot from "./snapshot.js";
 import * as click from "./click.js";
 import * as type from "./type.js";
+import * as hover from "./hover.js";
+import * as find from "./find.js";
+import * as drag from "./drag.js";
+import * as drop from "./drop.js";
+import * as fillForm from "./fill_form.js";
+import * as evaluate from "./evaluate.js";
 import * as selectOption from "./select_option.js";
 import * as pressKey from "./press_key.js";
 import * as waitFor from "./wait_for.js";
@@ -29,9 +37,17 @@ import * as close from "./close.js";
  */
 export const REGISTRY: readonly RegisteredTool[] = [
   { module: navigate as unknown as ToolModule },
+  { module: navigateBack as unknown as ToolModule },
+  { module: resize as unknown as ToolModule },
   { module: snapshot as unknown as ToolModule },
   { module: click as unknown as ToolModule },
   { module: type as unknown as ToolModule },
+  { module: hover as unknown as ToolModule },
+  { module: find as unknown as ToolModule },
+  { module: drag as unknown as ToolModule },
+  { module: drop as unknown as ToolModule },
+  { module: fillForm as unknown as ToolModule },
+  { module: evaluate as unknown as ToolModule },
   { module: selectOption as unknown as ToolModule },
   { module: pressKey as unknown as ToolModule },
   { module: waitFor as unknown as ToolModule },

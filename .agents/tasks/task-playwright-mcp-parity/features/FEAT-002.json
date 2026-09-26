@@ -2,7 +2,7 @@
   "id": "FEAT-002",
   "type": "feat",
   "description": "CORE tool parity part A: element/page interaction + snapshot-derived tools. Add browser_navigate_back, browser_resize, browser_hover, browser_find (search the snapshot for text/regexp), browser_drag (drag+drop between two elements), browser_drop (drop files/MIME data onto an element), browser_fill_form (fill multiple fields at once), browser_evaluate (JS on page or element). Reconcile with existing tools rather than duplicating: reuse shared.ts (targetSchema/elementDescription/snapshotResult) and the snapshot Control[] for browser_find. All are CORE (always registered).",
-  "status": "pending",
+  "status": "completed",
   "steps": [
     "browser_navigate_back: new src/tools/navigate_back.ts. `await page.goBack({ waitUntil: 'domcontentloaded' })`, return snapshotResult. No args. Register as CORE.",
     "browser_resize: new src/tools/resize.ts. args { width:number, height:number }; call page.setViewportSize; return snapshotResult. CORE.",
@@ -30,5 +30,5 @@
     "source ~/.nvm/nvm.sh && pnpm run test"
   ],
   "blocked_reason": null,
-  "findings": ""
+  "findings": "Implemented all 8 CORE tools: navigate_back, resize, hover, find, drag, drop, fill_form, evaluate. Each exports inputSchema/makeHandler/definition and is registered in src/tools/index.ts REGISTRY as CORE (no capability); ASSIST_TOOL_NAMES is derived from the registry so it updated automatically. Ref-based tools (hover, drag, fill_form, evaluate-with-target) await getPage() before resolveRef per the click.ts pattern. browser_find searches capture()'s Control[] (name/value/role, case-insensitive substring or regexp) plus visibleText, never re-walking the DOM. browser_fill_form fills text via fill(), checkbox/radio via setChecked(), combobox via selectOption(label->value fallback), all in one call with one snapshotResult. browser_drop handles file uploads via setInputFiles(paths) and MIME data via a synthetic DragEvent carrying a DataTransfer built in-page. IMPORTANT deviation/fix for browser_evaluate: Playwright treats a bare string passed to evaluate() as an EXPRESSION (an arrow-function string evaluates to an uncalled function -> undefined), so the handler wraps page evals as `(${fn})()` and, for element evals, compiles the function in-page and invokes it with the element (Playwright does not pass the element to a string pageFunction). Added test/core-tools.test.ts (14 tests, real headless Chromium + fixtures) with literal outcome assertions, plus fixtures hover.html, drag.html, drop.html, multi-field-form.html. Verified: typecheck + build clean; full suite 77 passed / 2 skipped (up from 63/2 baseline, +14). navigate_back test uses login.html -> checkout.html -> back."
 }

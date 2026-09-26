@@ -2,7 +2,7 @@
   "id": "FEAT-001",
   "type": "chore",
   "description": "Environment baseline + capability-gating foundation. Confirm the existing green baseline, then introduce the capability-gating STRUCTURE the whole feature rests on: a LAYA_CAPS config list, a tool registry table (name -> {capability group, module}) replacing the flat modules array, and the pure shared data-shape types for the new tool groups. No new tools yet beyond wiring; this feature ends green with the existing 9 tools registered via the new registry and default caps = core.",
-  "status": "in_progress",
+  "status": "completed",
   "steps": [
     "Run `source ~/.nvm/nvm.sh && pnpm install` then `pnpm run typecheck`, `pnpm run build`, `pnpm run test` to confirm the baseline is green (currently 58 passed / 2 skipped).",
     "In src/config.ts add capability support: a `Capability` union type ('network' | 'storage' | 'testing' | 'devtools' | 'pdf' | 'vision' | 'config'), a `capabilities: Capability[]` field on LayaBrowserConfig, parse from env var LAYA_CAPS (comma/space list, reuse parseList) with default = [] (core-only, mirroring Playwright's default of core), and a `browserEngine: 'chromium'|'firefox'|'webkit'` field parsed from LAYA_BROWSER (default 'chromium'). Document the new env vars in the file's header comment block alongside the existing ones. Add ConfigOverrides entries too.",

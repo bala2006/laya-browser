@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Multi-field form</title>
+  </head>
+  <body>
+    <h1>Profile</h1>
+    <form id="profile" onsubmit="return false;">
+      <label for="first">First name</label>
+      <input id="first" name="first" type="text" />
+
+      <label for="last">Last name</label>
+      <input id="last" name="last" type="text" />
+
+      <label for="bio">Bio</label>
+      <textarea id="bio" name="bio"></textarea>
+
+      <label for="country">Country</label>
+      <select id="country" name="country">
+        <option value="us">United States</option>
+        <option value="ca">Canada</option>
+        <option value="uk">United Kingdom</option>
+      </select>
+
+      <label><input id="subscribe" type="checkbox" /> Subscribe</label>
+    </form>
+  </body>
+</html>

@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Drag demo</title>
+    <style>
+      #source { width: 120px; height: 60px; background: #cde; }
+      #target { width: 200px; height: 120px; background: #edc; margin-top: 20px; }
+    </style>
+  </head>
+  <body>
+    <h1>Drag demo</h1>
+    <div id="source" draggable="true">Drag me</div>
+    <div id="target">Drop here</div>
+    <p id="status">idle</p>
+
+    <script>
+      const source = document.getElementById("source");
+      const target = document.getElementById("target");
+      const status = document.getElementById("status");
+
+      source.addEventListener("dragstart", (e) => {
+        e.dataTransfer.setData("text/plain", "source");
+      });
+      target.addEventListener("dragover", (e) => {
+        e.preventDefault();
+      });
+      target.addEventListener("drop", (e) => {
+        e.preventDefault();
+        // Move the source element into the target and record the outcome.
+        target.appendChild(source);
+        status.textContent = "dropped";
+      });
+    </script>
+  </body>
+</html>

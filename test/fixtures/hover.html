@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Hover demo</title>
+  </head>
+  <body>
+    <h1>Hover demo</h1>
+    <button id="trigger">Hover me</button>
+    <p id="status">idle</p>
+
+    <script>
+      const trigger = document.getElementById("trigger");
+      const status = document.getElementById("status");
+      trigger.addEventListener("mouseenter", () => {
+        status.textContent = "hovered";
+      });
+      trigger.addEventListener("mouseleave", () => {
+        status.textContent = "left";
+      });
+    </script>
+  </body>
+</html>
