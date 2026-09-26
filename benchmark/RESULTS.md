@@ -1,6 +1,6 @@
 # Benchmark: laya-browser-mcp vs Playwright MCP
 
-Generated 2026-09-26T19:36:16.942Z — 5 runs per task (first discarded as warm-up), median reported. Baseline: the real Playwright MCP (`@playwright/mcp`). All tasks run against identical local loopback HTML fixtures (no live sites) for deterministic, fair results.
+Generated 2026-09-26T19:44:16.240Z — 5 runs per task (first discarded as warm-up), median reported. Baseline: the real Playwright MCP (`@playwright/mcp`). All tasks run against identical local loopback HTML fixtures (no live sites) for deterministic, fair results.
 
 ## Headline
 
@@ -9,28 +9,28 @@ Generated 2026-09-26T19:36:16.942Z — 5 runs per task (first discarded as warm-
 | Tasks applicable | 16 | 13 |
 | Tasks passed | 15 | 13 |
 | Success rate | 94% | 100% |
-| Median latency (applicable tasks) | 210 ms | 950 ms |
+| Median latency (applicable tasks) | 213 ms | 951 ms |
 | Tools exposed | 25 core / 72 all-caps | 24 core |
 
 ## Per-task results
 
 | Task | Category | laya | laya ms | laya calls | Playwright | PW ms | PW calls |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| nav-basic | navigation | PASS | 152 | 2 | PASS | 405 | 2 |
-| search-type-submit | forms | PASS | 198 | 4 | PASS | 976 | 4 |
-| login-fill-form | multi-field-form | PASS | 311 | 9 | PASS | 1102 | 9 |
-| select-option | selection | PASS | 196 | 4 | PASS | 482 | 4 |
-| click-button | click | PASS | 211 | 4 | PASS | 962 | 4 |
-| hover-reveal | hover | PASS | 218 | 4 | PASS | 484 | 4 |
-| wait-for-dynamic | wait-for | PASS | 966 | 3 | PASS | 1225 | 3 |
-| tabs-open | tabs | FAIL | 227 | 5 | PASS | 1017 | 5 |
-| dialog-confirm | dialogs | PASS | 228 | 6 | PASS | 1001 | 6 |
-| console-capture | console | PASS | 149 | 3 | PASS | 450 | 3 |
-| network-capture | network | PASS | 157 | 3 | PASS | 415 | 3 |
-| screenshot | screenshot | PASS | 190 | 2 | PASS | 508 | 2 |
-| storage-cookies | storage | PASS | 218 | 5 | N/A | N/A | N/A |
-| storage-localstorage | storage | PASS | 225 | 5 | N/A | N/A | N/A |
-| evaluate | evaluate | PASS | 155 | 2 | PASS | 950 | 2 |
+| nav-basic | navigation | PASS | 153 | 2 | PASS | 431 | 2 |
+| search-type-submit | forms | PASS | 201 | 4 | PASS | 972 | 4 |
+| login-fill-form | multi-field-form | PASS | 306 | 9 | PASS | 1147 | 9 |
+| select-option | selection | PASS | 194 | 4 | PASS | 457 | 4 |
+| click-button | click | PASS | 217 | 4 | PASS | 1030 | 4 |
+| hover-reveal | hover | PASS | 227 | 4 | PASS | 538 | 4 |
+| wait-for-dynamic | wait-for | PASS | 960 | 3 | PASS | 1216 | 3 |
+| tabs-open | tabs | FAIL | 225 | 5 | PASS | 1032 | 5 |
+| dialog-confirm | dialogs | PASS | 225 | 6 | PASS | 1021 | 6 |
+| console-capture | console | PASS | 149 | 3 | PASS | 463 | 3 |
+| network-capture | network | PASS | 156 | 3 | PASS | 422 | 3 |
+| screenshot | screenshot | PASS | 187 | 2 | PASS | 496 | 2 |
+| storage-cookies | storage | PASS | 227 | 5 | N/A | N/A | N/A |
+| storage-localstorage | storage | PASS | 224 | 5 | N/A | N/A | N/A |
+| evaluate | evaluate | PASS | 154 | 2 | PASS | 951 | 2 |
 | verify-text | verify | PASS | 208 | 5 | N/A | N/A | N/A |
 
 ## Success rate by category
