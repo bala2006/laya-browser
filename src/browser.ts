@@ -169,11 +169,60 @@ export class BrowserSession {
     this.browser = browser;
     this.context = context;
 
+    // A new page can appear in the context WITHOUT the server calling newPage(): the web
+    // page itself may open one via window.open(...), a target="_blank" link, or a
+    // ctrl/cmd+click. Subscribe once so those externally-opened popups become listable and
+    // selectable, mirroring the real Playwright MCP. registerPage() de-dups, so pages the
+    // server opens via context.newPage() (which ALSO fires this event) are tracked exactly
+    // once and never double-counted.
+    context.on("page", (newPage) => {
+      // Externally-opened popups do not steal focus: keep the active tab on the opener,
+      // matching Playwright MCP (the user must select the new tab to focus it).
+      this.registerPage(newPage, { activate: false });
+    });
+
     const page = await context.newPage();
-    this.trackPage(page);
-    this.pages = [page];
-    this.activeIndex = 0;
+    // The "page" event above will have registered `page`; ensure it is the active tab.
+    this.registerPage(page, { activate: true });
     return page;
+  }
+
+  /**
+   * Track a page exactly once: attach listeners and add it to {@link pages}. Called both by
+   * the `context.on("page")` subscription (for externally-opened popups) and directly for
+   * server-opened tabs, so it de-dups on {@link pages} membership to avoid double-tracking.
+   * When `activate` is true the page becomes the active tab; externally-opened popups pass
+   * `activate: false` so focus stays on the opener.
+   */
+  private registerPage(page: Page, { activate }: { activate: boolean }): void {
+    if (!this.pages.includes(page)) {
+      this.trackPage(page);
+      this.pages.push(page);
+      // Remove an externally-closed tab from `pages` so listTabs() stays accurate and the
+      // active index remains in bounds. Teardown of the last page is close()'s job, so we
+      // never drop the final tab here.
+      page.once("close", () => this.handlePageClosed(page));
+    }
+    if (activate) {
+      this.activeIndex = this.pages.indexOf(page);
+    }
+  }
+
+  /**
+   * Drop a page that closed on its own (e.g. the site called window.close()) from
+   * {@link pages}, keeping {@link activeIndex} within bounds. Mirrors the rebound logic in
+   * {@link closeTab}. Never removes the last remaining page (that is {@link close}'s job).
+   */
+  private handlePageClosed(page: Page): void {
+    const index = this.pages.indexOf(page);
+    if (index === -1) return;
+    if (this.pages.length === 1) return;
+    this.pages.splice(index, 1);
+    if (this.activeIndex >= this.pages.length) {
+      this.activeIndex = this.pages.length - 1;
+    } else if (index < this.activeIndex) {
+      this.activeIndex -= 1;
+    }
   }
 
   /**
@@ -345,9 +394,9 @@ export class BrowserSession {
       throw new Error("Cannot open a tab before the browser context exists.");
     }
     const page = await this.context.newPage();
-    this.trackPage(page);
-    this.pages.push(page);
-    this.activeIndex = this.pages.length - 1;
+    // The "page" event fired by newPage() will have registered `page` already; this call
+    // de-dups and just makes it the active tab.
+    this.registerPage(page, { activate: true });
     if (url) {
       await page.goto(url, { waitUntil: "domcontentloaded" });
     }
