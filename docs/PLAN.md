@@ -61,6 +61,84 @@ It is **not** a fully autonomous general web agent.
   escalation/safety/benchmark vitest tests. README with honest positioning + all tool
   schemas; a MIT LICENSE file. A real-weights test/bench gated behind `LAYA_MODEL_DIR`.
 
+- **Phase 6: Full Playwright MCP parity + cross-browser + faster Autopilot (Part 2, DONE).**
+  See the "Phase 6 addendum" below for the tool taxonomy, capability-gating design,
+  cross-browser design, the broadened Autopilot operation model, the per-group sequencing
+  outcome, and the refreshed ledger.
+
+## Phase 6 addendum: full tool parity, capability gating, cross-browser, faster Autopilot
+
+### Tool taxonomy (71 tools, as registered)
+
+The Assist toolset is a superset of Playwright MCP, grouped by capability. Counts are the
+tools actually registered (cross-checked against the `REGISTRY` / `assistToolNames` in
+`src/tools/index.ts`):
+
+- **CORE (24, always on):** navigate, navigate_back, resize, snapshot, click, type, hover,
+  find, drag, drop, fill_form, evaluate, select_option, press_key, wait_for, close, tabs,
+  handle_dialog, file_upload, take_screenshot, console_messages, network_requests,
+  network_request, run_code_unsafe.
+- **STORAGE (17):** cookie list/get/set/delete/clear, localStorage list/get/set/delete/clear,
+  sessionStorage list/get/set/delete/clear, storage_state save, set_storage_state restore.
+- **NETWORK (4):** route, route_list, unroute, network_state_set.
+- **TESTING (5):** generate_locator, verify_element_visible, verify_text_visible,
+  verify_list_visible, verify_value.
+- **PDF (1):** pdf_save (Chromium-only).
+- **VISION (6):** mouse move_xy, click_xy, drag_xy, down, up, wheel.
+- **CONFIG (1):** get_config.
+- **DEVTOOLS (13):** start/stop_tracing and highlight/hide_highlight (real), plus
+  start/stop_video, video_chapter, video_show/hide_actions, start/stop_recording, annotate,
+  resume (honest no-ops).
+
+### Capability-gating design
+
+Registration is table-driven. `REGISTRY: RegisteredTool[]` in `src/tools/index.ts` is a list of
+`{ module, capability? }` entries; the effective `{ name, capability, factory }` is
+`{ module.definition.name, entry.capability, module.makeHandler }`. An entry with no
+`capability` is CORE and always registered; a tagged entry is registered only when its
+capability is in the enabled set. The enabled set comes from `config.capabilities`, parsed once
+in `src/config.ts` from `LAYA_CAPS` (comma/space list, unknown names dropped). The **default is
+core-only** (empty `LAYA_CAPS`), mirroring Playwright MCP, which exposes only its core toolset
+unless capabilities are opted into. `assistToolNames(caps)` returns exactly the names that
+register under a given set and is what the tests assert against, so docs, tests, and runtime all
+agree on one source of truth. `browser_run_code_unsafe` is intentionally CORE (always listed)
+but refuses at call time unless `LAYA_ALLOW_UNSAFE_CODE=true`, so gating a dangerous tool is a
+runtime opt-in, not a hidden capability.
+
+### Cross-browser design
+
+Engine selection is confined to `src/browser.ts`. `BrowserSession` gained an
+`engine: 'chromium' | 'firefox' | 'webkit'` option (default `chromium`) and a `BROWSER_TYPES`
+map over `{ chromium, firefox, webkit }` from `playwright`. `launch()` picks the browser type by
+engine and passes `channel` **only** for chromium (Firefox/WebKit have no channel). Everything
+else (viewport, timeouts, lazy launch, multi-tab, console/network/dialog listeners, routing,
+storage, the ref boundary) is identical across engines. `src/server.ts` threads
+`config.browserEngine` (from `LAYA_BROWSER`) into the session options. Firefox/WebKit are not
+preinstalled and download via `pnpm exec playwright install firefox webkit`.
+
+### Broadened Autopilot operation model
+
+The `Operation`/`Decision` union (`src/types.ts`, pure) is broadened as a **discriminated union
+so illegal (operation, payload) states are unrepresentable**. Added: `HOVER` (targeted),
+`NAVIGATE_BACK` (targetless), `PRESS_KEY` (carries `key`), `FILL_FORM` (carries `fields[]`, no
+single `target`), `SCREENSHOT` (terminal), `VERIFY` (terminal, carries a marker). `execute()` in
+`src/autopilot/loop.ts` stays the only IO function and handles each new operation; the batch
+field-fill logic is factored into `src/tools/fill.ts` and reused by both `browser_fill_form` and
+the `FILL_FORM` batch. The narrow Laya `choice` question keeps a compact operation set (it adds
+only `HOVER`/`NAVIGATE_BACK`); batch/payload operations are emitted by the deterministic layer,
+not the narrow choice, so the rendered state + option list stay within the `head_max_len`
+budget (`RECOMMENDED_MAX_OPTIONS` unchanged at 20).
+
+### Per-group sequencing outcome (the "faster" result)
+
+The deterministic layer prefers **one `FILL_FORM` batch** when two or more goal-mapped editable
+fields are unfilled, then submits, instead of N sequential `TYPE_TEXT` steps. Measured offline
+(StubEngine + real headless Chromium, `pnpm run bench`) on the two-field `login-multi` goal: the
+goal completes in **3 steps** (`FILL_FORM` + `CLICK` + `DONE`) versus **4** for the per-field
+path, a 25% step reduction, with **all steps resolved by the rule layer**
+(rule/laya/stub/llm = 3/0/0/0, zero escalations) in ~80 to 90 ms wall-clock per case. Single-field
+goals keep the `TYPE_TEXT` path.
+
 ## Final architecture (as built)
 
 ```
@@ -104,7 +182,21 @@ unit-testable without a live MCP client.
   - The full offline test suite + `pnpm run bench` are green with the stub (3/3 fixtures
     end-to-end success via the independent final-page check, 100% expected-ops COVERAGE —
     a subsequence match that does not penalize extra/wrong ops, so it is not a precision
-    figure), headless Chromium, no weights.
+    figure), headless Chromium, no weights. Latest run: 134 passed, 3 skipped.
+  - **Full tool parity + capability gating.** All 71 tools register under the expected
+    capabilities and `assistToolNames` matches the tables in the README (cross-checked in
+    tests and at doc time).
+  - **Cross-browser: Firefox VERIFIED, WebKit gated.** Firefox really launches here and drives
+    the sign-in fixture to its literal signed-in outcome (a real launch, not skipped). WebKit
+    is INFERRED/gated: the binary downloads, but launch fails in this sandbox for missing
+    system shared libraries, so the WebKit smoke test probes real launchability once and
+    `describe.skipIf`s itself rather than faking a pass. It runs automatically where WebKit can
+    launch.
+  - **Part 2 batch fill measured offline (with the stub).** The two-field `login-multi` goal
+    completes via a single `FILL_FORM` batch in 3 steps versus 4 for the per-field path (25%
+    fewer), all resolved by the rule layer (rule/laya/stub/llm = 3/0/0/0, zero escalations),
+    ~80 to 90 ms per offline case. Measured with the StubEngine + real Chromium, not real
+    weights.
 - **INFERRED (from docs/patterns, not run here):**
   - Real per-step accuracy (~97.7% clean forms, ~1 step in 5 on real Mind2Web) — from the
     checkpoint's reported figures; not reproduced offline.
@@ -128,13 +220,17 @@ decoupled from the decision layer.
 - **`PageState`** — the compact snapshot handed to Laya: `{ goal, url, title, visibleText,
   controls, recentActions }`. Mirrors the web-agent `jev_ultrafast` input format (goal + title +
   visible text + numbered controls with current values + recent actions), kept within `max_len`.
-- **`Operation`** — `'CLICK' | 'TYPE_TEXT' | 'SELECT' | 'SCROLL_DOWN' | 'WAIT' | 'DONE' |
-  'BLOCKED'`, mirroring `abedinia/laya-web-agent` exactly.
+- **`Operation`** — the base set `'CLICK' | 'TYPE_TEXT' | 'SELECT' | 'SCROLL_DOWN' | 'WAIT' |
+  'DONE' | 'BLOCKED'` mirrors `abedinia/laya-web-agent` exactly. Part 2 broadens it with
+  `'HOVER' | 'NAVIGATE_BACK' | 'PRESS_KEY' | 'FILL_FORM' | 'SCREENSHOT' | 'VERIFY'` so Autopilot
+  can drive the richer toolset faster (see the Phase 6 addendum).
 - **`Decision`** — modelled as a **discriminated union so illegal states are unrepresentable**:
-  a `CLICK`/`TYPE_TEXT`/`SELECT` decision must carry a `target: Ref`; `DONE`/`BLOCKED`/
-  `SCROLL_DOWN`/`WAIT` cannot. Carries `operationConfidence`, `targetConfidence` (both in
-  `[0,1]`, used to decide escalation), an optional `value` (text to type / option to choose),
-  and a `source` of `'laya' | 'rule' | 'llm' | 'stub'` for observability.
+  a `CLICK`/`TYPE_TEXT`/`SELECT`/`HOVER` decision must carry a `target: Ref`; `DONE`/`BLOCKED`/
+  `SCROLL_DOWN`/`WAIT`/`NAVIGATE_BACK`/`SCREENSHOT` carry no target; `PRESS_KEY` carries a
+  `key`; `FILL_FORM` carries a `fields[]` list and no single `target`; `VERIFY` carries a
+  marker. Carries `operationConfidence`, `targetConfidence` (both in `[0,1]`, used to decide
+  escalation), an optional `value` (text to type / option to choose), and a `source` of
+  `'laya' | 'rule' | 'llm' | 'stub'` for observability.
 - **`LayaDecisionEngine`** — `{ decide(state): Promise<Decision>; readonly available: boolean;
   close(): Promise<void> }`. The real engine and the stub are interchangeable behind this
   interface (Boundary Discipline). `available: false` is how Autopilot knows to degrade

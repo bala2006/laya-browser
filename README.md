@@ -52,7 +52,9 @@ The **decision** stage follows the authoritative laya-ultrafast design lesson �
 narrow questions reliably but not the open "what next?"* — as a three-stage pipeline:
 
 1. **Deterministic-rule seed** (`src/autopilot/policy.ts`). High-confidence, transparent
-   rules: (1) fill the values the goal states, mapping each to a field; (2) after typing into
+   rules: (1) fill the values the goal states, mapping each to a field (when two or more fields
+   are unfilled, batch them into ONE `FILL_FORM` step rather than N separate type steps);
+   (2) after typing into
    or opening a control, prefer choosing from the options that just appeared; (3) once every
    goal-stated field is filled, submit — then open/verify the named item.
 2. **Narrow Laya decision** (`src/laya/engine.ts`). When no rule fires, the local model
@@ -135,26 +137,196 @@ constructor options, then handed inward as typed config.
 | `LAYA_MAX_STEPS` | `15` | Autopilot step budget. |
 | `LAYA_ALLOWED_DOMAINS` | — (allow all) | Comma-separated navigation allow-list. |
 | `LAYA_DESTRUCTIVE_GUARD` | `true` | `false` disables the destructive-form guard. |
+| `LAYA_CAPS` | (core-only) | Comma/space-separated tool capability groups to enable (see below). |
+| `LAYA_BROWSER` | `chromium` | Browser engine: `chromium`, `firefox`, or `webkit`. |
+| `LAYA_ALLOW_UNSAFE_CODE` | `false` | `true` lets `browser_run_code_unsafe` actually run raw Playwright snippets. |
+
+### Capability groups (`LAYA_CAPS`)
+
+Like Playwright MCP, the server exposes only its **core** toolset by default. The extra tool
+groups are opt-in through `LAYA_CAPS`, a comma or space separated list. An unset or empty
+`LAYA_CAPS` registers **core-only**; unknown names are ignored.
+
+| Group | What it adds |
+| --- | --- |
+| `network` | Request route-mocking (fulfill/abort) and an offline/online toggle. |
+| `storage` | Cookies, `localStorage`, `sessionStorage`, and save/restore of the storage state. |
+| `testing` | Playwright locator generation and `verify_*` assertions. |
+| `devtools` | Real tracing + element highlight; honest no-ops for the headed-only codegen/video features. |
+| `pdf` | Save the page as a PDF (Chromium-only). |
+| `vision` | Coordinate-based mouse primitives (move/click/drag/down/up/wheel). |
+| `config` | Report the resolved configuration. |
+
+Enable every group at once:
+
+```sh
+LAYA_CAPS=network,storage,testing,devtools,pdf,vision,config
+```
+
+Only the core tools plus the groups you list are registered; everything else is neither listed
+nor callable.
+
+### Cross-browser (`LAYA_BROWSER`)
+
+The browser engine is selected once from `LAYA_BROWSER` (`chromium` by default). Chromium is
+preinstalled; **Firefox and WebKit must be installed first**:
+
+```sh
+pnpm exec playwright install firefox webkit
+```
+
+The Chromium `channel` option (e.g. `chrome`, `msedge`) is applied only for the `chromium`
+engine; Firefox and WebKit have no channel. Everything else (viewport, timeouts, multi-tab,
+console / network / dialog listeners, routing, storage, the ref boundary) is identical across
+engines because engine selection is confined to `src/browser.ts`.
+
+**Tested engines.** Chromium is the default and is exercised by the whole suite. **Firefox was
+smoke-tested** here: it really launches and drives the sign-in fixture to its literal
+signed-in outcome. **WebKit is gated in this sandbox**: the binary downloads, but launch fails
+on this host for lack of system shared libraries, so the WebKit smoke test probes real
+launchability once and `describe.skipIf`s itself rather than faking a pass. It runs
+automatically in an environment where WebKit can launch.
 
 ## Tools
 
-### Assist tools
+The full toolset is a capability-gating registry (`src/tools/index.ts`): a tool with no
+capability is **CORE** and always registered; a tool tagged with a capability is registered
+only when that capability is enabled via `LAYA_CAPS`. The tables below list every tool grouped
+by capability.
 
-| Tool | Input schema | Description |
-| --- | --- | --- |
-| `browser_navigate` | `{ url: string }` | Navigate to a URL and return a snapshot (subject to the domain allow-list). |
-| `browser_snapshot` | `{}` | Capture the current page as a compact `[ref=eN]` snapshot. |
-| `browser_click` | `{ element?: string, target: string, doubleClick?: boolean, button?: "left"\|"right"\|"middle" }` | Click a ref/selector. |
-| `browser_type` | `{ element?: string, target: string, text: string, submit?: boolean, slowly?: boolean }` | Type into a ref/selector; optional Enter/slow typing. |
-| `browser_select_option` | `{ element?: string, target: string, values: string[] }` | Choose option(s) in a select/combobox. |
-| `browser_press_key` | `{ key: string }` | Press a key or combination (e.g. `Enter`, `Control+A`). |
-| `browser_wait_for` | `{ text?: string, textGone?: string, time?: number }` | Wait for text to appear/disappear or a duration. |
-| `browser_close` | `{}` | Close the browser session. |
+### CORE tools (always registered)
 
-`element` is a human-readable description; `target` is either a snapshot ref (`e5`) or a
-unique Playwright selector (CSS / `text=`).
+| Tool | Description |
+| --- | --- |
+| `browser_navigate` | Navigate to a URL and return a snapshot of the resulting page (subject to the domain allow-list). |
+| `browser_navigate_back` | Navigate back to the previous page and return a snapshot. |
+| `browser_resize` | Resize the viewport to a given width and height, then return a snapshot. |
+| `browser_snapshot` | Capture a compact accessibility snapshot; interactive elements carry stable `[ref=eN]` markers. |
+| `browser_click` | Click an element identified by a snapshot ref (`eN`) or a Playwright selector. |
+| `browser_type` | Type text into an editable element (ref `eN` or selector). |
+| `browser_hover` | Hover over an element (ref `eN` or selector). |
+| `browser_find` | Search the current snapshot for controls whose name/value/role matches a substring or regexp, returning each match's ref. |
+| `browser_drag` | Drag one element and drop it onto another. |
+| `browser_drop` | Drop files (`paths`) or MIME data (`data`) onto an element. |
+| `browser_fill_form` | Fill multiple form fields (textbox/checkbox/radio/combobox/slider) in a single call, then return one snapshot. |
+| `browser_evaluate` | Evaluate a JavaScript function on the page or on an element, returning the JSON result. |
+| `browser_select_option` | Select one or more options in a dropdown (ref `eN` or selector). |
+| `browser_press_key` | Press a keyboard key or combination (e.g. `Enter`, `Control+A`). |
+| `browser_wait_for` | Wait for text to appear, text to disappear, or a fixed number of seconds. |
+| `browser_close` | Close the browser session and release all resources. |
+| `browser_tabs` | Manage tabs: list, create (optionally at a URL), close by index, or select by index. |
+| `browser_handle_dialog` | Register how the NEXT JS dialog (alert/confirm/prompt/beforeunload) is handled; call before the triggering action. |
+| `browser_file_upload` | Upload files by setting them on a file input (ref/selector; defaults to the first file input). |
+| `browser_take_screenshot` | Capture a screenshot of the page (or one element) as a PNG/JPEG/WebP image block. |
+| `browser_console_messages` | Return console messages and uncaught page errors captured since session start; optionally errors only. |
+| `browser_network_requests` | List captured network requests, one per line (index, method, status, URL). |
+| `browser_network_request` | Return the full detail of one captured request, selected by `index` or by a `url` substring. |
+| `browser_run_code_unsafe` | DANGEROUS: run a raw Playwright snippet against the page. Disabled unless `LAYA_ALLOW_UNSAFE_CODE=true` (see divergence notes). |
 
-### Autopilot tool
+`element` (where present) is a human-readable description; `target` is either a snapshot ref
+(`e5`) or a unique Playwright selector (CSS / `text=`).
+
+### STORAGE tools (`LAYA_CAPS=storage`)
+
+| Tool | Description |
+| --- | --- |
+| `browser_cookie_list` | List all cookies in the current context. |
+| `browser_cookie_get` | Get the cookie(s) with a given name. |
+| `browser_cookie_set` | Set or overwrite a cookie (omit domain to scope it to the active page). |
+| `browser_cookie_delete` | Delete the cookie(s) with a given name. |
+| `browser_cookie_clear` | Remove all cookies from the context. |
+| `browser_localstorage_list` | List all `localStorage` entries on the active page. |
+| `browser_localstorage_get` | Get a `localStorage` entry by key. |
+| `browser_localstorage_set` | Set a `localStorage` entry. |
+| `browser_localstorage_delete` | Delete a `localStorage` entry by key. |
+| `browser_localstorage_clear` | Clear all `localStorage` entries. |
+| `browser_sessionstorage_list` | List all `sessionStorage` entries on the active page. |
+| `browser_sessionstorage_get` | Get a `sessionStorage` entry by key. |
+| `browser_sessionstorage_set` | Set a `sessionStorage` entry. |
+| `browser_sessionstorage_delete` | Delete a `sessionStorage` entry by key. |
+| `browser_sessionstorage_clear` | Clear all `sessionStorage` entries. |
+| `browser_storage_state` | Save the context's cookies and per-origin `localStorage` to a JSON file (Playwright storageState format). |
+| `browser_set_storage_state` | Restore cookies and per-origin `localStorage` from a storage-state JSON file. |
+
+### NETWORK tools (`LAYA_CAPS=network`)
+
+| Tool | Description |
+| --- | --- |
+| `browser_route` | Mock a request: fulfill matching requests with a canned response, or abort them, by URL pattern. |
+| `browser_route_list` | List the active route-mocking rules. |
+| `browser_unroute` | Remove a route-mocking rule by its URL pattern. |
+| `browser_network_state_set` | Set network connectivity: offline (`true`) or online (`false`). |
+
+### TESTING tools (`LAYA_CAPS=testing`)
+
+| Tool | Description |
+| --- | --- |
+| `browser_generate_locator` | Generate a stable Playwright locator (`getByRole`/`getByText`/`locator`) for an element. |
+| `browser_verify_element_visible` | Assert the element is visible. Returns PASS or FAIL. |
+| `browser_verify_text_visible` | Assert the given text is visible somewhere on the page. Returns PASS or FAIL. |
+| `browser_verify_list_visible` | Assert a list container is visible and, optionally, that each expected item text is visible. Returns PASS or FAIL. |
+| `browser_verify_value` | Assert a form field has an exact value. Returns PASS or FAIL. |
+
+### PDF tools (`LAYA_CAPS=pdf`)
+
+| Tool | Description |
+| --- | --- |
+| `browser_pdf_save` | Save the current page as a PDF (Chromium-only; print-to-PDF path). Returns the output path and byte size. |
+
+### VISION tools (`LAYA_CAPS=vision`)
+
+| Tool | Description |
+| --- | --- |
+| `browser_mouse_move_xy` | Move the mouse to absolute page coordinates. |
+| `browser_mouse_click_xy` | Move to absolute coordinates and click; returns a fresh snapshot. |
+| `browser_mouse_drag_xy` | Drag the mouse from a start coordinate to an end coordinate; returns a fresh snapshot. |
+| `browser_mouse_down` | Press and hold a mouse button at the current cursor position. |
+| `browser_mouse_up` | Release a mouse button at the current cursor position. |
+| `browser_mouse_wheel` | Scroll the page by a wheel delta. |
+
+### CONFIG tools (`LAYA_CAPS=config`)
+
+| Tool | Description |
+| --- | --- |
+| `browser_get_config` | Return the resolved configuration (capabilities, engine, headless, viewport, thresholds, allow-list) as JSON. |
+
+### DEVTOOLS tools (`LAYA_CAPS=devtools`)
+
+| Tool | Description |
+| --- | --- |
+| `browser_start_tracing` | Start Playwright context tracing (screenshots + snapshots + sources). |
+| `browser_stop_tracing` | Stop tracing and write the trace zip (open with `npx playwright show-trace`). |
+| `browser_highlight` | Draw a visible outline around an element via an injected style. |
+| `browser_hide_highlight` | Remove any outlines added by `browser_highlight`. |
+| `browser_start_video` | Honest no-op: video capture needs `recordVideo` set at context creation (see divergence notes). |
+| `browser_stop_video` | Honest no-op: no headless video recording is active (see divergence notes). |
+| `browser_video_chapter` | Honest no-op: video chapters are a live trace-viewer feature (see divergence notes). |
+| `browser_video_show_actions` | Honest no-op: action overlays are rendered by the interactive trace viewer (see divergence notes). |
+| `browser_video_hide_actions` | Honest no-op: action overlays are rendered by the interactive trace viewer (see divergence notes). |
+| `browser_start_recording` | Honest no-op: codegen recording needs the headed inspector (see divergence notes). |
+| `browser_stop_recording` | Honest no-op: codegen recording needs the headed inspector (see divergence notes). |
+| `browser_annotate` | Honest no-op: annotations are a live inspector feature (see divergence notes). |
+| `browser_resume` | Honest no-op: there is no paused inspector to resume headless (see divergence notes). |
+
+### Divergence notes (where behaviour differs from Playwright)
+
+These tools are exposed for parity but behave differently in this headless server. Rather than
+faking success, each is deliberate and documented:
+
+- **`browser_pdf_save` is Chromium-only.** Print-to-PDF is a Chromium capability; on Firefox or
+  WebKit the tool reports that it is unsupported instead of producing a bogus file.
+- **`browser_run_code_unsafe` is gated by a flag.** It is always listed, but refuses with a
+  clear message unless `LAYA_ALLOW_UNSAFE_CODE=true`. Running arbitrary Playwright code against
+  the live page is a deliberate, risky opt-in.
+- **The DEVTOOLS video / recording / annotate / resume tools are honest no-ops.** Tracing
+  (`browser_start_tracing`/`browser_stop_tracing`) and element highlight
+  (`browser_highlight`/`browser_hide_highlight`) are **real**. The video, codegen recording,
+  video chapter/action-overlay, annotate, and resume tools correspond to Playwright's headed
+  codegen/inspector features that have **no faithful headless analogue**, so they return an
+  honest text result explaining what the real interactive feature would do rather than
+  pretending to succeed.
+
+## Autopilot tool
 
 | Tool | Input schema | Description |
 | --- | --- | --- |
@@ -163,6 +335,44 @@ unique Playwright selector (CSS / `text=`).
 **Goal grammar** (small and explicit, matching the structured-form domain the model is strong
 on): field assignments `email is "a@b.com"` / `keyword: laptop` / `search for "laptops"`, and
 success markers `expect "Signed in"` / `see "Order placed"` / `until "Results"`.
+
+### Operation set (broadened to drive the richer toolset faster)
+
+The base operation set mirrors `abedinia/laya-web-agent`
+(`CLICK`, `TYPE_TEXT`, `SELECT`, `SCROLL_DOWN`, `WAIT`, `DONE`, `BLOCKED`). Autopilot broadens
+it so a single step can do more of the work, modelled as a **discriminated union so illegal
+(operation, payload) combinations are unrepresentable** (`src/types.ts`):
+
+| Operation | Shape | What it does |
+| --- | --- | --- |
+| `HOVER` | targeted (`target`) | Move the pointer over a control. |
+| `NAVIGATE_BACK` | targetless | Go back in history. |
+| `PRESS_KEY` | carries `key` | Press a keyboard key such as `Enter`/`Escape`. |
+| `FILL_FORM` | carries `fields[]`, no single `target` | Fill SEVERAL fields in ONE batch step. |
+| `SCREENSHOT` | terminal | Capture the page as a verification/terminal step. |
+| `VERIFY` | terminal, carries a marker | Check an expected marker against the live page. |
+
+So a `FILL_FORM` can never carry a lone `target`, a `PRESS_KEY` can never lack a `key`, and a
+targetless operation can never carry field payloads.
+
+### The "faster" mechanism (measured)
+
+The concrete speed-up is **fewer steps and zero remote round-trips** on multi-field goals. When
+the goal maps to **two or more** editable fields that are still unfilled, the deterministic
+layer (`src/autopilot/policy.ts`, `src/laya/stub.ts`) prefers **one `FILL_FORM` batch step**
+over N sequential `TYPE_TEXT` steps, then submits.
+
+Measured offline (StubEngine + real headless Chromium, `pnpm run bench`) on a two-field
+`login-multi` goal (email + password):
+
+- **3 total steps** (`FILL_FORM` + `CLICK` + `DONE`) versus **4** for the per-field path
+  (`TYPE_TEXT` + `TYPE_TEXT` + `CLICK` + `DONE`) = a **25% step reduction**.
+- **All steps resolved locally by the rule layer** (rule / laya / stub / llm = **3 / 0 / 0 /
+  0**): **zero escalations**, zero remote LLM round-trips.
+- Wall-clock **~80 to 90 ms** per offline case.
+
+The `DONE` decision is still never trusted on its own: after the loop, the **independent
+final-page verification** runs regardless of how the loop ended.
 
 ## Weights
 
