@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-26T19:25:14.603Z",
+  "generatedAt": "2026-09-26T19:36:16.942Z",
   "runs": 5,
   "warmupDiscarded": 1,
   "tasks": [
@@ -11,14 +11,14 @@
         "rate": 1,
         "passed": true,
         "medianMs": 152,
-        "p90Ms": 153,
+        "p90Ms": 155,
         "rt": 2
       },
       "playwright": {
         "rate": 1,
         "passed": true,
-        "medianMs": 398,
-        "p90Ms": 432,
+        "medianMs": 405,
+        "p90Ms": 457,
         "rt": 2
       },
       "autopilot": {
@@ -32,21 +32,21 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 203,
-        "p90Ms": 204,
+        "medianMs": 198,
+        "p90Ms": 201,
         "rt": 4
       },
       "playwright": {
         "rate": 1,
         "passed": true,
-        "medianMs": 978,
-        "p90Ms": 1013,
+        "medianMs": 976,
+        "p90Ms": 1024,
         "rt": 4
       },
       "autopilot": {
         "rate": 1,
         "passed": true,
-        "medianMs": 238,
+        "medianMs": 234,
         "rt": 2
       }
     },
@@ -57,21 +57,21 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 313,
-        "p90Ms": 322,
+        "medianMs": 311,
+        "p90Ms": 317,
         "rt": 9
       },
       "playwright": {
         "rate": 1,
         "passed": true,
-        "medianMs": 1152,
-        "p90Ms": 1194,
+        "medianMs": 1102,
+        "p90Ms": 1131,
         "rt": 9
       },
       "autopilot": {
         "rate": 0,
         "passed": false,
-        "medianMs": 249,
+        "medianMs": 252,
         "rt": 3
       }
     },
@@ -82,15 +82,15 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 193,
-        "p90Ms": 201,
+        "medianMs": 196,
+        "p90Ms": 196,
         "rt": 4
       },
       "playwright": {
         "rate": 1,
         "passed": true,
-        "medianMs": 483,
-        "p90Ms": 540,
+        "medianMs": 482,
+        "p90Ms": 524,
         "rt": 4
       },
       "autopilot": {
@@ -104,15 +104,15 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 221,
-        "p90Ms": 236,
+        "medianMs": 211,
+        "p90Ms": 216,
         "rt": 4
       },
       "playwright": {
         "rate": 1,
         "passed": true,
-        "medianMs": 957,
-        "p90Ms": 980,
+        "medianMs": 962,
+        "p90Ms": 984,
         "rt": 4
       },
       "autopilot": {
@@ -126,15 +126,15 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 223,
-        "p90Ms": 244,
+        "medianMs": 218,
+        "p90Ms": 229,
         "rt": 4
       },
       "playwright": {
         "rate": 1,
         "passed": true,
-        "medianMs": 444,
-        "p90Ms": 456,
+        "medianMs": 484,
+        "p90Ms": 549,
         "rt": 4
       },
       "autopilot": {
@@ -148,14 +148,14 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 965,
-        "p90Ms": 968,
+        "medianMs": 966,
+        "p90Ms": 967,
         "rt": 3
       },
       "playwright": {
         "rate": 1,
         "passed": true,
-        "medianMs": 1197,
+        "medianMs": 1225,
         "p90Ms": 1276,
         "rt": 3
       },
@@ -170,15 +170,15 @@
       "laya": {
         "rate": 0,
         "passed": false,
-        "medianMs": 224,
-        "p90Ms": 228,
+        "medianMs": 227,
+        "p90Ms": 245,
         "rt": 5
       },
       "playwright": {
         "rate": 1,
         "passed": true,
-        "medianMs": 972,
-        "p90Ms": 1018,
+        "medianMs": 1017,
+        "p90Ms": 1062,
         "rt": 5
       },
       "autopilot": {
@@ -192,15 +192,15 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 223,
-        "p90Ms": 236,
+        "medianMs": 228,
+        "p90Ms": 234,
         "rt": 6
       },
       "playwright": {
         "rate": 1,
         "passed": true,
-        "medianMs": 947,
-        "p90Ms": 1035,
+        "medianMs": 1001,
+        "p90Ms": 1048,
         "rt": 6
       },
       "autopilot": {
@@ -214,15 +214,15 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 152,
-        "p90Ms": 154,
+        "medianMs": 149,
+        "p90Ms": 151,
         "rt": 3
       },
       "playwright": {
         "rate": 1,
         "passed": true,
-        "medianMs": 439,
-        "p90Ms": 465,
+        "medianMs": 450,
+        "p90Ms": 507,
         "rt": 3
       },
       "autopilot": {
@@ -236,15 +236,15 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 155,
-        "p90Ms": 156,
+        "medianMs": 157,
+        "p90Ms": 161,
         "rt": 3
       },
       "playwright": {
         "rate": 1,
         "passed": true,
-        "medianMs": 420,
-        "p90Ms": 448,
+        "medianMs": 415,
+        "p90Ms": 462,
         "rt": 3
       },
       "autopilot": {
@@ -258,15 +258,15 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 192,
-        "p90Ms": 196,
+        "medianMs": 190,
+        "p90Ms": 200,
         "rt": 2
       },
       "playwright": {
         "rate": 1,
         "passed": true,
-        "medianMs": 480,
-        "p90Ms": 532,
+        "medianMs": 508,
+        "p90Ms": 563,
         "rt": 2
       },
       "autopilot": {
@@ -280,8 +280,8 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 222,
-        "p90Ms": 224,
+        "medianMs": 218,
+        "p90Ms": 233,
         "rt": 5
       },
       "playwright": {
@@ -299,8 +299,8 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 227,
-        "p90Ms": 232,
+        "medianMs": 225,
+        "p90Ms": 237,
         "rt": 5
       },
       "playwright": {
@@ -318,15 +318,15 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 153,
+        "medianMs": 155,
         "p90Ms": 157,
         "rt": 2
       },
       "playwright": {
         "rate": 1,
         "passed": true,
-        "medianMs": 942,
-        "p90Ms": 976,
+        "medianMs": 950,
+        "p90Ms": 958,
         "rt": 2
       },
       "autopilot": {
@@ -340,8 +340,8 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 212,
-        "p90Ms": 214,
+        "medianMs": 208,
+        "p90Ms": 209,
         "rt": 5
       },
       "playwright": {
@@ -464,67 +464,67 @@
     {
       "id": "nav-basic",
       "layaMs": 152,
-      "pwMs": 398
+      "pwMs": 405
     },
     {
       "id": "search-type-submit",
-      "layaMs": 203,
-      "pwMs": 978
+      "layaMs": 198,
+      "pwMs": 976
     },
     {
       "id": "login-fill-form",
-      "layaMs": 313,
-      "pwMs": 1152
+      "layaMs": 311,
+      "pwMs": 1102
     },
     {
       "id": "select-option",
-      "layaMs": 193,
-      "pwMs": 483
+      "layaMs": 196,
+      "pwMs": 482
     },
     {
       "id": "click-button",
-      "layaMs": 221,
-      "pwMs": 957
+      "layaMs": 211,
+      "pwMs": 962
     },
     {
       "id": "hover-reveal",
-      "layaMs": 223,
-      "pwMs": 444
+      "layaMs": 218,
+      "pwMs": 484
     },
     {
       "id": "wait-for-dynamic",
-      "layaMs": 965,
-      "pwMs": 1197
+      "layaMs": 966,
+      "pwMs": 1225
     },
     {
       "id": "tabs-open",
-      "layaMs": 224,
-      "pwMs": 972
+      "layaMs": 227,
+      "pwMs": 1017
     },
     {
       "id": "dialog-confirm",
-      "layaMs": 223,
-      "pwMs": 947
+      "layaMs": 228,
+      "pwMs": 1001
     },
     {
       "id": "console-capture",
-      "layaMs": 152,
-      "pwMs": 439
+      "layaMs": 149,
+      "pwMs": 450
     },
     {
       "id": "network-capture",
-      "layaMs": 155,
-      "pwMs": 420
+      "layaMs": 157,
+      "pwMs": 415
     },
     {
       "id": "screenshot",
-      "layaMs": 192,
-      "pwMs": 480
+      "layaMs": 190,
+      "pwMs": 508
     },
     {
       "id": "evaluate",
-      "layaMs": 153,
-      "pwMs": 942
+      "layaMs": 155,
+      "pwMs": 950
     }
   ],
   "roundTripTasks": [
@@ -554,19 +554,19 @@
       "applicable": 16,
       "passed": 15,
       "rate": 0.9375,
-      "medianMs": 217
+      "medianMs": 210
     },
     "playwright": {
       "applicable": 13,
       "passed": 13,
       "rate": 1,
-      "medianMs": 942
+      "medianMs": 950
     },
     "layaAutopilot": {
       "applicable": 2,
       "passed": 1,
       "rate": 0.5,
-      "medianMs": 244
+      "medianMs": 243
     }
   },
   "toolCounts": {

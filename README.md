@@ -269,28 +269,28 @@ reproduce steps live in [`benchmark/RESULTS.md`](./benchmark/RESULTS.md).
 | Tasks applicable | 16 | 13 |
 | Tasks passed | 15 | 13 |
 | Success rate | 94% | 100% |
-| Median latency (applicable tasks) | 217 ms | 942 ms |
+| Median latency (applicable tasks) | 210 ms | 950 ms |
 | Tools exposed | 25 core / 72 all-caps | 24 core |
 
 ### Per-task results
 
 | Task | Category | laya | laya ms | laya calls | Playwright | PW ms | PW calls |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| nav-basic | navigation | PASS | 150 | 2 | PASS | 399 | 2 |
-| search-type-submit | forms | PASS | 200 | 4 | PASS | 954 | 4 |
-| login-fill-form | multi-field-form | PASS | 313 | 9 | PASS | 1152 | 9 |
-| select-option | selection | PASS | 193 | 4 | PASS | 483 | 4 |
-| click-button | click | PASS | 225 | 4 | PASS | 974 | 4 |
-| hover-reveal | hover | PASS | 232 | 4 | PASS | 505 | 4 |
-| wait-for-dynamic | wait-for | PASS | 962 | 3 | PASS | 1177 | 3 |
-| tabs-open | tabs | FAIL | 225 | 5 | PASS | 987 | 5 |
-| dialog-confirm | dialogs | PASS | 219 | 6 | PASS | 945 | 6 |
-| console-capture | console | PASS | 148 | 3 | PASS | 427 | 3 |
-| network-capture | network | PASS | 148 | 3 | PASS | 406 | 3 |
-| screenshot | screenshot | PASS | 186 | 2 | PASS | 516 | 2 |
-| storage-cookies | storage | PASS | 215 | 5 | N/A | N/A | N/A |
-| storage-localstorage | storage | PASS | 223 | 5 | N/A | N/A | N/A |
-| evaluate | evaluate | PASS | 155 | 2 | PASS | 909 | 2 |
+| nav-basic | navigation | PASS | 152 | 2 | PASS | 405 | 2 |
+| search-type-submit | forms | PASS | 198 | 4 | PASS | 976 | 4 |
+| login-fill-form | multi-field-form | PASS | 311 | 9 | PASS | 1102 | 9 |
+| select-option | selection | PASS | 196 | 4 | PASS | 482 | 4 |
+| click-button | click | PASS | 211 | 4 | PASS | 962 | 4 |
+| hover-reveal | hover | PASS | 218 | 4 | PASS | 484 | 4 |
+| wait-for-dynamic | wait-for | PASS | 966 | 3 | PASS | 1225 | 3 |
+| tabs-open | tabs | FAIL | 227 | 5 | PASS | 1017 | 5 |
+| dialog-confirm | dialogs | PASS | 228 | 6 | PASS | 1001 | 6 |
+| console-capture | console | PASS | 149 | 3 | PASS | 450 | 3 |
+| network-capture | network | PASS | 157 | 3 | PASS | 415 | 3 |
+| screenshot | screenshot | PASS | 190 | 2 | PASS | 508 | 2 |
+| storage-cookies | storage | PASS | 218 | 5 | N/A | N/A | N/A |
+| storage-localstorage | storage | PASS | 225 | 5 | N/A | N/A | N/A |
+| evaluate | evaluate | PASS | 155 | 2 | PASS | 950 | 2 |
 | verify-text | verify | PASS | 208 | 5 | N/A | N/A | N/A |
 
 _(Absolute milliseconds are environment-specific; only the relative comparison is meaningful.
