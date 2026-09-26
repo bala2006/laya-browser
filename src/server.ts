@@ -61,7 +61,17 @@ const INSTRUCTIONS = [
 /** Construct the MCP server, register Assist + Autopilot tools, and wire the session. */
 export function createServer(options: CreateServerOptions = {}): CreatedServer {
   const config = options.config ?? loadConfig();
-  const session = options.session ?? new BrowserSession(options.browser);
+  // Build the browser session from the typed config so the engine (chromium/firefox/webkit)
+  // is driven by LAYA_BROWSER. An explicit `browser` override (used by callers/tests) takes
+  // precedence over the config-derived defaults; an injected `session` overrides both.
+  const browserOptions: BrowserSessionOptions = {
+    engine: config.browserEngine,
+    headless: config.headless,
+    viewport: config.viewport,
+    ...(config.channel !== undefined ? { channel: config.channel } : {}),
+    ...options.browser,
+  };
+  const session = options.session ?? new BrowserSession(browserOptions);
   const engine = options.engine ?? new UnavailableEngine();
 
   const server = new McpServer(

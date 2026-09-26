@@ -41,12 +41,9 @@ async function main(): Promise<void> {
     );
   }
 
+  // createServer derives the browser session (engine/headless/viewport/channel) from the
+  // typed config, so we hand it the config and let it build the session.
   const { server, session } = createServer({
-    browser: {
-      headless: config.headless,
-      viewport: config.viewport,
-      ...(config.channel ? { channel: config.channel } : {}),
-    },
     engine,
     config,
   });

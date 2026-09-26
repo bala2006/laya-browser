@@ -1,10 +1,12 @@
 /**
  * Playwright browser lifecycle + the ref-resolution boundary.
  *
- * `BrowserSession` owns a single Chromium browser/context and one or more pages (tabs),
- * launched lazily on first use. It is the ONLY place that talks to Playwright's launch
- * API, so the rest of the server depends on this small surface rather than on Playwright
- * directly. All multi-tab, dialog, console, network, and raw-snippet behaviour is confined
+ * `BrowserSession` owns a single browser/context (chromium, firefox, or webkit, selected
+ * by {@link BrowserSessionOptions.engine}) and one or more pages (tabs), launched lazily on
+ * first use. It is the ONLY place that talks to Playwright's launch API, so the rest of the
+ * server depends on this small surface rather than on Playwright directly. Engine selection
+ * is confined here; everything downstream (viewport, timeouts, tabs, listeners, routing,
+ * storage, the ref boundary) is identical across engines. All multi-tab, dialog, console, network, and raw-snippet behaviour is confined
  * here so that Playwright API growth never leaks past this boundary.
  *
  * The ref boundary lives here too: {@link BrowserSession.resolveRef} turns a snapshot
@@ -17,8 +19,11 @@
  */
 import {
   chromium,
+  firefox,
+  webkit,
   type Browser,
   type BrowserContext,
+  type BrowserType,
   type Cookie,
   type Locator,
   type Page,
@@ -31,13 +36,21 @@ import type {
   TabInfo,
 } from "./types.js";
 
+/** The Playwright engine a {@link BrowserSession} drives. */
+export type BrowserEngineName = "chromium" | "firefox" | "webkit";
+
 /** Configuration for a {@link BrowserSession}. */
 export interface BrowserSessionOptions {
+  /** Which Playwright engine to launch. Defaults to `"chromium"`. */
+  engine?: BrowserEngineName;
   /** Launch headless (default) or headed. Defaults to `true`. */
   headless?: boolean;
   /** Viewport size for the page. Defaults to 1280x800. */
   viewport?: { width: number; height: number };
-  /** Optional Chromium channel (e.g. `"chrome"`, `"msedge"`). */
+  /**
+   * Optional Chromium channel (e.g. `"chrome"`, `"msedge"`). Ignored for firefox/webkit,
+   * which have no channel concept.
+   */
   channel?: string;
   /** Per-action timeout in ms (click/type/select waits). Defaults to 10000. */
   actionTimeoutMs?: number;
@@ -53,6 +66,13 @@ export interface DialogDisposition {
   promptText?: string;
 }
 
+/** Map an engine name to its Playwright {@link BrowserType}. */
+const BROWSER_TYPES: Record<BrowserEngineName, BrowserType> = {
+  chromium,
+  firefox,
+  webkit,
+};
+
 /** A snapshot ref looks like `e` followed by one or more digits, e.g. `e12`. */
 const REF_PATTERN = /^e\d+$/;
 
@@ -60,7 +80,7 @@ const REF_PATTERN = /^e\d+$/;
 const RING_BUFFER_LIMIT = 500;
 
 /**
- * A lazily-launched Chromium session: browser -> context -> one or more pages (tabs).
+ * A lazily-launched browser session: browser -> context -> one or more pages (tabs).
  *
  * Nothing is launched until {@link getPage} (or a method that needs the page) is first
  * called, so constructing a session in Assist mode with no work to do is cheap and
@@ -69,6 +89,9 @@ const RING_BUFFER_LIMIT = 500;
 export class BrowserSession {
   private readonly options: Required<Omit<BrowserSessionOptions, "channel">> &
     Pick<BrowserSessionOptions, "channel">;
+
+  /** The Playwright browser type selected by {@link BrowserSessionOptions.engine}. */
+  private readonly browserType: BrowserType;
 
   private browser?: Browser;
   private context?: BrowserContext;
@@ -94,12 +117,14 @@ export class BrowserSession {
 
   constructor(options: BrowserSessionOptions = {}) {
     this.options = {
+      engine: options.engine ?? "chromium",
       headless: options.headless ?? true,
       viewport: options.viewport ?? { width: 1280, height: 800 },
       channel: options.channel,
       actionTimeoutMs: options.actionTimeoutMs ?? 10000,
       navigationTimeoutMs: options.navigationTimeoutMs ?? 20000,
     };
+    this.browserType = BROWSER_TYPES[this.options.engine];
   }
 
   /** Whether a browser has actually been launched yet. */
@@ -126,9 +151,12 @@ export class BrowserSession {
   }
 
   private async launch(): Promise<Page> {
-    const browser = await chromium.launch({
+    // Only Chromium honours a `channel`; firefox/webkit have no channel concept, so we
+    // pass it only for chromium and keep every other launch option identical across engines.
+    const useChannel = this.options.engine === "chromium" && this.options.channel;
+    const browser = await this.browserType.launch({
       headless: this.options.headless,
-      ...(this.options.channel ? { channel: this.options.channel } : {}),
+      ...(useChannel ? { channel: this.options.channel } : {}),
     });
     const context = await browser.newContext({
       viewport: this.options.viewport,
