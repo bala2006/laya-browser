@@ -1,0 +1,33 @@
+{
+  "id": "FEAT-004",
+  "type": "feat",
+  "description": "Confidence-based escalation + deterministic rules + hardening + benchmark harness. Adds the MCP-sampling fallback to the client's own LLM when Laya confidence is below threshold or on BLOCKED, the deterministic-rule policy layer (the authoritative laya-ultrafast lesson), safety guards (domain allow-list, no auto-submit on destructive forms), configuration surface, and an offline benchmark harness over local structured-form fixtures. Then the README and final docs. Depends on FEAT-003.",
+  "status": "pending",
+  "steps": [
+    "src/autopilot/policy.ts: the deterministic-rule layer applied AROUND the narrow Laya decision (per laya-ultrafast's documented lesson that Laya answers narrow questions well but not the open 'what next?'): (1) fill the values the goal states, mapping each to a field via Laya's narrow target choice; (2) after typing into or opening a control, prefer choosing from the options that just appeared; (3) submit, then open/verify the named item. Rules can override or seed the operation when high-confidence-deterministic, and Laya resolves the narrow element/target choices. Keep this as pure functions over PageState + Decision.",
+    "src/autopilot/escalation.ts: when engine.decide returns operationConfidence or targetConfidence below a configurable threshold, or operation==='BLOCKED', escalate via MCP sampling: use the SDK server.createMessage / sampling request to ask the CLIENT's LLM to choose the next step given the compact PageState, then parse its structured answer back into a Decision (source='llm'). Guard/parse the LLM output at this boundary. If the client does not support sampling, fall back to returning BLOCKED with a clear reason (graceful).",
+    "Wire policy + escalation into src/autopilot/loop.ts: order is deterministic-rule seed -> Laya narrow decision -> confidence check -> escalate to sampling if low/blocked. Record the decision source in the transcript.",
+    "src/config.ts: centralize configuration parsed from env + tool args + constructor options (Boundary Discipline: parse once, hand pure typed config inward): headless/headed, viewport, modelDir/LAYA_MODEL_DIR, repo/subfolder/revision, cacheDir/LAYA_CACHE, executionProviders, confidenceThreshold, maxSteps, LAYA_ENGINE (stub|auto), allowedDomains (domain allow-list), and a destructive-form guard flag.",
+    "src/safety.ts: (a) domain allow-list — before browser_navigate and before each Autopilot navigation/submit, reject navigation to a host not on the allow-list when one is configured; (b) destructive-form guard — before an Autopilot auto-submit, detect destructive signals (button/nearby text matching delete|remove|pay|purchase|confirm order|transfer|deactivate, or forms with type=password + a payment-like field) and require explicit confirmation / refuse auto-submit, surfacing the reason. Apply these in the tools and the loop.",
+    "test/benchmark/: a small offline benchmark harness (script + a few local structured-form fixtures under test/fixtures/) that runs laya_run_goal with the StubEngine (and, when LAYA_MODEL_DIR is set, the real engine) over each fixture, records per-step correctness and end-to-end success (independent final-page check), and prints a summary table. Include it as 'pnpm run bench'. Add a vitest test asserting the harness reports success on the clean fixtures with the stub.",
+    "test/safety.test.ts and test/escalation.test.ts: assert the domain allow-list blocks off-list navigation, the destructive-form guard prevents auto-submit on a fixture with a 'Delete account'/'Pay now' button, and that a low-confidence stub decision triggers the sampling path (use a fake sampling callback that returns a canned Decision and assert the loop consumes it). Assert literal expected outcomes.",
+    "README.md: define the product (laya-browser-mcp = superset of Playwright MCP + local sub-100ms Laya decision engine that resolves per-step element/action choices on-device so the client LLM is invoked less). HONEST positioning and limits (fast local decision layer + LLM fallback; strong on clean structured forms ~97.7% per-step, weak on arbitrary real sites ~1 step in 5; NOT a fully autonomous general web agent; DONE is not proof of success). Install/config/usage (pnpm install, playwright install chromium, MCP client config for stdio, env vars). List ALL tools with their schemas (the eight Assist tools + laya_run_goal). Explain Autopilot + escalation (narrow Laya + rules + MCP sampling). Document weights: not bundled, ~1.7GB, Laya.load modelDir/LAYA_MODEL_DIR/LAYA_CACHE, and the web-agent export spike outcome + fallback. LICENSE/attribution: project MIT; Laya weights Apache-2.0 (Convai Innovations); Mind2Web-derived material CC BY 4.0 (Deng et al., NeurIPS 2023, not redistributed). Add a LICENSE file (MIT).",
+    "Update docs/PLAN.md to reflect the final architecture, the verified-vs-inferred-vs-guessed ledger, and known risks."
+  ],
+  "acceptance_criteria": [
+    "When a decision's confidence is below the configured threshold or operation is BLOCKED, the loop escalates via MCP sampling and consumes the returned Decision (verified with a fake sampling callback in tests); if sampling is unsupported it degrades to a clear BLOCKED result.",
+    "The deterministic-rule policy layer seeds/overrides operations per the laya-ultrafast lesson and Laya is used for the narrow target choices.",
+    "Domain allow-list blocks navigation to off-list hosts; the destructive-form guard prevents Autopilot auto-submit on a fixture containing a destructive action, surfacing the reason.",
+    "Configuration (headed/headless, modelDir, thresholds, allowedDomains, engine selection) is parsed in one place and honored.",
+    "pnpm run bench runs the offline benchmark over local fixtures with the stub and reports per-step + end-to-end results; the benchmark test passes.",
+    "README.md documents the product, honest positioning/limits, install/config/usage, ALL tool schemas, Autopilot+escalation, weights handling, and correct MIT / Apache-2.0 / CC BY 4.0 attribution; a MIT LICENSE file exists.",
+    "test/safety.test.ts and test/escalation.test.ts pass offline."
+  ],
+  "verification": [
+    "Run 'pnpm run typecheck' and 'pnpm run build' with zero errors.",
+    "Run 'pnpm run test' and confirm the escalation, safety, and benchmark tests pass offline.",
+    "Run 'pnpm run bench' and confirm it prints a per-fixture summary with success on the clean fixtures using the stub engine."
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}

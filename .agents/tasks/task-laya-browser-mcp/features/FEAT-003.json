@@ -1,0 +1,29 @@
+{
+  "id": "FEAT-003",
+  "type": "feat",
+  "description": "Autopilot mode: the state builder (AX/DOM snapshot -> compact typed PageState), the Laya decision engine wrapping @receptron/laya plus a deterministic stub, and the laya_run_goal loop (snapshot -> state -> decision -> execute -> repeat, handling DONE/BLOCKED). Autopilot degrades gracefully to Assist mode when weights are absent. The decision loop stays pure; Playwright and ONNX are guarded at the edges. Depends on FEAT-001 and FEAT-002.",
+  "status": "pending",
+  "steps": [
+    "src/state-builder.ts: buildState(goal, snapshot, recentActions) -> PageState. Reuse the Control[] + visibleText/title/url from src/snapshot.ts capture. Produce a NUMBERED list of controls with their current values (mirroring abedinia/laya-web-agent's documented input: goal + title + visible text + numbered controls with current values + recent actions). Enforce Laya limits defensively: cap the number of controls offered as options (<~20 recommended), and keep option strings short so they fit head_max_len (192 tokens) — the engine must never hand Laya an over-length option set (guard here, since systemOne throws otherwise).",
+    "src/laya/engine.ts: LayaEngine implementing LayaDecisionEngine using @receptron/laya. load({ modelDir, repo, subfolder, revision, cacheDir, executionProviders }) via Laya.load(...). decide(state) builds two typed questions and calls systemOne: (1) key 'operation' type 'choice' with criteria = the seven operations {CLICK,TYPE_TEXT,SELECT,SCROLL_DOWN,WAIT,DONE,BLOCKED} and instructions describing the goal+state; (2) key 'target' type 'choice' with criteria = the numbered controls (label each option by its index/ref+role+name). Map r.answers.operation.choice + probabilities -> operation + operationConfidence (max prob), r.answers.target.choice + probabilities -> target ref + targetConfidence. Set source='laya'. Respect the input_tokens/limits. Serialize the state deterministically (JSON like Python json.dumps(ensure_ascii=False)) as documented.",
+    "src/laya/stub.ts: StubEngine implementing LayaDecisionEngine with available=true, used in tests and when explicitly selected. Deterministic rules over PageState: if a required goal value is not yet filled -> TYPE_TEXT targeting the matching field with high confidence; if all filled and a submit/search button exists -> CLICK it; if a success marker appears -> DONE; if nothing actionable -> BLOCKED. Mirrors how laya-ultrafast tests with a fake. This makes Autopilot fully testable offline without the 1.7GB weights.",
+    "src/laya/index.ts: a factory createEngine(config) that returns a LayaEngine when a modelDir/weights are available OR a real download is enabled, otherwise returns a null-available engine (available=false) so Autopilot can detect absence and degrade. Selecting the stub is explicit (e.g., LAYA_ENGINE=stub) for tests/dev.",
+    "src/autopilot/loop.ts: runGoal({ goal, session, engine, maxSteps, ... }) implementing the loop: capture snapshot -> buildState -> engine.decide -> if engine not available, return a graceful result telling the client to use Assist tools -> execute the Decision via Playwright (CLICK/TYPE_TEXT/SELECT via resolveRef; SCROLL_DOWN; WAIT) -> append to recentActions -> repeat until DONE/BLOCKED or maxSteps. Keep the pure decision/transition logic separable from the IO so it can be unit-tested with the stub. IMPORTANT: a DONE decision is NOT proof of success — after DONE, run an independent verification of the final page (e.g., check the goal's expected marker) and report verified true/false in the result.",
+    "Register the laya_run_goal tool in the server: input { goal: string, url?: string, maxSteps?: number }. It runs the loop with the configured engine and returns a structured transcript (each step's operation/target/confidence/source) plus the final snapshot and the independent-verification result. If weights are absent, it returns a clear 'weights not present, use Assist tools' message (graceful degradation).",
+    "Tests: test/autopilot.test.ts drives laya_run_goal with the StubEngine against a local multi-step form fixture (test/fixtures/search-form.html and/or a filters fixture), asserting the loop fills fields, submits, reaches DONE, and that the independent verification confirms the expected final-page marker. Assert literal expected values (not that functions were called). Add a real-weights integration test that is skipped unless LAYA_MODEL_DIR is set."
+  ],
+  "acceptance_criteria": [
+    "buildState produces a PageState with a numbered control list carrying current values, and never emits an option set that violates Laya's head_max_len/count limits.",
+    "LayaEngine.decide constructs the two typed 'choice' questions (operation + target) and maps systemOne answers+probabilities into a Decision with confidences; StubEngine produces deterministic Decisions from PageState.",
+    "laya_run_goal runs the full loop against a local form fixture using the StubEngine and reaches DONE, with an independent final-page verification result reported (DONE alone is not treated as success).",
+    "With no weights present, laya_run_goal degrades gracefully and instructs the client to use Assist tools instead of crashing.",
+    "test/autopilot.test.ts passes offline with the stub; the real-weights test is present but skipped when LAYA_MODEL_DIR is unset."
+  ],
+  "verification": [
+    "Run 'pnpm run typecheck' and 'pnpm run build' with zero errors.",
+    "Run 'pnpm run test' and confirm the autopilot loop test passes offline with the stub engine against local fixtures.",
+    "Confirm the real-weights integration test is skipped (not failed) when LAYA_MODEL_DIR is absent."
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}

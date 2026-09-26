@@ -1,0 +1,7 @@
+{
+  "task_id": "task-laya-browser-mcp",
+  "task_description": "Build laya-browser-mcp: a TypeScript/Node 22 MCP server that is a superset of Playwright MCP plus a local sub-100ms Laya on-device decision engine. Assist mode (ref-based accessibility snapshot + familiar browser tools, works standalone with no weights) and Autopilot mode (laya_run_goal loop: snapshot -> typed page state -> local Laya narrow decision + deterministic rules -> Playwright execution -> repeat, with MCP-sampling escalation to the client LLM on low confidence/BLOCKED, degrading gracefully when weights are absent). Verified offline with a stubbed Laya and local HTML fixtures. Honest positioning: strong on structured forms, limited on arbitrary real sites; not a fully autonomous general web agent.",
+  "status": "in_progress",
+  "feature_order": ["FEAT-001", "FEAT-002", "FEAT-003", "FEAT-004"],
+  "blocked_reason": null
+}

@@ -1,0 +1,27 @@
+{
+  "id": "FEAT-002",
+  "type": "feat",
+  "description": "Assist mode: the Playwright-grade MCP server (stdio) that is a SUPERSET of Playwright MCP and works STANDALONE with NO model weights present. Owns the ref/snapshot boundary in-house (no dependency on Playwright's private _snapshotForAI, which was VERIFIED absent in stable 1.63.0). Implements the browser lifecycle, the ref-assigning accessibility snapshot, and the familiar tools. Depends on FEAT-001.",
+  "status": "pending",
+  "steps": [
+    "src/browser.ts: a BrowserSession wrapper around Playwright chromium. Config: headless (default true) / headed, viewport, optional channel. Lazily launches a browser + context + page. Exposes getPage(), close(), and a resolveRef(ref: Ref) helper that returns a Locator via page.locator('[data-laya-ref=\"<ref>\"]') and, if the target string is not a known ref, treats it as a raw Playwright selector (Boundary Discipline: parse/guard the target at this boundary).",
+    "src/snapshot.ts: capture(page) that injects an in-page script (page.evaluate) walking the DOM for interactive + landmark elements (a, button, input, textarea, select, [role], [contenteditable], headings, labels), assigning each a stable data-laya-ref='eN' attribute (monotonic per snapshot), and returning both (a) a compact human-readable YAML-ish snapshot string with lines like '- button \"Search\" [ref=e5]' and current values for inputs, and (b) a Control[] array (role, name, tag, type, value, options for selects, editable/checked/disabled). Also return url, title, and a truncated visibleText. Reuse this single capture for BOTH Assist snapshot output and Autopilot state building. This is the linchpin — make it robust to detached nodes and re-runnable (idempotent ref assignment per capture).",
+    "src/tools/ implement Assist tools registered on the MCP server, each with a zod input schema, mirroring Playwright MCP conventions (params: optional 'element' human-readable description + 'target' ref-or-selector where applicable): browser_navigate({url}); browser_snapshot() -> returns the compact snapshot text; browser_click({element?, target, doubleClick?, button?}); browser_type({element?, target, text, submit?, slowly?}); browser_select_option({element?, target, values:string[]}); browser_press_key({key}); browser_wait_for({text?, textGone?, time?}); browser_close(). Each mutating tool should return a fresh snapshot after acting so the client sees the new state, matching Playwright MCP behavior.",
+    "src/server.ts: build the McpServer from @modelcontextprotocol/sdk, register all Assist tools, and wire tool handlers to a shared BrowserSession. Advertise the 'sampling' capability requirement note in server info (used later by Autopilot). src/index.ts: the bin entry — construct the server, connect a StdioServerTransport, handle SIGINT/SIGTERM to close the browser. No weights are loaded in Assist mode.",
+    "Tests: test/snapshot.test.ts drives a real headless chromium against a local static HTML fixture (test/fixtures/login.html or similar) and asserts the captured Control[] contains the expected refs/roles/names and that resolveRef finds the element. test/assist.test.ts exercises browser_navigate + browser_snapshot + browser_type + browser_click against a fixture served via file:// or an in-process http.Server, asserting literal outcomes (e.g., after clicking submit the URL/hash or a result element changes). Tests must pass with NO model weights present."
+  ],
+  "acceptance_criteria": [
+    "The MCP server starts over stdio (node dist/index.js) and lists all eight Assist tools with correct schemas, with no model weights present.",
+    "browser_snapshot returns a compact text snapshot where interactive elements carry stable [ref=eN] markers.",
+    "A target ref from a snapshot resolves to the correct element and browser_click / browser_type act on it; an unknown target is treated as a raw selector.",
+    "test/snapshot.test.ts and test/assist.test.ts pass against local HTML fixtures in headless chromium with no weights.",
+    "Assist mode has zero dependency on Playwright's private _snapshotForAI / snapshotForAI."
+  ],
+  "verification": [
+    "Run 'pnpm run typecheck' and 'pnpm run build' with zero errors.",
+    "Run 'pnpm run test' and confirm the snapshot and assist tests pass in headless chromium.",
+    "Optionally boot 'node dist/index.js' and send an MCP list-tools request over stdio to confirm the eight Assist tools are advertised."
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}

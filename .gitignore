@@ -1,0 +1,21 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+coverage/
+
+# Laya ONNX weight bundle (large, downloaded/exported at runtime, never committed)
+*.onnx
+*.onnx.data
+model/
+
+# Python spike environment
+.venv/
+
+# Tooling caches
+.cache/
+
+# Logs / OS
+*.log
+.DS_Store
