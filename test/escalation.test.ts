@@ -98,6 +98,44 @@ describe("parseDecision boundary", () => {
       "BLOCKED",
     );
   });
+
+  it("parses a FILL_FORM batch with known refs into a FILL_FORM decision", () => {
+    const d = parseDecision(
+      '{"operation":"FILL_FORM","fields":[{"target":"e1","value":"a@b.com"},{"target":"e2","value":"pw"}]}',
+      refs,
+    );
+    expect(d.operation).toBe("FILL_FORM");
+    expect(d.source).toBe("llm");
+    // Narrow to the FILL_FORM variant so we can assert on its `fields` payload.
+    if (d.operation !== "FILL_FORM") throw new Error("expected FILL_FORM");
+    expect(d.fields).toEqual([
+      { target: "e1", value: "a@b.com" },
+      { target: "e2", value: "pw" },
+    ]);
+    expect(d.target).toBeUndefined();
+  });
+
+  it("blocks a FILL_FORM whose fields reference an unknown ref", () => {
+    expect(
+      parseDecision(
+        '{"operation":"FILL_FORM","fields":[{"target":"e1","value":"a@b.com"},{"target":"e99","value":"pw"}]}',
+        refs,
+      ).operation,
+    ).toBe("BLOCKED");
+  });
+
+  it("blocks a FILL_FORM with an empty or malformed fields list", () => {
+    expect(parseDecision('{"operation":"FILL_FORM","fields":[]}', refs).operation).toBe(
+      "BLOCKED",
+    );
+    expect(parseDecision('{"operation":"FILL_FORM"}', refs).operation).toBe("BLOCKED");
+    expect(
+      parseDecision(
+        '{"operation":"FILL_FORM","fields":[{"target":"e1"}]}',
+        refs,
+      ).operation,
+    ).toBe("BLOCKED");
+  });
 });
 
 describe("escalate() with an injected sampler", () => {

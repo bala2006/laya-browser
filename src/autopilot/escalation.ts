@@ -15,14 +15,22 @@
  * `undefined` and {@link escalate} degrades to a clear BLOCKED decision (never throws).
  */
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { Decision, Operation, PageState, Ref } from "../types.js";
+import type { Decision, FieldFill, Operation, PageState, Ref } from "../types.js";
 import { asRef } from "../types.js";
 import { renderState } from "../state-builder.js";
 
 /** A sampling function: given a prompt, return the client LLM's raw text answer. */
 export type SampleFn = (prompt: string) => Promise<string>;
 
-/** The operations the LLM may return, mirroring the engine's operation set. */
+/**
+ * The operations the LLM may return.
+ *
+ * FILL_FORM is included so a low-confidence MULTI-FIELD goal keeps the batch fast-path
+ * (Part 2's "faster" mechanism) instead of degrading to N per-field TYPE_TEXT round-trips.
+ * SCREENSHOT and VERIFY are deliberately excluded: they are terminal/verification ops that
+ * end a run, not steps that progress a goal, so the fallback planner has no reason to emit
+ * them and the loop reaches them through its own terminal handling.
+ */
 const OPERATIONS: readonly Operation[] = [
   "CLICK",
   "TYPE_TEXT",
@@ -32,6 +40,7 @@ const OPERATIONS: readonly Operation[] = [
   "WAIT",
   "NAVIGATE_BACK",
   "PRESS_KEY",
+  "FILL_FORM",
   "DONE",
   "BLOCKED",
 ];
@@ -55,8 +64,9 @@ export function buildEscalationPrompt(state: PageState): string {
     renderState(state),
     "",
     "Respond with ONLY a JSON object on one line, no prose, of the form:",
-    '{"operation":"CLICK|TYPE_TEXT|SELECT|HOVER|SCROLL_DOWN|WAIT|NAVIGATE_BACK|PRESS_KEY|DONE|BLOCKED","target":"<ref like e5, required for CLICK/TYPE_TEXT/SELECT/HOVER>","value":"<text to type or option to select, optional>","key":"<key like Enter/Escape, required for PRESS_KEY>"}',
-    "Use a target ref that appears in the CONTROLS list above. If nothing can progress the goal, return BLOCKED.",
+    '{"operation":"CLICK|TYPE_TEXT|SELECT|HOVER|SCROLL_DOWN|WAIT|NAVIGATE_BACK|PRESS_KEY|FILL_FORM|DONE|BLOCKED","target":"<ref like e5, required for CLICK/TYPE_TEXT/SELECT/HOVER>","value":"<text to type or option to select, optional>","key":"<key like Enter/Escape, required for PRESS_KEY>","fields":[{"target":"<ref>","value":"<text>"}]}',
+    "Prefer a single FILL_FORM with a `fields` list when several fields must be filled to progress the goal; otherwise use one targeted step.",
+    "Use a target ref (in `target` or every `fields[].target`) that appears in the CONTROLS list above. If nothing can progress the goal, return BLOCKED.",
   ].join("\n");
 }
 
@@ -134,6 +144,30 @@ export function parseDecision(raw: string, knownRefs: ReadonlySet<string>): Deci
       operationConfidence: LLM_CONFIDENCE,
       targetConfidence: 1,
       key,
+      source: "llm",
+    };
+  }
+
+  // FILL_FORM: guard the required `fields` batch payload strictly at this untrusted
+  // boundary. Every entry must be { target: <known ref>, value: string }; an empty list, a
+  // non-array, a malformed entry, or ANY unknown ref collapses to a well-formed BLOCKED so
+  // an illegal FILL_FORM is never constructed.
+  if (operation === "FILL_FORM") {
+    if (!Array.isArray(obj.fields) || obj.fields.length === 0) return blocked();
+    const fields: FieldFill[] = [];
+    for (const entry of obj.fields) {
+      if (typeof entry !== "object" || entry === null) return blocked();
+      const rec = entry as Record<string, unknown>;
+      const target = typeof rec.target === "string" ? rec.target.trim() : "";
+      if (!target || !knownRefs.has(target)) return blocked();
+      if (typeof rec.value !== "string") return blocked();
+      fields.push({ target: asRef(target) as Ref, value: rec.value });
+    }
+    return {
+      operation: "FILL_FORM",
+      operationConfidence: LLM_CONFIDENCE,
+      targetConfidence: LLM_CONFIDENCE,
+      fields,
       source: "llm",
     };
   }

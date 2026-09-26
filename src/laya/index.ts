@@ -1,13 +1,15 @@
 /**
  * Engine factory + the graceful "unavailable" engine.
  *
- * {@link createEngine} chooses a {@link LayaDecisionEngine} from config/env so Autopilot
- * can detect absence and degrade:
+ * {@link createEngine} chooses a {@link LayaDecisionEngine} from the RESOLVED config so
+ * Autopilot can detect absence and degrade. Settings come from the typed config parsed in
+ * src/config.ts (the single source of truth); this factory does NOT read process.env for
+ * them. The `env` field is a test-only injection point (see {@link CreateEngineConfig}).
  *
- *   - `LAYA_ENGINE=stub` (or `engine: "stub"`)  -> {@link StubEngine} (explicit, tests/dev)
- *   - a `modelDir` / `LAYA_MODEL_DIR` is present -> load the real {@link LayaEngine}
- *   - `download: true`                           -> load {@link LayaEngine} (may fetch weights)
- *   - otherwise                                  -> {@link UnavailableEngine} (available=false)
+ *   - `engine: "stub"`             -> {@link StubEngine} (explicit, tests/dev)
+ *   - a `modelDir` is present      -> load the real {@link LayaEngine}
+ *   - `download: true`             -> load {@link LayaEngine} (may fetch weights)
+ *   - otherwise                    -> {@link UnavailableEngine} (available=false)
  *
  * ONNX is only touched on the real-engine path, and even then only inside `LayaEngine.load`;
  * if loading throws (missing/corrupt bundle, no onnxruntime binary) we fall back to the
@@ -26,7 +28,13 @@ export interface CreateEngineConfig extends LayaEngineOptions {
   engine?: EngineKind;
   /** Allow the real engine to DOWNLOAD weights when no local modelDir is present. */
   download?: boolean;
-  /** Environment map to read `LAYA_ENGINE` / `LAYA_MODEL_DIR` from. Defaults to process.env. */
+  /**
+   * Optional TEST-ONLY environment injection for `LAYA_ENGINE` / `LAYA_MODEL_DIR` /
+   * `LAYA_CACHE`. Defaults to an EMPTY map: in production these settings are parsed ONCE in
+   * src/config.ts and passed inward explicitly (`engine`, `modelDir`, `cacheDir`), so
+   * createEngine never reads `process.env` itself. Tests may still inject a fake env map to
+   * exercise the same resolution without touching the real environment.
+   */
   env?: Record<string, string | undefined>;
 }
 
@@ -58,7 +66,10 @@ export class UnavailableEngine implements LayaDecisionEngine {
 export async function createEngine(
   config: CreateEngineConfig = {},
 ): Promise<LayaDecisionEngine> {
-  const env = config.env ?? process.env;
+  // `env` is a TEST-ONLY injection point and defaults to EMPTY, NOT process.env: settings
+  // env vars are parsed once in src/config.ts and handed inward via config.engine /
+  // config.modelDir / config.cacheDir, so this factory never reads process.env itself.
+  const env = config.env ?? {};
   const kind: EngineKind =
     config.engine ?? (env.LAYA_ENGINE === "stub" ? "stub" : "auto");
 
