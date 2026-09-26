@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Dynamic result</title>
+  </head>
+  <body>
+    <h1>Dynamic result</h1>
+    <button id="start" type="button" onclick="start()">Start job</button>
+    <div id="result" aria-live="polite"></div>
+    <script>
+      function start() {
+        document.getElementById("result").textContent = "Working...";
+        setTimeout(function () {
+          document.getElementById("result").textContent = "Job complete";
+        }, 800);
+      }
+      // Also start automatically so a plain wait_for has something to await.
+      start();
+    </script>
+  </body>
+</html>

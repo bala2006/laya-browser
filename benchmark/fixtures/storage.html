@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Storage</title>
+  </head>
+  <body>
+    <h1>Storage</h1>
+    <button id="seed" type="button" onclick="seed()">Seed storage</button>
+    <div id="status" aria-live="polite"></div>
+    <script>
+      function seed() {
+        localStorage.setItem("laya-theme", "dark");
+        document.cookie = "laya-session=abc123; path=/";
+        document.getElementById("status").textContent = "Storage seeded";
+      }
+    </script>
+  </body>
+</html>

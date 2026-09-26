@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Dialogs</title>
+  </head>
+  <body>
+    <h1>Dialogs</h1>
+    <button id="confirm" type="button" onclick="ask()">Delete item</button>
+    <div id="status" aria-live="polite"></div>
+    <script>
+      function ask() {
+        var ok = confirm("Really delete?");
+        document.getElementById("status").textContent = ok ? "Item deleted" : "Cancelled";
+      }
+    </script>
+  </body>
+</html>

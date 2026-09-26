@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Network fetch</title>
+  </head>
+  <body>
+    <h1>Network fetch</h1>
+    <button id="load" type="button" onclick="load()">Load data</button>
+    <div id="out" aria-live="polite"></div>
+    <script>
+      function load() {
+        fetch("/api/data.json")
+          .then(function (r) {
+            return r.json();
+          })
+          .then(function (data) {
+            document.getElementById("out").textContent = "Loaded " + data.items.length + " items";
+          });
+      }
+      // Auto-load once so a passive network observation still has a request to see.
+      load();
+    </script>
+  </body>
+</html>

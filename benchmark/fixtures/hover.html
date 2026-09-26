@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Hover reveal</title>
+    <style>
+      #panel { display: none; }
+      #menu:hover + #panel { display: block; }
+    </style>
+  </head>
+  <body>
+    <h1>Hover reveal</h1>
+    <div id="menu" tabindex="0" onmouseover="reveal()">Hover me</div>
+    <div id="panel">Revealed menu content</div>
+    <script>
+      function reveal() {
+        document.getElementById("panel").style.display = "block";
+        document.getElementById("panel").textContent = "Revealed menu content";
+      }
+    </script>
+  </body>
+</html>

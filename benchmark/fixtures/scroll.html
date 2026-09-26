@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Scroll reveal</title>
+  </head>
+  <body>
+    <h1>Scroll reveal</h1>
+    <div style="height: 2000px">Scroll down to load the footer marker.</div>
+    <button id="reveal" type="button" onclick="show()">Reveal footer</button>
+    <div id="footer" aria-live="polite"></div>
+    <script>
+      function show() {
+        document.getElementById("footer").textContent = "Footer marker visible";
+      }
+    </script>
+  </body>
+</html>

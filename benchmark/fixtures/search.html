@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Search</title>
+  </head>
+  <body>
+    <h1>Search</h1>
+    <form onsubmit="run(); return false;">
+      <input id="q" name="q" type="search" placeholder="Search" aria-label="Search" />
+      <button id="go" type="submit">Go</button>
+    </form>
+    <div id="results" aria-live="polite"></div>
+    <script>
+      function run() {
+        var q = document.getElementById("q").value.trim();
+        document.getElementById("results").textContent = q
+          ? "Showing results for " + q
+          : "Enter a term";
+        if (q) document.title = "Results for " + q;
+      }
+    </script>
+  </body>
+</html>

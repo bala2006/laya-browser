@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Tabs opener</title>
+  </head>
+  <body>
+    <h1>Open a second tab</h1>
+    <button id="open" type="button" onclick="openTab()">Open report</button>
+    <div id="status" aria-live="polite"></div>
+    <script>
+      function openTab() {
+        window.open("/report.html", "_blank");
+        document.getElementById("status").textContent = "Opened report tab";
+      }
+    </script>
+  </body>
+</html>

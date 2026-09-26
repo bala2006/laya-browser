@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Sign in</title>
+  </head>
+  <body>
+    <h1>Sign in</h1>
+    <form onsubmit="return false;">
+      <label for="email">Email</label>
+      <input id="email" name="email" type="email" placeholder="Email" />
+
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" placeholder="Password" />
+
+      <label for="role">Role</label>
+      <select id="role" name="role">
+        <option value="">Choose a role</option>
+        <option value="user">user</option>
+        <option value="admin">admin</option>
+        <option value="auditor">auditor</option>
+      </select>
+
+      <label><input id="remember" name="remember" type="checkbox" /> Remember me</label>
+
+      <button id="submit" type="submit" onclick="signIn()">Sign in</button>
+    </form>
+    <div id="status" aria-live="polite"></div>
+    <script>
+      function signIn() {
+        var email = document.getElementById("email").value.trim();
+        var role = document.getElementById("role").value;
+        var remember = document.getElementById("remember").checked;
+        if (!email) {
+          document.getElementById("status").textContent = "Email is required";
+          return;
+        }
+        var suffix = role ? " as " + role : "";
+        var mem = remember ? " (remembered)" : "";
+        document.getElementById("status").textContent = "Signed in " + email + suffix + mem;
+        document.title = "Signed in";
+      }
+    </script>
+  </body>
+</html>
