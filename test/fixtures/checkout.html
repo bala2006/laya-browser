@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Checkout</title>
+  </head>
+  <body>
+    <h1>Checkout</h1>
+    <form id="checkout" onsubmit="return false;">
+      <label for="card">Card number</label>
+      <input id="card" name="card number" type="text" placeholder="4111 1111 1111 1111" />
+
+      <button id="pay" type="button" onclick="pay()">Pay now</button>
+    </form>
+
+    <div id="status" aria-live="polite">Cart pending</div>
+
+    <script>
+      function pay() {
+        document.getElementById("status").textContent = "Payment complete";
+        document.title = "Paid";
+      }
+    </script>
+  </body>
+</html>

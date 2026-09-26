@@ -48,10 +48,69 @@ It is **not** a fully autonomous general web agent.
   Degrades gracefully when weights are absent. A DONE decision is not proof of success — the
   loop verifies the final page independently.
 
-- **Phase 5 — Offline verification + docs.**
-  vitest behavior tests using the stubbed Laya and local static HTML form fixtures
-  (`test/fixtures/*.html`). A real-weights test gated behind `LAYA_MODEL_DIR` and skipped when
-  absent. README with honest positioning and license/attribution notes.
+- **Phase 5 — Escalation + rules + hardening + benchmark + docs (DONE).**
+  `src/autopilot/policy.ts` (deterministic-rule layer around the narrow Laya decision:
+  fill goal-stated values -> choose from options that appeared -> submit),
+  `src/autopilot/escalation.ts` (MCP-sampling escalation to the client LLM via
+  `server.server.createMessage`, parsed back into a `Decision` with `source='llm'`, graceful
+  `BLOCKED` when the client lacks sampling), the decision pipeline wired into
+  `src/autopilot/loop.ts` (rule seed -> Laya narrow -> confidence check -> escalate),
+  `src/config.ts` (single parse point for env + args + options), `src/safety.ts` (domain
+  allow-list + destructive-form guard, applied in the tools and the loop), an offline
+  benchmark harness (`test/benchmark/`, `pnpm run bench`) over local fixtures, and the
+  escalation/safety/benchmark vitest tests. README with honest positioning + all tool
+  schemas; a MIT LICENSE file. A real-weights test/bench gated behind `LAYA_MODEL_DIR`.
+
+## Final architecture (as built)
+
+```
+MCP client (stdio)
+  |
+  v
+src/index.ts (bin) --loadConfig(env)--> src/config.ts  (parse ONCE, typed config inward)
+  |
+  v
+src/server.ts (McpServer)
+  |-- registerAssistTools --> src/tools/*  (navigate/snapshot/click/type/select/press_key/wait_for/close)
+  |                              |-- src/browser.ts (Playwright lifecycle + resolveRef boundary)
+  |                              |-- src/snapshot.ts (in-page DOM walk -> [ref=eN] + Control[])
+  |                              '-- src/safety.ts   (browser_navigate: domain allow-list)
+  '-- laya_run_goal --> src/tools/run_goal.ts --> src/autopilot/loop.ts (runGoal)
+                                                     |-- src/state-builder.ts (Snapshot -> PageState)
+                                                     |-- 1. src/autopilot/policy.ts   (deterministic rule seed)
+                                                     |-- 2. src/laya/{engine,stub,index}.ts (narrow Laya decision)
+                                                     |-- 3. src/autopilot/escalation.ts (MCP sampling on low conf/BLOCKED)
+                                                     |-- src/safety.ts (allow-list + destructive-form guard)
+                                                     '-- verifyFinalPage (INDEPENDENT; DONE != success)
+```
+
+Boundary discipline: `src/types.ts` is pure; config is parsed once in `src/config.ts`;
+Playwright is confined to `src/browser.ts`/`src/snapshot.ts`; ONNX/`@receptron/laya` is
+confined to `src/laya/engine.ts`; escalation depends only on an injected `SampleFn`, so it is
+unit-testable without a live MCP client.
+
+## Verified / inferred / guessed ledger
+
+- **VERIFIED (ran it):**
+  - `@receptron/laya@0.1.2` API (`Laya.load` + `systemOne` narrow `choice` questions),
+    `head_max_len` 192 throw behavior, and the web-agent ONNX export + tokenizer-rename step
+    (logit parity `max |dlogits| = 2.48e-05`).
+  - Stable `playwright-core@1.63.0` has no public `_snapshotForAI`/`snapshotForAI`; we own the
+    ref boundary via our own DOM walk.
+  - `@modelcontextprotocol/sdk@1.30.1` sampling: `McpServer.server.createMessage(params)`
+    (result `content` is a single block with `.type`/`.text`) and
+    `McpServer.server.getClientCapabilities()?.sampling` for capability detection — confirmed
+    against the installed SDK type declarations.
+  - The full offline test suite + `pnpm run bench` are green with the stub (3/3 fixtures,
+    100% per-step), headless Chromium, no weights.
+- **INFERRED (from docs/patterns, not run here):**
+  - Real per-step accuracy (~97.7% clean forms, ~1 step in 5 on real Mind2Web) — from the
+    checkpoint's reported figures; not reproduced offline.
+  - The bundle size (~1.7 GB) and ~2 GB RAM footprint.
+- **GUESSED (reasonable defaults, tunable):**
+  - The default confidence threshold `0.6`, default `maxSteps` `15`, the destructive-keyword
+    set, and the goal-grammar surface. All are configurable / centralized so they can change
+    without touching the decision core.
 
 ## Core data shapes (designed first — `src/types.ts`)
 
@@ -152,6 +211,16 @@ without the export step.
 - **No Playwright private snapshot API.** Stable `playwright-core@1.63.0` has no public
   `_snapshotForAI`/`snapshotForAI`; we own the ref boundary via our own DOM walk, so an upstream
   Playwright change cannot silently break refs.
+- **Client sampling support is optional.** Autopilot's low-confidence escalation needs the
+  client to advertise the `sampling` capability. When absent, escalation degrades to a clear
+  `BLOCKED` rather than failing, but the loop is then only as good as the deterministic rules +
+  local model on that step.
+- **Goal-grammar coverage.** The deterministic goal parser handles the explicit structured
+  grammar (assignments + `expect`/`see`/`until` markers). Unquoted values stop at punctuation,
+  so values containing dots (e.g. emails) should be quoted; the benchmark and docs reflect this.
+- **Safety heuristics are keyword-based.** The destructive-form guard matches a keyword set and
+  the password+payment combination. It can miss unusual phrasings or over-trigger on benign
+  text; it is a guard rail requiring explicit confirmation, not a proof, and is configurable.
 
 ## Licensing / attribution
 

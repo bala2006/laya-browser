@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Account settings</title>
+  </head>
+  <body>
+    <h1>Account settings</h1>
+    <form id="danger" onsubmit="return false;">
+      <label for="confirm">Type your username to confirm</label>
+      <input id="confirm" name="confirm" type="text" placeholder="username" />
+
+      <button id="delete" type="button" onclick="doDelete()">Delete account</button>
+    </form>
+
+    <div id="status" aria-live="polite">Account active</div>
+
+    <script>
+      function doDelete() {
+        document.getElementById("status").textContent = "Account deleted";
+        document.title = "Account deleted";
+      }
+    </script>
+  </body>
+</html>

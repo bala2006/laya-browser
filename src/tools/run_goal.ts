@@ -12,12 +12,24 @@
 import { z } from "zod";
 import { textResult, type ToolContext, type ToolResult } from "./shared.js";
 import { runGoal, type RunResult } from "../autopilot/loop.js";
+import type { SampleFn } from "../autopilot/escalation.js";
 import type { LayaDecisionEngine } from "../types.js";
 
 /** Extra context the Autopilot tool needs beyond the shared browser session. */
 export interface RunGoalContext extends ToolContext {
   /** The configured decision engine (real Laya, stub, or unavailable). */
   engine: LayaDecisionEngine;
+  /** Confidence threshold below which the loop escalates to the client LLM. */
+  confidenceThreshold?: number;
+  /**
+   * Sampling callback for confidence escalation. When omitted, escalation degrades to a
+   * clear BLOCKED result (the client lacks MCP sampling support).
+   */
+  sample?: SampleFn;
+  /** Domain allow-list applied to the initial navigation. Empty = allow all. */
+  allowedDomains?: string[];
+  /** Whether the destructive-form guard is active. Defaults to true. */
+  destructiveFormGuard?: boolean;
 }
 
 export const inputSchema = {
@@ -63,8 +75,9 @@ export function renderRunResult(result: RunResult): string {
       const conf = `op=${s.operationConfidence.toFixed(2)} tgt=${s.targetConfidence.toFixed(2)}`;
       const val = s.value !== undefined ? ` value=${JSON.stringify(s.value)}` : "";
       const tgt = s.target ? ` target=${s.target}` : "";
+      const note = s.note ? ` (${s.note})` : "";
       lines.push(
-        `  ${s.step}. ${s.operation}${tgt}${val} [${s.source}, ${conf}] — ${s.detail}`,
+        `  ${s.step}. ${s.operation}${tgt}${val} [${s.source}, ${conf}] - ${s.detail}${note}`,
       );
     }
   }
@@ -85,6 +98,16 @@ export function makeHandler(ctx: RunGoalContext) {
         engine: ctx.engine,
         ...(args.url !== undefined ? { url: args.url } : {}),
         ...(args.maxSteps !== undefined ? { maxSteps: args.maxSteps } : {}),
+        ...(ctx.confidenceThreshold !== undefined
+          ? { confidenceThreshold: ctx.confidenceThreshold }
+          : {}),
+        ...(ctx.sample !== undefined ? { sample: ctx.sample } : {}),
+        ...(ctx.allowedDomains !== undefined
+          ? { allowedDomains: ctx.allowedDomains }
+          : {}),
+        ...(ctx.destructiveFormGuard !== undefined
+          ? { destructiveFormGuard: ctx.destructiveFormGuard }
+          : {}),
       });
       const isError = result.outcome === "error";
       return textResult(renderRunResult(result), isError);

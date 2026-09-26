@@ -180,8 +180,11 @@ describe("Autopilot loop with the StubEngine (real headless chromium, no weights
       },
       async close() {},
     };
+    // Use a goal with NO field assignment so the deterministic policy layer does not seed
+    // a step; the rogue engine's DONE is then what the loop consumes. (DONE must still be
+    // independently verified against the final page, which never ran the search.)
     const result = await runGoal({
-      goal: 'search for "laptops" and expect "Showing results for laptops"',
+      goal: 'reach the results page and expect "Showing results for laptops"',
       session,
       engine: doneEngine,
       url: fixtures.url("search-form.html"),

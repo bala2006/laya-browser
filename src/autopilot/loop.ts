@@ -25,6 +25,10 @@ import type { BrowserSession } from "../browser.js";
 import { capture, type Snapshot } from "../snapshot.js";
 import { buildState, type BuildStateOptions } from "../state-builder.js";
 import { fieldValueFromGoal, goalSuccessMarkers } from "../laya/goal.js";
+import { policySeed, refineWithGoalValue } from "./policy.js";
+import { escalate, type SampleFn } from "./escalation.js";
+import { checkDestructiveSubmit, checkDomainAllowed } from "../safety.js";
+import { DEFAULT_CONFIDENCE_THRESHOLD, DEFAULT_MAX_STEPS } from "../config.js";
 import type { Control, Decision, LayaDecisionEngine, PageState } from "../types.js";
 
 /** How the goal run ended. */
@@ -48,6 +52,8 @@ export interface StepRecord {
   value?: string;
   /** A short human-readable summary of what was executed. */
   detail: string;
+  /** Optional note explaining how the decision was reached (rule seed / escalation). */
+  note?: string;
 }
 
 /** Independent, post-hoc verification of the final page. */
@@ -96,9 +102,22 @@ export interface RunGoalOptions {
   scrollBy?: number;
   /** State-builder clamping options. */
   stateOptions?: BuildStateOptions;
+  /**
+   * Escalate to the client LLM when operation OR target confidence is below this value, or
+   * on BLOCKED. In `[0, 1]`. Defaults to {@link DEFAULT_CONFIDENCE_THRESHOLD}.
+   */
+  confidenceThreshold?: number;
+  /**
+   * Sampling callback used for confidence escalation. When omitted, escalation degrades to
+   * a clear BLOCKED result (the client lacks sampling). Injectable for tests.
+   */
+  sample?: SampleFn;
+  /** Domain allow-list. When non-empty, restricts navigation/submits to these hosts. */
+  allowedDomains?: string[];
+  /** Whether the destructive-form guard is active. Defaults to true. */
+  destructiveFormGuard?: boolean;
 }
 
-const DEFAULT_MAX_STEPS = 15;
 const DEFAULT_WAIT_MS = 500;
 
 /** The Assist-mode hint returned when Autopilot cannot run (no weights). */
@@ -227,6 +246,10 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
     waitMs = DEFAULT_WAIT_MS,
     scrollBy,
     stateOptions,
+    confidenceThreshold = DEFAULT_CONFIDENCE_THRESHOLD,
+    sample,
+    allowedDomains = [],
+    destructiveFormGuard = true,
   } = options;
 
   // Graceful degradation when no weights are available.
@@ -248,6 +271,23 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
 
   const page = await session.getPage();
   if (url) {
+    // Domain allow-list guard: refuse to navigate off-list when a list is configured.
+    const verdict = checkDomainAllowed(url, allowedDomains);
+    if (!verdict.allowed) {
+      return {
+        goal,
+        outcome: "blocked",
+        degraded: false,
+        transcript: [],
+        verification: {
+          checked: false,
+          verified: false,
+          markers: [],
+          detail: "Blocked before navigation by the domain allow-list.",
+        },
+        message: verdict.reason ?? "Navigation blocked by the domain allow-list.",
+      };
+    }
     await page.goto(url, { waitUntil: "domcontentloaded" });
   }
 
@@ -262,7 +302,32 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
       lastSnapshot = snapshot;
       const state = buildState(goal, snapshot, recentActions, stateOptions);
 
-      const decision = await engine.decide(state);
+      // Decision pipeline (order matters):
+      //   1. deterministic-rule SEED — high-confidence rules per the laya-ultrafast lesson;
+      //   2. Laya NARROW decision — the engine resolves the element/operation otherwise;
+      //   3. confidence CHECK — escalate to the client LLM (MCP sampling) when low/BLOCKED.
+      let note: string | undefined;
+
+      const seed = policySeed(state);
+      let decision: Decision;
+      if (seed) {
+        decision = seed.decision;
+        note = `rule: ${seed.reason}`;
+      } else {
+        // Laya answers the narrow question; fill goal-stated values it did not supply.
+        decision = refineWithGoalValue(await engine.decide(state), state);
+      }
+
+      // Confidence check: escalate on low confidence or BLOCKED (never for rule seeds,
+      // which are high-confidence-deterministic by construction).
+      const lowConfidence =
+        decision.operationConfidence < confidenceThreshold ||
+        decision.targetConfidence < confidenceThreshold;
+      if (decision.source !== "rule" && (lowConfidence || decision.operation === "BLOCKED")) {
+        const result = await escalate(state, sample);
+        decision = refineWithGoalValue(result.decision, state);
+        note = result.note;
+      }
 
       if (decision.operation === "DONE" || decision.operation === "BLOCKED") {
         transcript.push({
@@ -272,10 +337,34 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
           targetConfidence: decision.targetConfidence,
           source: decision.source,
           detail: decision.operation,
+          ...(note ? { note } : {}),
         });
         recentActions.push(decision.operation);
         outcome = decision.operation === "DONE" ? "done" : "blocked";
         break;
+      }
+
+      // Destructive-form guard: before an auto-submit CLICK, refuse if the action looks
+      // destructive (delete/pay/purchase/...). Surface the reason and stop (blocked).
+      if (decision.operation === "CLICK") {
+        const target = findControl(state, decision.target);
+        if (target) {
+          const guard = checkDestructiveSubmit(target, state, destructiveFormGuard);
+          if (!guard.allowed) {
+            transcript.push({
+              step,
+              operation: "BLOCKED",
+              operationConfidence: 1,
+              targetConfidence: 1,
+              source: decision.source,
+              detail: "BLOCKED (destructive-form guard)",
+              note: guard.reason ?? "Destructive-form guard refused the auto-submit.",
+            });
+            recentActions.push("BLOCKED (destructive-form guard)");
+            outcome = "blocked";
+            break;
+          }
+        }
       }
 
       const detail = await execute(decision, state, { waitMs, scrollBy }, session);
@@ -286,6 +375,7 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
         targetConfidence: decision.targetConfidence,
         source: decision.source,
         detail,
+        ...(note ? { note } : {}),
       };
       if (decision.target !== undefined) record.target = decision.target;
       const value = "value" in decision ? decision.value : undefined;

@@ -12,15 +12,27 @@
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { createServer } from "./server.js";
 import { createEngine } from "./laya/index.js";
+import { loadConfig } from "./config.js";
 
 async function main(): Promise<void> {
-  const headless = process.env.LAYA_BROWSER_HEADLESS !== "false";
-  const channel = process.env.LAYA_BROWSER_CHANNEL;
+  // Parse ALL configuration once from the environment (Boundary Discipline) and hand the
+  // typed config inward. No other module reads process.env for these settings.
+  const config = loadConfig();
 
-  // Build the Autopilot engine from the environment: LAYA_ENGINE=stub selects the
-  // deterministic stub; LAYA_MODEL_DIR points at a local ONNX bundle; otherwise the engine
-  // is unavailable and laya_run_goal degrades gracefully to the Assist-mode tools.
-  const engine = await createEngine();
+  // Build the Autopilot engine from that config: engine=stub selects the deterministic
+  // stub; modelDir points at a local ONNX bundle; otherwise the engine is unavailable and
+  // laya_run_goal degrades gracefully to the Assist-mode tools.
+  const engine = await createEngine({
+    engine: config.engine,
+    ...(config.modelDir !== undefined ? { modelDir: config.modelDir } : {}),
+    ...(config.repo !== undefined ? { repo: config.repo } : {}),
+    ...(config.subfolder !== undefined ? { subfolder: config.subfolder } : {}),
+    ...(config.revision !== undefined ? { revision: config.revision } : {}),
+    ...(config.cacheDir !== undefined ? { cacheDir: config.cacheDir } : {}),
+    ...(config.executionProviders !== undefined
+      ? { executionProviders: config.executionProviders }
+      : {}),
+  });
   if (engine.available) {
     process.stderr.write("[laya-browser-mcp] Autopilot engine loaded.\n");
   } else {
@@ -31,10 +43,12 @@ async function main(): Promise<void> {
 
   const { server, session } = createServer({
     browser: {
-      headless,
-      ...(channel ? { channel } : {}),
+      headless: config.headless,
+      viewport: config.viewport,
+      ...(config.channel ? { channel: config.channel } : {}),
     },
     engine,
+    config,
   });
 
   let closing = false;

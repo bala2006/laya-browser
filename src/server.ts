@@ -16,6 +16,8 @@ import { BrowserSession, type BrowserSessionOptions } from "./browser.js";
 import { registerAssistTools } from "./tools/index.js";
 import * as runGoalTool from "./tools/run_goal.js";
 import { UnavailableEngine } from "./laya/index.js";
+import { samplerFromServer } from "./autopilot/escalation.js";
+import { loadConfig, type LayaBrowserConfig } from "./config.js";
 import type { LayaDecisionEngine } from "./types.js";
 
 /** Result of {@link createServer}: the server plus the session it drives. */
@@ -36,6 +38,11 @@ export interface CreateServerOptions {
    * `laya_run_goal` is always registered but degrades gracefully with no weights.
    */
   engine?: LayaDecisionEngine;
+  /**
+   * The parsed, typed configuration (thresholds, allow-list, guard). Parsed once by the
+   * caller and handed inward. Defaults to {@link loadConfig} over the environment.
+   */
+  config?: LayaBrowserConfig;
 }
 
 const INSTRUCTIONS = [
@@ -53,6 +60,7 @@ const INSTRUCTIONS = [
 
 /** Construct the MCP server, register Assist + Autopilot tools, and wire the session. */
 export function createServer(options: CreateServerOptions = {}): CreatedServer {
+  const config = options.config ?? loadConfig();
   const session = options.session ?? new BrowserSession(options.browser);
   const engine = options.engine ?? new UnavailableEngine();
 
@@ -69,7 +77,7 @@ export function createServer(options: CreateServerOptions = {}): CreatedServer {
     },
   );
 
-  registerAssistTools(server, { session });
+  registerAssistTools(server, { session, allowedDomains: config.allowedDomains });
 
   server.registerTool(
     runGoalTool.definition.name,
@@ -77,7 +85,22 @@ export function createServer(options: CreateServerOptions = {}): CreatedServer {
       description: runGoalTool.definition.description,
       inputSchema: runGoalTool.definition.inputSchema,
     },
-    runGoalTool.makeHandler({ session, engine }) as never,
+    runGoalTool.makeHandler({
+      session,
+      engine,
+      confidenceThreshold: config.confidenceThreshold,
+      allowedDomains: config.allowedDomains,
+      destructiveFormGuard: config.destructiveFormGuard,
+      // Resolve the sampler lazily at call time: the client's `sampling` capability is only
+      // known after it has connected and initialized, which happens after createServer.
+      sample: async (prompt) => {
+        const sampler = samplerFromServer(server);
+        if (!sampler) {
+          throw new Error("client does not support MCP sampling");
+        }
+        return sampler(prompt);
+      },
+    }) as never,
   );
 
   return { server, session, engine };

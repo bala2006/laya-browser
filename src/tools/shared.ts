@@ -13,6 +13,11 @@ import { capture } from "../snapshot.js";
 export interface ToolContext {
   /** The shared browser session all tools act on. */
   session: BrowserSession;
+  /**
+   * Domain allow-list applied to navigating tools (e.g. `browser_navigate`). When
+   * non-empty, navigation to a host not on the list is rejected. Empty means allow all.
+   */
+  allowedDomains?: string[];
 }
 
 /** MCP tool result content block (text). */

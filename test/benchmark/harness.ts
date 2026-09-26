@@ -1,0 +1,174 @@
+/**
+ * Offline benchmark harness for laya-browser-mcp Autopilot.
+ *
+ * Runs {@link runGoal} over a set of local, structured-form HTML fixtures using a chosen
+ * decision engine (the {@link StubEngine} by default; the real engine when LAYA_MODEL_DIR is
+ * set) and records, per fixture:
+ *   - end-to-end SUCCESS via the loop's INDEPENDENT final-page verification (DONE alone is
+ *     never treated as success), and
+ *   - per-step correctness: each executed operation is compared against the fixture's
+ *     expected operation sequence.
+ *
+ * It is fully offline: the fixtures are served from a loopback http server and no weights
+ * are needed for the stub path. {@link formatSummaryTable} renders a compact ASCII table.
+ *
+ * The harness is reused by both the vitest assertion test and the `pnpm run bench` CLI so
+ * the two never drift.
+ */
+import { BrowserSession } from "../../src/browser.js";
+import { runGoal, type RunResult, type StepRecord } from "../../src/autopilot/loop.js";
+import type { LayaDecisionEngine, Operation } from "../../src/types.js";
+import { startFixtureServer, type FixtureServer } from "../helpers/fixture-server.js";
+
+/** One benchmark case: a fixture + goal + the operation sequence a correct run should take. */
+export interface BenchCase {
+  /** Human-readable name. */
+  name: string;
+  /** Fixture file under test/fixtures/. */
+  fixture: string;
+  /** The natural-language goal (with an explicit success marker). */
+  goal: string;
+  /** The operations a correct run is expected to execute, in order. */
+  expectedOps: Operation[];
+}
+
+/** The clean structured-form cases the stub should handle end to end. */
+export const BENCH_CASES: BenchCase[] = [
+  {
+    name: "search",
+    fixture: "search-form.html",
+    goal: 'search for "laptops" and expect "Showing results for laptops"',
+    expectedOps: ["TYPE_TEXT", "CLICK"],
+  },
+  {
+    name: "filters",
+    fixture: "filters.html",
+    goal: 'keyword is laptop and expect "Filtered laptop"',
+    expectedOps: ["TYPE_TEXT", "CLICK"],
+  },
+  {
+    name: "login",
+    fixture: "login.html",
+    goal: 'email is "user@example.com" and expect "Signed in as user@example.com"',
+    expectedOps: ["TYPE_TEXT", "CLICK"],
+  },
+];
+
+/** The per-case result of a benchmark run. */
+export interface BenchResult {
+  name: string;
+  goal: string;
+  outcome: RunResult["outcome"];
+  /** End-to-end success = independent final-page verification passed. */
+  success: boolean;
+  /** Fraction of expected operations that appeared, in order, in the transcript. */
+  stepAccuracy: number;
+  /** Number of steps executed. */
+  steps: number;
+  /** The executed operations, for reporting. */
+  executedOps: Operation[];
+}
+
+/** Compare the transcript's operations against the expected sequence (subsequence match). */
+function stepAccuracy(transcript: StepRecord[], expected: Operation[]): number {
+  if (expected.length === 0) return 1;
+  const executed = transcript.map((s) => s.operation);
+  let matched = 0;
+  let cursor = 0;
+  for (const op of expected) {
+    const at = executed.indexOf(op, cursor);
+    if (at !== -1) {
+      matched++;
+      cursor = at + 1;
+    }
+  }
+  return matched / expected.length;
+}
+
+/** Options for {@link runBenchmark}. */
+export interface RunBenchmarkOptions {
+  /** Factory producing the engine to benchmark (fresh per case is fine). */
+  makeEngine: () => LayaDecisionEngine;
+  /** Cases to run. Defaults to {@link BENCH_CASES}. */
+  cases?: BenchCase[];
+  /** Step budget per case. Defaults to 8. */
+  maxSteps?: number;
+}
+
+/** Run the benchmark and return one {@link BenchResult} per case. */
+export async function runBenchmark(
+  options: RunBenchmarkOptions,
+): Promise<BenchResult[]> {
+  const cases = options.cases ?? BENCH_CASES;
+  const maxSteps = options.maxSteps ?? 8;
+
+  const fixtures: FixtureServer = await startFixtureServer();
+  const session = new BrowserSession({ headless: true });
+  const results: BenchResult[] = [];
+
+  try {
+    for (const c of cases) {
+      const engine = options.makeEngine();
+      const result = await runGoal({
+        goal: c.goal,
+        session,
+        engine,
+        url: fixtures.url(c.fixture),
+        maxSteps,
+      });
+      await engine.close().catch(() => {});
+      results.push({
+        name: c.name,
+        goal: c.goal,
+        outcome: result.outcome,
+        success: result.verification.checked && result.verification.verified,
+        stepAccuracy: stepAccuracy(result.transcript, c.expectedOps),
+        steps: result.transcript.length,
+        executedOps: result.transcript.map((s) => s.operation),
+      });
+    }
+  } finally {
+    await session.close();
+    await fixtures.close();
+  }
+
+  return results;
+}
+
+/** Render a compact ASCII summary table of benchmark results. */
+export function formatSummaryTable(results: BenchResult[], engineName: string): string {
+  const lines: string[] = [];
+  lines.push(`laya-browser-mcp offline benchmark (engine: ${engineName})`);
+  lines.push("");
+  const header = ["case", "outcome", "success", "step-acc", "steps"];
+  const rows = results.map((r) => [
+    r.name,
+    r.outcome,
+    r.success ? "yes" : "no",
+    `${Math.round(r.stepAccuracy * 100)}%`,
+    String(r.steps),
+  ]);
+  const widths = header.map((h, i) =>
+    Math.max(h.length, ...rows.map((row) => row[i]!.length)),
+  );
+  const fmt = (cols: string[]): string =>
+    cols.map((c, i) => c.padEnd(widths[i]!)).join("  ");
+  lines.push(fmt(header));
+  lines.push(widths.map((w) => "-".repeat(w)).join("  "));
+  for (const row of rows) lines.push(fmt(row));
+  lines.push("");
+  const passed = results.filter((r) => r.success).length;
+  const avgAcc =
+    results.length === 0
+      ? 0
+      : results.reduce((s, r) => s + r.stepAccuracy, 0) / results.length;
+  lines.push(
+    `End-to-end success: ${passed}/${results.length}. Mean per-step accuracy: ${Math.round(
+      avgAcc * 100,
+    )}%.`,
+  );
+  lines.push(
+    "Note: end-to-end success is measured by the INDEPENDENT final-page check, not by a DONE decision.",
+  );
+  return lines.join("\n");
+}
