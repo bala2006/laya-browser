@@ -25,6 +25,7 @@
  *   LAYA_DESTRUCTIVE_GUARD=false       disable the destructive-form auto-submit guard
  *   LAYA_CAPS=network,storage          enabled tool capability groups (empty = core-only)
  *   LAYA_BROWSER=chromium|firefox|webkit   browser engine (default: chromium)
+ *   LAYA_ALLOW_UNSAFE_CODE=true        enable browser_run_code_unsafe (default: false)
  */
 
 /** How the Autopilot engine is selected. `auto` decides from the presence of weights. */
@@ -124,6 +125,12 @@ export interface LayaBrowserConfig {
   capabilities: Capability[];
   /** Which browser engine Playwright drives. Defaults to `chromium`. */
   browserEngine: BrowserEngine;
+  /**
+   * Whether the `browser_run_code_unsafe` tool is permitted to execute raw Playwright
+   * snippets. Off by default: when false the tool is still listed but refuses with a clear
+   * message, since running arbitrary code against the page is a deliberate, risky opt-in.
+   */
+  allowUnsafeCode: boolean;
 }
 
 /** Overrides supplied programmatically (constructor options / tool arguments). */
@@ -144,6 +151,7 @@ export interface ConfigOverrides {
   destructiveFormGuard?: boolean;
   capabilities?: Capability[];
   browserEngine?: BrowserEngine;
+  allowUnsafeCode?: boolean;
 }
 
 /** Built-in defaults, used when neither an override nor an env var is present. */
@@ -154,6 +162,11 @@ export const DEFAULT_VIEWPORT: Viewport = { width: 1280, height: 800 };
 /** Parse a boolean env var: only the literal string `"false"` disables a default-true flag. */
 function envBoolDefaultTrue(value: string | undefined): boolean {
   return value !== "false";
+}
+
+/** Parse a boolean env var: only the literal string `"true"` enables a default-false flag. */
+function envBoolDefaultFalse(value: string | undefined): boolean {
+  return value === "true";
 }
 
 /** Parse `"WIDTHxHEIGHT"` into a {@link Viewport}, or return undefined if malformed. */
@@ -270,6 +283,9 @@ export function loadConfig(
       ? (browserEngineEnv as BrowserEngine)
       : "chromium");
 
+  const allowUnsafeCode =
+    overrides.allowUnsafeCode ?? envBoolDefaultFalse(env.LAYA_ALLOW_UNSAFE_CODE);
+
   const config: LayaBrowserConfig = {
     headless,
     viewport,
@@ -280,6 +296,7 @@ export function loadConfig(
     destructiveFormGuard,
     capabilities,
     browserEngine,
+    allowUnsafeCode,
   };
   if (channel !== undefined) config.channel = channel;
   if (modelDir !== undefined) config.modelDir = modelDir;

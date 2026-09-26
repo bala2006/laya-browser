@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Network demo</title>
+  </head>
+  <body>
+    <h1>Network demo</h1>
+    <p id="status">loading</p>
+    <script>
+      // Fetch a SAME-ORIGIN resource served by the offline fixture server (loopback only),
+      // so the network capability tools have a deterministic request to report.
+      fetch("network-data.html")
+        .then((res) => res.text())
+        .then((text) => {
+          document.getElementById("status").textContent = "loaded:" + text.trim();
+        })
+        .catch(() => {
+          document.getElementById("status").textContent = "error";
+        });
+    </script>
+  </body>
+</html>

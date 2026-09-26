@@ -79,7 +79,11 @@ export function createServer(options: CreateServerOptions = {}): CreatedServer {
 
   registerAssistTools(
     server,
-    { session, allowedDomains: config.allowedDomains },
+    {
+      session,
+      allowedDomains: config.allowedDomains,
+      allowUnsafeCode: config.allowUnsafeCode,
+    },
     config.capabilities,
   );
 

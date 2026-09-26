@@ -29,6 +29,14 @@ import * as selectOption from "./select_option.js";
 import * as pressKey from "./press_key.js";
 import * as waitFor from "./wait_for.js";
 import * as close from "./close.js";
+import * as tabs from "./tabs.js";
+import * as handleDialog from "./handle_dialog.js";
+import * as fileUpload from "./file_upload.js";
+import * as takeScreenshot from "./take_screenshot.js";
+import * as consoleMessages from "./console_messages.js";
+import * as networkRequests from "./network_requests.js";
+import * as networkRequest from "./network_request.js";
+import * as runCodeUnsafe from "./run_code_unsafe.js";
 
 /**
  * The full Assist toolset as a capability-gating table. Every entry today is CORE
@@ -52,6 +60,15 @@ export const REGISTRY: readonly RegisteredTool[] = [
   { module: pressKey as unknown as ToolModule },
   { module: waitFor as unknown as ToolModule },
   { module: close as unknown as ToolModule },
+  { module: tabs as unknown as ToolModule },
+  { module: handleDialog as unknown as ToolModule },
+  { module: fileUpload as unknown as ToolModule },
+  { module: takeScreenshot as unknown as ToolModule },
+  { module: consoleMessages as unknown as ToolModule },
+  { module: networkRequests as unknown as ToolModule },
+  { module: networkRequest as unknown as ToolModule },
+  // Always listed (CORE) but refuses at call time unless allowUnsafeCode is set.
+  { module: runCodeUnsafe as unknown as ToolModule },
 ];
 
 /** Whether a registry entry is enabled given the set of enabled capabilities. */

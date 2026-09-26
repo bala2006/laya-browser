@@ -18,6 +18,11 @@ export interface ToolContext {
    * non-empty, navigation to a host not on the list is rejected. Empty means allow all.
    */
   allowedDomains?: string[];
+  /**
+   * Whether `browser_run_code_unsafe` may execute raw Playwright snippets. When false (the
+   * default) the tool refuses with a clear message instead of running anything.
+   */
+  allowUnsafeCode?: boolean;
 }
 
 /** MCP tool result content block (text). */
@@ -26,9 +31,21 @@ interface TextContent {
   text: string;
 }
 
+/** MCP tool result content block (image), used by browser_take_screenshot. */
+interface ImageContent {
+  type: "image";
+  /** Base64-encoded image bytes. */
+  data: string;
+  /** The image MIME type, e.g. `"image/png"`. */
+  mimeType: string;
+}
+
+/** A single content block returned by a tool: text or image. */
+export type ContentBlock = TextContent | ImageContent;
+
 /** The shape an MCP tool handler must return. */
 export interface ToolResult {
-  content: TextContent[];
+  content: ContentBlock[];
   isError?: boolean;
   [key: string]: unknown;
 }
@@ -36,6 +53,11 @@ export interface ToolResult {
 /** Wrap plain text into an MCP text result. */
 export function textResult(text: string, isError = false): ToolResult {
   return { content: [{ type: "text", text }], ...(isError ? { isError: true } : {}) };
+}
+
+/** Wrap base64 image bytes into an MCP image result. */
+export function imageResult(data: string, mimeType: string): ToolResult {
+  return { content: [{ type: "image", data, mimeType }] };
 }
 
 /**

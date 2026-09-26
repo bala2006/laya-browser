@@ -36,4 +36,12 @@ describe("loadConfig capability and engine parsing", () => {
     expect(config.capabilities).toEqual<Capability[]>(["vision"]);
     expect(config.browserEngine).toBe("webkit");
   });
+
+  it("defaults allowUnsafeCode off and enables it only for the literal 'true'", () => {
+    expect(loadConfig({}, {}).allowUnsafeCode).toBe(false);
+    expect(loadConfig({}, { LAYA_ALLOW_UNSAFE_CODE: "false" }).allowUnsafeCode).toBe(false);
+    expect(loadConfig({}, { LAYA_ALLOW_UNSAFE_CODE: "1" }).allowUnsafeCode).toBe(false);
+    expect(loadConfig({}, { LAYA_ALLOW_UNSAFE_CODE: "true" }).allowUnsafeCode).toBe(true);
+    expect(loadConfig({ allowUnsafeCode: true }, {}).allowUnsafeCode).toBe(true);
+  });
 });

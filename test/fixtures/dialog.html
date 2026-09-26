@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Dialog demo</title>
+  </head>
+  <body>
+    <h1>Dialog demo</h1>
+
+    <button id="confirm-btn">Delete</button>
+    <p id="confirm-status">unconfirmed</p>
+
+    <button id="prompt-btn">Name</button>
+    <p id="prompt-status">no name</p>
+
+    <script>
+      const confirmBtn = document.getElementById("confirm-btn");
+      const confirmStatus = document.getElementById("confirm-status");
+      confirmBtn.addEventListener("click", () => {
+        // The outcome depends on how the registered dialog disposition resolves confirm().
+        const ok = window.confirm("Really delete?");
+        confirmStatus.textContent = ok ? "confirmed" : "cancelled";
+      });
+
+      const promptBtn = document.getElementById("prompt-btn");
+      const promptStatus = document.getElementById("prompt-status");
+      promptBtn.addEventListener("click", () => {
+        const name = window.prompt("Your name?", "");
+        promptStatus.textContent = name ? "name: " + name : "no name";
+      });
+    </script>
+  </body>
+</html>
