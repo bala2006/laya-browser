@@ -23,10 +23,48 @@
  *   LAYA_MAX_STEPS=15                  Autopilot step budget
  *   LAYA_ALLOWED_DOMAINS=a.com,b.org   domain allow-list (empty = allow all)
  *   LAYA_DESTRUCTIVE_GUARD=false       disable the destructive-form auto-submit guard
+ *   LAYA_CAPS=network,storage          enabled tool capability groups (empty = core-only)
+ *   LAYA_BROWSER=chromium|firefox|webkit   browser engine (default: chromium)
  */
 
 /** How the Autopilot engine is selected. `auto` decides from the presence of weights. */
 export type EngineKind = "auto" | "stub" | "laya";
+
+/**
+ * A tool capability group. Tools tagged with a capability are only registered when that
+ * capability is enabled (via {@link LayaBrowserConfig.capabilities}); untagged tools are
+ * always registered (CORE), mirroring Playwright MCP's default of exposing only its core
+ * toolset unless extra capabilities are opted into.
+ */
+export type Capability =
+  | "network"
+  | "storage"
+  | "testing"
+  | "devtools"
+  | "pdf"
+  | "vision"
+  | "config";
+
+/** All valid capability group names, used to validate the LAYA_CAPS list. */
+export const CAPABILITIES: readonly Capability[] = [
+  "network",
+  "storage",
+  "testing",
+  "devtools",
+  "pdf",
+  "vision",
+  "config",
+] as const;
+
+/** The browser engine Playwright drives. */
+export type BrowserEngine = "chromium" | "firefox" | "webkit";
+
+/** All valid browser engine names, used to validate LAYA_BROWSER. */
+export const BROWSER_ENGINES: readonly BrowserEngine[] = [
+  "chromium",
+  "firefox",
+  "webkit",
+] as const;
 
 /** A viewport size in CSS pixels. */
 export interface Viewport {
@@ -77,6 +115,15 @@ export interface LayaBrowserConfig {
    * auto-submit forms carrying destructive signals (delete/pay/purchase/etc.).
    */
   destructiveFormGuard: boolean;
+
+  /**
+   * Enabled tool capability groups. CORE tools are always registered; a tool tagged with
+   * a capability is registered only when that capability is present here. Empty means
+   * core-only (the default), mirroring Playwright MCP.
+   */
+  capabilities: Capability[];
+  /** Which browser engine Playwright drives. Defaults to `chromium`. */
+  browserEngine: BrowserEngine;
 }
 
 /** Overrides supplied programmatically (constructor options / tool arguments). */
@@ -95,6 +142,8 @@ export interface ConfigOverrides {
   maxSteps?: number;
   allowedDomains?: string[];
   destructiveFormGuard?: boolean;
+  capabilities?: Capability[];
+  browserEngine?: BrowserEngine;
 }
 
 /** Built-in defaults, used when neither an override nor an env var is present. */
@@ -206,6 +255,21 @@ export function loadConfig(
     overrides.destructiveFormGuard ??
     envBoolDefaultTrue(env.LAYA_DESTRUCTIVE_GUARD);
 
+  const capabilities =
+    overrides.capabilities ??
+    (parseList(env.LAYA_CAPS)
+      .map((c) => c.toLowerCase())
+      .filter((c): c is Capability =>
+        (CAPABILITIES as readonly string[]).includes(c),
+      ));
+
+  const browserEngineEnv = env.LAYA_BROWSER?.trim().toLowerCase();
+  const browserEngine: BrowserEngine =
+    overrides.browserEngine ??
+    ((BROWSER_ENGINES as readonly string[]).includes(browserEngineEnv ?? "")
+      ? (browserEngineEnv as BrowserEngine)
+      : "chromium");
+
   const config: LayaBrowserConfig = {
     headless,
     viewport,
@@ -214,6 +278,8 @@ export function loadConfig(
     maxSteps,
     allowedDomains,
     destructiveFormGuard,
+    capabilities,
+    browserEngine,
   };
   if (channel !== undefined) config.channel = channel;
   if (modelDir !== undefined) config.modelDir = modelDir;

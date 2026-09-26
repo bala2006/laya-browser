@@ -1,0 +1,30 @@
+{
+  "id": "FEAT-004",
+  "type": "feat",
+  "description": "STORAGE + NETWORK capability groups (gated behind caps=storage and caps=network). Storage: browser_cookie_list/get/set/delete/clear, browser_localstorage_list/get/set/delete/clear, browser_sessionstorage_list/get/set/delete/clear, browser_storage_state (save cookies+localStorage to file), browser_set_storage_state (restore). Network: browser_route (mock requests), browser_route_list, browser_unroute, browser_network_state_set (online/offline). All confined to the src/browser.ts Playwright boundary; tools registered only when their capability is enabled.",
+  "status": "pending",
+  "steps": [
+    "Extend src/browser.ts with the storage + routing boundary methods: cookies via context.cookies()/addCookies()/clearCookies(); localStorage/sessionStorage via page.evaluate over window.localStorage/sessionStorage; storageState save/restore via context.storageState({ path }) and re-creating context with storageState (or context.addCookies + evaluate to restore localStorage); routing via context.route/unroute keeping a RouteRule registry (RouteRule shape from types.ts); network online/offline via context.setOffline(bool). Keep a route registry array so browser_route_list can enumerate active routes and browser_unroute can remove by pattern.",
+    "Cookie tools (src/tools/cookies.ts, one module exporting several definitions OR separate small modules \u2014 follow the registry pattern; grouping related tools in one file is fine as long as each is a distinct definition/handler registered separately). browser_cookie_list (no args -> list), get { name }, set { name, value, domain?, path?, ... }, delete { name }, clear (no args). Each returns textResult. Capability 'storage'.",
+    "localStorage tools: list/get{key}/set{key,value}/delete{key}/clear via page.evaluate. Capability 'storage'.",
+    "sessionStorage tools: list/get/set/delete/clear via page.evaluate. Capability 'storage'.",
+    "browser_storage_state { path: string } -> context.storageState({ path }); browser_set_storage_state { path } -> restore (document limitation if a full context re-create is needed). Capability 'storage'.",
+    "Network tools: browser_route { url pattern, action: 'abort'|'fulfill', status?, body?, contentType? } registers a context.route handler that fulfills/aborts matching requests and records the RouteRule; browser_route_list lists active RouteRules; browser_unroute { url } removes one; browser_network_state_set { offline: boolean } -> context.setOffline. Capability 'network'.",
+    "Register all storage tools with capability 'storage' and all network tools with capability 'network' in the registry so they are ONLY registered when the cap is enabled.",
+    "Tests: test/storage-tools.test.ts and test/network-tools.test.ts. Create the ToolContext/session, but register/exercise the handlers directly (as the MCP client would). cookie set then get round-trips the value; cookie clear empties the list; localStorage set/get round-trips (assert via page.evaluate too); storage_state writes a non-empty JSON file (assert file exists + parses) and set_storage_state restores it; route mocking: register a route that fulfills a fixture's fetch with canned JSON and assert the page received the mocked body (fixture fetches a same-origin URL and displays the response); network_state_set offline then a fetch fails / online restores. Add fixtures as needed (mock-fetch.html). Verify caps gating: assert that with caps=[] the storage tools are NOT registered and with caps=['storage'] they ARE (a small registry/registration test)."
+  ],
+  "acceptance_criteria": [
+    "All storage tools implemented and gated behind caps=storage; all network tools gated behind caps=network.",
+    "cookie set/get round-trips; localStorage set/get round-trips; storage_state writes a non-empty file that set_storage_state restores.",
+    "browser_route mocks a request so the fixture receives canned data; browser_route_list enumerates it; browser_unroute removes it; network_state_set toggles offline.",
+    "A registration test proves storage/network tools appear only when their cap is enabled.",
+    "typecheck + build + full test suite green offline."
+  ],
+  "verification": [
+    "source ~/.nvm/nvm.sh && pnpm run typecheck",
+    "source ~/.nvm/nvm.sh && pnpm run build",
+    "source ~/.nvm/nvm.sh && pnpm run test"
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}

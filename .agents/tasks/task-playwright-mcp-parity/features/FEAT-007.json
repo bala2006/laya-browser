@@ -1,0 +1,32 @@
+{
+  "id": "FEAT-007",
+  "type": "feat",
+  "description": "PART 2 (the user's explicit steer): use Laya to automate the richer toolset FASTER. Broaden the Autopilot executable operation set beyond CLICK/TYPE_TEXT/SELECT/SCROLL_DOWN/WAIT/DONE/BLOCKED to also include HOVER, NAVIGATE_BACK, PRESS_KEY, a batch FILL_FORM-style multi-field fill, and SCREENSHOT/VERIFY as terminal/verification steps. Extend src/types.ts Operation union as a DISCRIMINATED union so illegal (operation, target/payload) combinations stay unrepresentable, keep the state-builder/engine option-set within Laya's head_max_len limit, keep NO-weights graceful degradation and the offline StubEngine suite, and MEASURE the faster-automation effect (rule vs laya vs escalation breakdown + wall-clock on the offline fixtures).",
+  "status": "pending",
+  "steps": [
+    "src/types.ts: broaden the Operation union and the Decision discriminated union. Add new operations: HOVER (targeted), NAVIGATE_BACK (targetless), PRESS_KEY (targetless-ish, carries a `key` payload), FILL_FORM (carries a list of {target, value} field entries), SCREENSHOT (terminal/verification, targetless or optional target), VERIFY (terminal verification carrying an expected marker/value). Model each so illegal combos are unrepresentable: e.g. FILL_FORM's variant carries `fields: {target: Ref; value: string}[]` and no single `target`; PRESS_KEY carries `key: string`; HOVER carries a `target: Ref`. Update TargetedOperation/TargetlessOperation groupings accordingly, or restructure the union into per-operation members. Keep the module PURE.",
+    "src/autopilot/loop.ts execute(): extend the switch to handle HOVER (locator.hover()), NAVIGATE_BACK (page.goBack()), PRESS_KEY (page.keyboard.press(decision.key)), FILL_FORM (loop over fields, fill each \u2014 REUSE the same fill logic as the browser_fill_form tool; factor a shared helper if practical), SCREENSHOT (page.screenshot; record it as a terminal step), VERIFY (evaluate the marker/value against the live page and record verified true/false). Keep execute() the ONLY IO function. Ensure the StepRecord type carries the new payloads (key, fields, etc.) for the transcript.",
+    "src/laya/stub.ts + src/autopilot/policy.ts: teach the deterministic layer to PREFER a single FILL_FORM batch when the goal states MULTIPLE fields that map to controls (rather than emitting N sequential TYPE_TEXT steps). Add a rule: when >=2 goal-mapped editable fields are still unfilled, emit one FILL_FORM decision filling all of them, then proceed to submit. Keep the existing single-field path for one-field goals. This is the concrete 'faster' mechanism (fewer steps, no per-field remote round-trip).",
+    "src/autopilot/escalation.ts: extend the OPERATIONS list + parseDecision so the client LLM may also return the new operations where sensible (at least HOVER/NAVIGATE_BACK/PRESS_KEY), guarding payloads (a PRESS_KEY without a key, a FILL_FORM with unknown refs, etc. collapse to BLOCKED). Keep the boundary parsing/guarding here.",
+    "src/state-builder.ts: ensure the broadened option set the engine chooses from still fits within RECOMMENDED_MAX_OPTIONS / head_max_len \u2014 the operation choice set grows, so verify the rendered state + option list stays within budget (the engine picks operation among the enumerated set; keep that set compact and documented).",
+    "Add MEASUREMENT: extend the offline benchmark harness (test/benchmark/harness.ts) or add a small measured test that records, per run, the count of steps resolved by rule vs laya/stub vs escalation, and the wall-clock, and PROVES a multi-field goal now completes in FEWER steps via a single FILL_FORM batch (e.g. a 2-3 field login/checkout goal completes with one FILL_FORM + one CLICK instead of N TYPE_TEXT + CLICK). Assert the step count is lower than the pre-batch path and that the batch fill was used.",
+    "Tests (test/autopilot.test.ts additions or a new test/autopilot-part2.test.ts, all offline with StubEngine + real Chromium): (a) a multi-field goal completes with a single FILL_FORM step filling all fields (assert each field's DOM value + that exactly one FILL_FORM step appears and step count dropped); (b) HOVER, NAVIGATE_BACK, PRESS_KEY operations execute and change the page as expected; (c) a SCREENSHOT/VERIFY terminal step records a result; (d) with UnavailableEngine the loop STILL degrades gracefully (degraded=true) \u2014 unchanged; (e) report the rule-vs-laya-vs-escalation breakdown + timing. Keep the real-weights suite gated behind LAYA_MODEL_DIR."
+  ],
+  "acceptance_criteria": [
+    "Operation/Decision union broadened as a discriminated union covering HOVER, NAVIGATE_BACK, PRESS_KEY, FILL_FORM, SCREENSHOT, VERIFY with illegal states unrepresentable; types.ts stays pure.",
+    "execute() performs the new operations against real Chromium in offline tests.",
+    "A multi-field goal completes via a SINGLE FILL_FORM batch in FEWER steps than the per-field path, proven by an offline test asserting DOM values and step count.",
+    "The measurement reports steps resolved by rule vs laya/stub vs escalation and wall-clock on the offline fixtures.",
+    "Autopilot still degrades gracefully with no weights and the whole Autopilot suite runs offline with the StubEngine; real-weights tests remain gated behind LAYA_MODEL_DIR.",
+    "State/option set stays within head_max_len budget.",
+    "typecheck + build + full test suite green offline."
+  ],
+  "verification": [
+    "source ~/.nvm/nvm.sh && pnpm run typecheck",
+    "source ~/.nvm/nvm.sh && pnpm run build",
+    "source ~/.nvm/nvm.sh && pnpm run test",
+    "source ~/.nvm/nvm.sh && pnpm run bench"
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}

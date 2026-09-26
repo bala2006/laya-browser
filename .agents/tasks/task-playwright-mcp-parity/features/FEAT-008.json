@@ -1,0 +1,28 @@
+{
+  "id": "FEAT-008",
+  "type": "docs",
+  "description": "Documentation: update README.md and docs/PLAN.md to reflect full Playwright MCP tool parity, the capability-gating mechanism + default, cross-browser config, the broadened Autopilot operation set + the measured 'faster' rationale, and honest notes on any tool whose behavior differs from Playwright's. Preserve the existing honest Autopilot positioning.",
+  "status": "pending",
+  "steps": [
+    "README.md: replace/expand the tool documentation with a FULL tool table grouped by capability (CORE, NETWORK, STORAGE, TESTING, DEVTOOLS, PDF, VISION, CONFIG) listing every tool + one-line description, matching the implemented set. Keep the existing honest positioning section.",
+    "README.md: document the caps mechanism (LAYA_CAPS env var, comma/space list, the chosen default \u2014 core-only \u2014 and how to enable groups, e.g. LAYA_CAPS=network,storage,testing,devtools,pdf,vision,config). Document cross-browser config (LAYA_BROWSER=chromium|firefox|webkit, default chromium; note Firefox/WebKit must be installed via `pnpm exec playwright install firefox webkit`; note which engine was smoke-tested).",
+    "README.md: document the broadened Autopilot operation set (the new operations) and the 'faster' rationale/measurements (more steps resolved locally by rule/laya vs escalation; prefer one FILL_FORM batch over N type steps) including the measured breakdown + timing numbers produced in FEAT-007.",
+    "README.md: add honest divergence notes for any tool that differs from Playwright's behaviour (e.g. devtools recording/video/annotate tools without a faithful headless analogue, pdf being Chromium-only, run_code_unsafe gated by a flag).",
+    "docs/PLAN.md: add a new phase/addendum documenting the tool taxonomy, the capability-gating design (registry table of {name, capability, factory}), the cross-browser design, the broadened Autopilot operation model, the per-group sequencing outcome, and an updated verified/inferred/guessed ledger (mark cross-browser and Part 2 as verified vs inferred honestly based on what was actually run).",
+    "Do not use em dashes in the written content. Verify the docs match the actually-registered tool set (cross-check against ASSIST_TOOL_NAMES / the registry)."
+  ],
+  "acceptance_criteria": [
+    "README has a complete tool table by capability group matching the implemented tools.",
+    "README documents LAYA_CAPS + default, LAYA_BROWSER cross-browser config, and the broadened Autopilot operation set + measured faster-automation numbers.",
+    "README honestly notes any tool whose behaviour differs from Playwright's.",
+    "docs/PLAN.md updated with the tool taxonomy, capability-gating design, cross-browser design, broadened Autopilot operation model, sequencing outcome, and refreshed verified/inferred/guessed ledger.",
+    "No em dashes in the new written content."
+  ],
+  "verification": [
+    "source ~/.nvm/nvm.sh && pnpm run typecheck",
+    "source ~/.nvm/nvm.sh && pnpm run build",
+    "source ~/.nvm/nvm.sh && pnpm run test"
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}

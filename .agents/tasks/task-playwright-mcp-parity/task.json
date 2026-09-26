@@ -1,0 +1,7 @@
+{
+  "task_id": "task-playwright-mcp-parity",
+  "task_description": "Reach full Playwright MCP tool-surface parity in laya-browser-mcp (all CORE + network/storage/testing/devtools/pdf/vision/config groups, capability-gated), add cross-browser (chromium/firefox/webkit) support driven from config, and broaden the Autopilot (Laya) decision loop to drive the richer toolset FASTER (batch fill_form + hover/navigate_back/press_key/screenshot/verify), keeping graceful no-weights degradation and an offline vitest suite with literal per-tool assertions. Preserve the existing laya_run_goal Autopilot tool. Commit locally; do not push.",
+  "status": "in_progress",
+  "feature_order": ["FEAT-001", "FEAT-002", "FEAT-003", "FEAT-004", "FEAT-005", "FEAT-006", "FEAT-007", "FEAT-008"],
+  "blocked_reason": null
+}

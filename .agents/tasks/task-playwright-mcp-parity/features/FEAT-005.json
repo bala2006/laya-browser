@@ -1,0 +1,32 @@
+{
+  "id": "FEAT-005",
+  "type": "feat",
+  "description": "TESTING + PDF + VISION + CONFIG + DEVTOOLS capability groups (each gated behind its cap). TESTING (caps=testing): browser_generate_locator, browser_verify_element_visible, browser_verify_text_visible, browser_verify_list_visible, browser_verify_value. PDF (caps=pdf): browser_pdf_save. VISION (caps=vision): browser_mouse_move_xy, browser_mouse_click_xy, browser_mouse_drag_xy, browser_mouse_down, browser_mouse_up, browser_mouse_wheel. CONFIG (caps=config): browser_get_config. DEVTOOLS (caps=devtools): browser_start_tracing/stop_tracing, browser_start_video/stop_video, browser_video_chapter, browser_video_show_actions/hide_actions, browser_start_recording/stop_recording, browser_highlight/hide_highlight, browser_annotate, browser_resume. Where a devtools tool has no faithful offline analogue, implement a best-effort real behaviour and document honestly any divergence from Playwright.",
+  "status": "pending",
+  "steps": [
+    "TESTING tools (src/tools/testing.ts or per-tool, capability 'testing'): browser_generate_locator { element?, target } -> resolve the ref and return a stable Playwright locator string (reuse snapshot Control role/name to synthesize getByRole/getByText, or return the resolved selector). verify_element_visible { element?, target } -> locator.isVisible() assert true, textResult PASS/FAIL. verify_text_visible { text } -> page.getByText(text).isVisible(). verify_list_visible { element?, target, items?: string[] } -> assert a list and its items are visible. verify_value { element?, target, value } -> assert the field's value equals value. Each returns a clear PASS/FAIL textResult (isError on FAIL is fine, but assert literally in tests).",
+    "PDF tool (src/tools/pdf.ts, capability 'pdf'): browser_pdf_save { path?: string } -> page.pdf({ path }). Note: page.pdf requires Chromium headless; document that it is Chromium-only. Return textResult with the path + byte size. Test asserts the file is a non-empty PDF (starts with %PDF).",
+    "VISION tools (src/tools/vision.ts, capability 'vision'): mouse_move_xy { x, y } -> page.mouse.move; mouse_click_xy { x, y, button? } -> move+click; mouse_drag_xy { startX, startY, endX, endY } -> down/move/up; mouse_down/{button?}, mouse_up/{button?}; mouse_wheel { deltaX?, deltaY? } -> page.mouse.wheel. Each returns snapshotResult or textResult. Test: click at coordinates over a fixture button and assert the button's click handler fired (DOM change); wheel scrolls (assert window.scrollY changed).",
+    "CONFIG tool (src/tools/get_config.ts, capability 'config'): browser_get_config (no args) -> return the resolved LayaBrowserConfig as JSON textResult. The handler needs access to the config; thread it through the ToolContext (extend ToolContext with an optional `config` field, or pass via a dedicated context). Test asserts the returned JSON contains the expected fields (capabilities, browserEngine, headless).",
+    "DEVTOOLS tools (src/tools/devtools.ts, capability 'devtools'): implement with real Playwright where possible \u2014 start_tracing/stop_tracing via context.tracing.start/stop({ path }); start_video/stop_video via recordVideo context option (document that video requires the context be created with recordVideo, so this may need re-creating the context or documenting the limitation); highlight/hide_highlight via a page.evaluate that outlines/removes an outline on the target element; start_recording/stop_recording, video_chapter, video_show_actions/hide_actions, annotate, resume: these are interactive/codegen features with no faithful headless analogue \u2014 implement as clear, honest no-op-with-explanation tools that return a textResult stating what they would do and that they are not fully supported headless (document this divergence in README + PLAN). Do NOT fake success. Capability 'devtools'.",
+    "Register every tool with its capability in the registry. Update ASSIST_TOOL_NAMES / the derived name list.",
+    "Tests: test/testing-tools.test.ts, test/pdf-tool.test.ts, test/vision-tools.test.ts, test/config-tool.test.ts, and a devtools test. verify_* assert true AND false correctly (a visible element passes, a hidden/absent one fails); verify_value matches and mismatches; generate_locator returns a usable locator string that actually resolves the element (assert by using it); pdf_save writes a file starting with %PDF and non-zero length; vision mouse_click_xy fires a fixture button handler; get_config returns JSON with capabilities+browserEngine; tracing start/stop writes a trace zip (assert file exists) or documents+tests the honest fallback; highlight adds an outline style (assert via evaluate). Registration tests confirm each group only registers under its cap."
+  ],
+  "acceptance_criteria": [
+    "All testing/pdf/vision/config/devtools tools implemented and each gated behind its capability.",
+    "verify_* tools assert both true and false outcomes correctly.",
+    "browser_pdf_save writes a non-empty PDF file (starts with %PDF).",
+    "vision coordinate tools drive real mouse actions that change the fixture DOM.",
+    "browser_get_config returns the resolved config JSON.",
+    "devtools tools use real Playwright where feasible; any tool without a faithful headless analogue returns an honest explanation rather than a fake success, documented in README/PLAN.",
+    "Registration tests confirm per-cap gating.",
+    "typecheck + build + full test suite green offline."
+  ],
+  "verification": [
+    "source ~/.nvm/nvm.sh && pnpm run typecheck",
+    "source ~/.nvm/nvm.sh && pnpm run build",
+    "source ~/.nvm/nvm.sh && pnpm run test"
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}

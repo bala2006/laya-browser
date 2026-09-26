@@ -77,7 +77,11 @@ export function createServer(options: CreateServerOptions = {}): CreatedServer {
     },
   );
 
-  registerAssistTools(server, { session, allowedDomains: config.allowedDomains });
+  registerAssistTools(
+    server,
+    { session, allowedDomains: config.allowedDomains },
+    config.capabilities,
+  );
 
   server.registerTool(
     runGoalTool.definition.name,

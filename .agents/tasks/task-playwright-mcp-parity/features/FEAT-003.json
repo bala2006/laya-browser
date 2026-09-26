@@ -1,0 +1,36 @@
+{
+  "id": "FEAT-003",
+  "type": "feat",
+  "description": "CORE tool parity part B: browser-lifecycle + observation tools that require evolving BrowserSession. Add multi-tab support (browser_tabs list/create/close/select), browser_handle_dialog (accept/dismiss dialogs), browser_file_upload (into a file chooser), browser_take_screenshot (PNG/JPEG/WebP), browser_console_messages, browser_network_requests (list), browser_network_request (one request in detail), browser_run_code_unsafe (guarded Playwright snippet execution). This feature evolves src/browser.ts to own MULTIPLE pages/tabs and to register dialog/console/network listeners, confining all Playwright API growth to that boundary.",
+  "status": "pending",
+  "steps": [
+    "Evolve src/browser.ts BrowserSession to manage multiple tabs: keep a pages array + an activePage index; getPage() returns the active page; add listTabs(): TabInfo[], newTab(url?), closeTab(index), selectTab(index). Preserve the lazy-launch + concurrency-serialisation behaviour and the resolveRef contract (resolveRef operates on the active page). On context creation, attach listeners that accumulate console messages (ConsoleMessageRecord[]) and network requests (NetworkRequestRecord[], captured via page.on('request')/('response') or context.on) into ring-buffered arrays exposed via getters. Add a dialog-handler registration: a method to set the next-dialog disposition (accept/dismiss + optional promptText) that a page.on('dialog') handler consults. Add a helper to run a raw Playwright code snippet against the page (used by run_code_unsafe) confined here.",
+    "browser_tabs: new src/tools/tabs.ts. args { action: 'list'|'create'|'close'|'select', index?: number, url?: string }. Delegate to the new BrowserSession tab methods. Return a textResult listing tabs (index/title/url/active) for list, snapshotResult for create/select. CORE.",
+    "browser_handle_dialog: new src/tools/handle_dialog.ts. args { accept: boolean, promptText?: string }. Register the disposition on the session so the NEXT dialog is handled; return textResult confirming. Because dialogs are triggered by a subsequent action, the fixture test will set disposition then trigger a confirm() and assert the outcome. CORE.",
+    "browser_file_upload: new src/tools/file_upload.ts. args { paths: string[] }. Use page.waitForEvent('filechooser') coordination OR set files on a file input target; follow Playwright MCP semantics (respond to a pending file chooser). Provide args { element?, target?, paths }. If target is a file input, locator.setInputFiles(paths). CORE.",
+    "browser_take_screenshot: new src/tools/take_screenshot.ts. args { type?: 'png'|'jpeg'|'webp', fullPage?: boolean, element?, target?, filename?: string }. Capture via page.screenshot / locator.screenshot with the chosen type. Return an MCP image content block ({ type: 'image', data: base64, mimeType }) \u2014 extend shared.ts ToolResult content typing to allow an image block. Assert non-empty base64 in the test. CORE.",
+    "browser_console_messages: new src/tools/console_messages.ts. No args (optionally { onlyErrors?: boolean }). Return the accumulated ConsoleMessageRecord[] from the session as textResult. CORE.",
+    "browser_network_requests: new src/tools/network_requests.ts. No args. Return the accumulated NetworkRequestRecord[] (method/url/status) as textResult. CORE.",
+    "browser_network_request: new src/tools/network_request.ts. args { url: string } or { index: number } to select one recorded request; return its full detail (headers, status, resourceType). CORE.",
+    "browser_run_code_unsafe: new src/tools/run_code_unsafe.ts. args { code: string }. GUARD given the name: gate it behind an explicit config flag (e.g. config.allowUnsafeCode from LAYA_ALLOW_UNSAFE_CODE, default false) AND keep it CORE only in the sense of always-listed but refusing with a clear message when the flag is off. Execute the snippet via the browser boundary helper (new Function/page context) and return the result. Document the risk in the description. When the flag is off, return an isError textResult explaining it is disabled.",
+    "Register all in the registry (run_code_unsafe honoring its flag). Update ASSIST_TOOL_NAMES.",
+    "Tests in test/core-tools.test.ts (or a new test/core-lifecycle.test.ts): tabs creates a second tab and list shows 2 tabs; handle_dialog accept lets a confirm() proceed (assert the fixture's post-dialog DOM state) and dismiss cancels it; screenshot returns non-empty base64 image content of a fixture; console_messages captures a console.log a fixture fired on load; network_requests lists a request the fixture made (e.g. it fetches a same-origin resource); network_request returns detail for that request; file_upload sets a file on an input and the input reflects it; run_code_unsafe returns a value when enabled and refuses when disabled. Add fixtures (dialog.html, console.html, network.html, upload.html) that produce these literal outcomes offline."
+  ],
+  "acceptance_criteria": [
+    "BrowserSession manages multiple tabs and exposes console/network buffers + dialog disposition, all Playwright usage confined to src/browser.ts.",
+    "browser_tabs creates and lists a second tab.",
+    "browser_take_screenshot returns a non-empty base64 image content block.",
+    "browser_console_messages captures a console.log fired by a fixture.",
+    "browser_network_requests lists a request the fixture made; browser_network_request returns its detail.",
+    "browser_handle_dialog accept/dismiss produce the correct literal DOM outcomes.",
+    "browser_run_code_unsafe is gated by a config flag and refuses when disabled.",
+    "typecheck + build + full test suite green offline."
+  ],
+  "verification": [
+    "source ~/.nvm/nvm.sh && pnpm run typecheck",
+    "source ~/.nvm/nvm.sh && pnpm run build",
+    "source ~/.nvm/nvm.sh && pnpm run test"
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}

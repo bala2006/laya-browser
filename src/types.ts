@@ -151,3 +151,103 @@ export interface LayaDecisionEngine {
   /** Release any underlying model/session resources. */
   close(): Promise<void>;
 }
+
+/**
+ * A handle to one browser tab/page, as surfaced by the multi-tab tools.
+ *
+ * Pure data: the index is the tab's 0-based position in the session's tab list, and
+ * `active` marks the currently focused tab. Later features use this to list, select,
+ * and close tabs without leaking Playwright `Page` objects across the boundary.
+ */
+export interface TabInfo {
+  /** 0-based position of the tab in the session's ordered tab list. */
+  index: number;
+  /** The tab's document title. */
+  title: string;
+  /** The tab's current URL. */
+  url: string;
+  /** Whether this is the currently focused/active tab. */
+  active: boolean;
+}
+
+/**
+ * A recorded network request/response pair, as surfaced by the network capability tools.
+ *
+ * Pure data captured from Playwright request/response events. Headers are plain maps and
+ * the response fields are optional because a request may be pending or have failed.
+ */
+export interface NetworkRequestRecord {
+  /** Request URL. */
+  url: string;
+  /** HTTP method, e.g. `"GET"`, `"POST"`. */
+  method: string;
+  /** Playwright resource type, e.g. `"document"`, `"xhr"`, `"fetch"`, `"image"`. */
+  resourceType?: string;
+  /** Response HTTP status code, once the response has arrived. */
+  status?: number;
+  /** Response status text, once the response has arrived. */
+  statusText?: string;
+  /** Request headers as a plain map. */
+  requestHeaders?: Record<string, string>;
+  /** Response headers as a plain map, once the response has arrived. */
+  responseHeaders?: Record<string, string>;
+  /** Failure text when the request errored before completing. */
+  failure?: string;
+}
+
+/**
+ * A recorded console message, as surfaced by the console capability tools.
+ *
+ * Pure data captured from Playwright `console` events (plus uncaught page errors).
+ */
+export interface ConsoleMessageRecord {
+  /** Console level, e.g. `"log"`, `"info"`, `"warning"`, `"error"`, `"debug"`. */
+  type: string;
+  /** The rendered message text. */
+  text: string;
+  /** Optional source location `{ url, lineNumber, columnNumber }`. */
+  location?: {
+    url: string;
+    lineNumber?: number;
+    columnNumber?: number;
+  };
+}
+
+/**
+ * How a JavaScript dialog (`alert`/`confirm`/`prompt`/`beforeunload`) should be handled,
+ * registered ahead of the action that triggers it.
+ *
+ * Pure data: `accept` decides between accept and dismiss; `promptText` supplies the text
+ * for `prompt` dialogs when accepting.
+ */
+export interface DialogRecord {
+  /** Dialog kind, e.g. `"alert"`, `"confirm"`, `"prompt"`, `"beforeunload"`. */
+  type: string;
+  /** The dialog's message. */
+  message: string;
+  /** Whether the dialog was/should be accepted (vs. dismissed). */
+  accept: boolean;
+  /** Text entered for a `prompt` dialog when accepting. */
+  promptText?: string;
+}
+
+/**
+ * A route-mocking rule: requests matching `urlPattern` are fulfilled or aborted instead
+ * of hitting the network, as used by the network mocking capability tools.
+ *
+ * Pure data only; the matching/serving logic lives in the browser boundary layer.
+ */
+export interface RouteRule {
+  /** Glob or substring pattern matched against the request URL. */
+  urlPattern: string;
+  /** What to do with a matched request: serve a canned response or abort it. */
+  action: "fulfill" | "abort";
+  /** For `fulfill`: response HTTP status (default 200). */
+  status?: number;
+  /** For `fulfill`: response `Content-Type` and other headers as a plain map. */
+  headers?: Record<string, string>;
+  /** For `fulfill`: the response body. */
+  body?: string;
+  /** For `abort`: the Playwright error code to fail with (e.g. `"failed"`). */
+  errorCode?: string;
+}

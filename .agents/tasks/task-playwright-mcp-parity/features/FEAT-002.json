@@ -1,0 +1,34 @@
+{
+  "id": "FEAT-002",
+  "type": "feat",
+  "description": "CORE tool parity part A: element/page interaction + snapshot-derived tools. Add browser_navigate_back, browser_resize, browser_hover, browser_find (search the snapshot for text/regexp), browser_drag (drag+drop between two elements), browser_drop (drop files/MIME data onto an element), browser_fill_form (fill multiple fields at once), browser_evaluate (JS on page or element). Reconcile with existing tools rather than duplicating: reuse shared.ts (targetSchema/elementDescription/snapshotResult) and the snapshot Control[] for browser_find. All are CORE (always registered).",
+  "status": "pending",
+  "steps": [
+    "browser_navigate_back: new src/tools/navigate_back.ts. `await page.goBack({ waitUntil: 'domcontentloaded' })`, return snapshotResult. No args. Register as CORE.",
+    "browser_resize: new src/tools/resize.ts. args { width:number, height:number }; call page.setViewportSize; return snapshotResult. CORE.",
+    "browser_hover: new src/tools/hover.ts following click.ts EXACTLY (await getPage() before resolveRef!). args { element?, target }; locator.hover(); snapshotResult. CORE.",
+    "browser_find: new src/tools/find.ts. args { text?: string, regexp?: string } (require one). Capture a snapshot (import capture from ../snapshot.js via a page), then filter snapshot.controls whose name/value/role matches the text (case-insensitive substring) or the regexp; also scan visibleText. Return a textResult listing matching controls with their [ref=eN] so the client can act on them. This searches the SNAPSHOT, reusing Control[]; do not re-walk the DOM.",
+    "browser_drag: new src/tools/drag.ts. args { startElement?, startTarget, endElement?, endTarget }. await getPage(); resolve both refs; use sourceLocator.dragTo(targetLocator). snapshotResult. CORE.",
+    "browser_drop: new src/tools/drop.ts. args { element?, target, paths?: string[] (file paths to drop) OR data?: {mimeType, base64}[] }. Implement file drop via Playwright: dispatch a drop with a DataTransfer, or use locator.setInputFiles when the target is a file input; for MIME data use page.dispatchEvent. Keep the Playwright specifics inside the handler/browser boundary. Return snapshotResult or textResult. CORE.",
+    "browser_fill_form: new src/tools/fill_form.ts. args { fields: { element?, target, value: string, type?: 'textbox'|'checkbox'|'radio'|'combobox'|'slider' }[] }. await getPage() ONCE, then for each field resolve the ref and fill/check/select as appropriate (text -> fill; checkbox/radio -> setChecked/check; combobox -> selectOption). Return ONE snapshotResult after all fields. This is the batch multi-field fill the Autopilot will later reuse. CORE.",
+    "browser_evaluate: new src/tools/evaluate.ts. args { function: string (a JS function body/expression), element?, target? }. If target given, resolve the locator and call locator.evaluate(fn); else page.evaluate(fn). Return textResult with JSON.stringify of the result. Guard: wrap in try/catch, return isError on throw. CORE.",
+    "Register all new modules in the src/tools/index.ts registry as CORE. Update ASSIST_TOOL_NAMES.",
+    "Add offline vitest tests in a new test/core-tools.test.ts (real headless Chromium + fixtures, pattern from test/assist.test.ts): navigate_back changes the URL back; resize changes window.innerWidth (assert via page.evaluate); hover triggers a hover-driven DOM change on a fixture; find returns a ref for a known label; drag reorders/moves an element on a drag fixture; fill_form fills MULTIPLE fields in one call (assert each field's value); evaluate returns a computed value (e.g. 2+2 or document.title). Add fixtures as needed (e.g. test/fixtures/hover.html, drag.html, multi-field-form.html) with literal, observable outcomes. NO hollow tests."
+  ],
+  "acceptance_criteria": [
+    "All 8 tools implemented, each with inputSchema/makeHandler/definition, registered as CORE.",
+    "browser_fill_form fills multiple fields in a single call and the DOM reflects every field.",
+    "browser_navigate_back changes page.url() back to the prior page.",
+    "browser_find returns a snapshot ref for a matching label/text.",
+    "browser_evaluate returns a computed JS value.",
+    "New offline tests pass with literal assertions against real Chromium + fixtures; no reliance on live sites.",
+    "typecheck + build + full test suite green."
+  ],
+  "verification": [
+    "source ~/.nvm/nvm.sh && pnpm run typecheck",
+    "source ~/.nvm/nvm.sh && pnpm run build",
+    "source ~/.nvm/nvm.sh && pnpm run test"
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}

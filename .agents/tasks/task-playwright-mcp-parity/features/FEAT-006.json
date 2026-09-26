@@ -1,0 +1,27 @@
+{
+  "id": "FEAT-006",
+  "type": "feat",
+  "description": "Cross-browser support: make BrowserSession engine-driven (chromium | firefox | webkit) from config (LAYA_BROWSER, default chromium), preserving Chromium channel support (chrome/msedge). Confine the engine selection to src/browser.ts. Install Firefox+WebKit for a real smoke test on at least one non-Chromium engine while keeping the default offline suite fast.",
+  "status": "pending",
+  "steps": [
+    "In src/browser.ts import { chromium, firefox, webkit } from 'playwright' and add an `engine: 'chromium'|'firefox'|'webkit'` option to BrowserSessionOptions (default 'chromium'). In launch(), pick the browser type by engine; only pass `channel` for chromium (firefox/webkit have no channel). Keep everything else (viewport, timeouts, lazy launch, multi-tab, listeners) identical across engines.",
+    "In src/server.ts createServer, thread config.browserEngine into the BrowserSession options (browser: { engine: config.browserEngine, channel: config.channel, headless: config.headless, viewport: config.viewport }).",
+    "Install the non-Chromium engines needed for the smoke test: run `source ~/.nvm/nvm.sh && pnpm exec playwright install firefox webkit` (network is OPEN_INTERNET; they download).",
+    "Add test/cross-browser.test.ts that runs a SINGLE representative flow (navigate to login.html fixture, snapshot shows refs, type+click drives the form) on a non-Chromium engine \u2014 prefer firefox (usually the most reliable headless in Linux sandboxes); gate webkit behind an env flag or include it if it runs cleanly. Keep it to one or two smoke assertions so the default suite stays fast. If webkit cannot launch in the sandbox, gate that specific engine (describe.skipIf) and document why in findings; firefox must really run.",
+    "Confirm the default suite (chromium) is unaffected and still fast."
+  ],
+  "acceptance_criteria": [
+    "BrowserSession launches chromium, firefox, or webkit driven by config.browserEngine, with channel applied only to chromium.",
+    "A cross-browser smoke test drives the login fixture to its literal signed-in outcome on at least one non-Chromium engine (firefox), really launching that engine (not skipped).",
+    "The default (chromium) suite remains green and fast.",
+    "Any engine that cannot run in the sandbox is gated with a documented reason, not faked.",
+    "typecheck + build + full test suite green."
+  ],
+  "verification": [
+    "source ~/.nvm/nvm.sh && pnpm run typecheck",
+    "source ~/.nvm/nvm.sh && pnpm run build",
+    "source ~/.nvm/nvm.sh && pnpm run test"
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}

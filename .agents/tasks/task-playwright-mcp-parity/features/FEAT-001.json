@@ -1,0 +1,28 @@
+{
+  "id": "FEAT-001",
+  "type": "chore",
+  "description": "Environment baseline + capability-gating foundation. Confirm the existing green baseline, then introduce the capability-gating STRUCTURE the whole feature rests on: a LAYA_CAPS config list, a tool registry table (name -> {capability group, module}) replacing the flat modules array, and the pure shared data-shape types for the new tool groups. No new tools yet beyond wiring; this feature ends green with the existing 9 tools registered via the new registry and default caps = core.",
+  "status": "in_progress",
+  "steps": [
+    "Run `source ~/.nvm/nvm.sh && pnpm install` then `pnpm run typecheck`, `pnpm run build`, `pnpm run test` to confirm the baseline is green (currently 58 passed / 2 skipped).",
+    "In src/config.ts add capability support: a `Capability` union type ('network' | 'storage' | 'testing' | 'devtools' | 'pdf' | 'vision' | 'config'), a `capabilities: Capability[]` field on LayaBrowserConfig, parse from env var LAYA_CAPS (comma/space list, reuse parseList) with default = [] (core-only, mirroring Playwright's default of core), and a `browserEngine: 'chromium'|'firefox'|'webkit'` field parsed from LAYA_BROWSER (default 'chromium'). Document the new env vars in the file's header comment block alongside the existing ones. Add ConfigOverrides entries too.",
+    "In src/tools/shared.ts (or a new src/tools/registry.ts, keep it small and pure) define the capability-gating structure: a `ToolModule` shape ({ definition, makeHandler, inputSchema }) and a `RegisteredTool` = { module: ToolModule; capability?: Capability } where capability undefined means CORE (always registered). Model the registry as a table/array, NOT scattered if-caps conditionals.",
+    "Refactor src/tools/index.ts: build the registry array from the existing modules (all CORE for now), and change registerAssistTools to accept the enabled capability set and register a tool only when its capability is undefined (core) OR present in the enabled set. Keep ASSIST_TOOL_NAMES accurate (can derive it from the registry). Update src/server.ts createServer to pass config.capabilities into registerAssistTools.",
+    "In src/types.ts (keep it PURE) add the up-front shared data shapes the later groups need, designed as structures before any handler exists: a Tab handle model (e.g. TabInfo { index; title; url; active }), a NetworkRequestRecord ({ url; method; status?; resourceType?; requestHeaders?; responseHeaders?; ... }), a ConsoleMessageRecord ({ type; text; location? }), a DialogRecord/registration shape, and a RouteRule shape for mocking. These are pure data types only.",
+    "Verify: typecheck, build, and the full existing test suite still pass (the 9 tools must still register and behave identically under default core caps)."
+  ],
+  "acceptance_criteria": [
+    "`pnpm run typecheck` passes.",
+    "`pnpm run build` succeeds.",
+    "`pnpm run test` is fully green with the same pre-existing tests passing (no regressions).",
+    "config.ts parses LAYA_CAPS into a typed capabilities list (default empty = core-only) and LAYA_BROWSER into browserEngine (default chromium), with a unit assertion in an existing or new config test.",
+    "registerAssistTools registers core tools always and gates non-core tools by capability via a registry table (no scattered if-caps blocks)."
+  ],
+  "verification": [
+    "source ~/.nvm/nvm.sh && pnpm run typecheck",
+    "source ~/.nvm/nvm.sh && pnpm run build",
+    "source ~/.nvm/nvm.sh && pnpm run test"
+  ],
+  "blocked_reason": null,
+  "findings": "Baseline confirmed green (58 passed / 2 skipped, typecheck clean) before changes. Implemented capability-gating foundation: (1) src/config.ts gained a Capability union ('network'|'storage'|'testing'|'devtools'|'pdf'|'vision'|'config') plus exported CAPABILITIES/BROWSER_ENGINES arrays, a capabilities: Capability[] field parsed from LAYA_CAPS (reuses parseList, default [] core-only, unknown names dropped), and a browserEngine field parsed from LAYA_BROWSER (default 'chromium', invalid values fall back). Added ConfigOverrides entries and documented both env vars in the header comment. (2) New src/tools/registry.ts defines pure ToolModule and RegisteredTool = { module; capability? } shapes (capability undefined = CORE). (3) src/tools/index.ts refactored to a declarative REGISTRY array (all 8 existing tool modules CORE for now), with registerAssistTools(server, ctx, capabilities) registering a tool only when its capability is undefined or in the enabled set; ASSIST_TOOL_NAMES derived from the registry via assistToolNames(). (4) src/server.ts threads config.capabilities into registerAssistTools. (5) src/types.ts (kept PURE) gained TabInfo, NetworkRequestRecord, ConsoleMessageRecord, DialogRecord, RouteRule pure data shapes for later feature groups. Added test/config.test.ts (5 assertions) covering LAYA_CAPS/LAYA_BROWSER parsing, defaults, unknown-value handling, and override precedence. Final: typecheck clean, build emits dist, tests 63 passed / 2 skipped (no regressions). Note: index.ts previously registered 8 tool modules; run_goal/laya_run_goal is registered separately in server.ts (not part of the Assist registry), so the Assist toolset is 8 tools and the 9th is the Autopilot goal-runner."
+}

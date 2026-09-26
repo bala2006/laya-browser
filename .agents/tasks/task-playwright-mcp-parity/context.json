@@ -1,0 +1,27 @@
+{
+  "project_type": "TypeScript ESM MCP server (Node 22) = Playwright-MCP-superset Assist mode + local Laya Autopilot decision loop",
+  "language": "TypeScript (ESM, NodeNext, strict)",
+  "build_system": "pnpm + tsc. Node 22 via nvm: `source ~/.nvm/nvm.sh` then `corepack enable`. Package manager pnpm@10.",
+  "test_framework": "vitest run. Tests drive REAL headless Chromium against local HTML fixtures served over loopback http by test/helpers/fixture-server.ts (startFixtureServer). Offline. Real-weights Autopilot tests are gated behind LAYA_MODEL_DIR (describe.skipIf).",
+  "build_command": "source ~/.nvm/nvm.sh && pnpm run build   (tsc -p tsconfig.json)",
+  "test_command": "source ~/.nvm/nvm.sh && pnpm run test   (vitest run). Also: pnpm run typecheck (tsc --noEmit).",
+  "verification_instructions": "1) pnpm run typecheck must pass. 2) pnpm run build must emit dist. 3) pnpm run test must be fully green offline. Real-weights suite stays skipped when LAYA_MODEL_DIR unset. Each new tool must have an offline vitest test with a LITERAL outcome assertion against real Chromium + a fixture.",
+  "snapshot_or_generated_files": "None checked in. dist/ is build output (gitignored patterns exclude *.onnx etc). No snapshot test framework.",
+  "setup_instructions": "cd /projects/sandbox/laya-browser && source ~/.nvm/nvm.sh && corepack enable && pnpm install (already installed). Playwright Chromium preinstalled at /opt/playwright. Firefox/WebKit NOT installed: run `pnpm exec playwright install firefox webkit` if cross-browser tests need them.",
+  "environment_constraints": "Network OPEN_INTERNET (installs allowed). BUT the vitest suite MUST run OFFLINE against local fixtures only \u2014 never depend on live sites in the suite. Cross-browser: Chromium works headless out of the box; Firefox/WebKit require an explicit `pnpm exec playwright install firefox webkit` (they download). Keep the default offline run fast: gate non-Chromium engine tests or run them on one engine only.",
+  "contribution_requirements": "Branch feat/laya-browser-mcp (open PR #1). Commit locally with clear messages. DO NOT push, DO NOT create/modify PRs \u2014 the orchestrator does that. Never use em dashes in written content.",
+  "key_patterns": "Each Assist tool module (src/tools/*.ts) exports `inputSchema` (zod raw shape object), `makeHandler(ctx)` returning an async (args)=>ToolResult, and `definition = { name, description, inputSchema }`. Shared plumbing in src/tools/shared.ts: ToolContext { session: BrowserSession; allowedDomains? }, ToolResult, textResult(text,isError?), snapshotResult(ctx,header) (captures a fresh snapshot after mutating actions), elementDescription, targetSchema (a `target` is a snapshot ref eN OR a raw Playwright selector). Registration loop in src/tools/index.ts iterates a `modules` array calling server.registerTool. IMPORTANT prior bug lesson: ref-based tools MUST `await ctx.session.getPage()` BEFORE calling ctx.session.resolveRef (resolveRef is sync and throws if no page yet). Config parsed ONCE in src/config.ts from env+overrides into typed LayaBrowserConfig; no other module reads process.env for settings. src/types.ts is PURE (no playwright/onnx imports). Playwright confined to src/browser.ts + src/snapshot.ts. Decision is a discriminated union so illegal (operation,target) states are unrepresentable. Autopilot loop: snapshot -> buildState -> policySeed rule -> engine.decide (Laya narrow) -> confidence check -> escalate via MCP sampling -> execute(); DONE is independently verified against the final page.",
+  "relevant_files": [
+    "src/tools/shared.ts (tool plumbing to reuse)",
+    "src/tools/index.ts (registration loop + ASSIST_TOOL_NAMES; becomes a capability registry)",
+    "src/tools/navigate.ts, click.ts, type.ts, select_option.ts, press_key.ts, wait_for.ts, snapshot.ts, close.ts (existing tool patterns to reconcile with official variants)",
+    "src/browser.ts (BrowserSession: single Chromium page today; must gain multi-tab + Firefox/WebKit + dialog/console/network/route/storage boundary methods)",
+    "src/snapshot.ts (in-house accessibility snapshot; browser_find/verify_* reuse its Control[])",
+    "src/config.ts (add LAYA_CAPS capability list + LAYA_BROWSER engine + defaults)",
+    "src/server.ts (createServer wires registerAssistTools + laya_run_goal + sampler)",
+    "src/types.ts (PURE core shapes; broaden Operation union for Part 2; add Tab/NetworkRecord/Route/Dialog shapes)",
+    "src/autopilot/loop.ts (execute() switch to broaden), src/autopilot/policy.ts, src/laya/stub.ts, src/autopilot/escalation.ts (broaden operation set), src/state-builder.ts",
+    "test/assist.test.ts, test/autopilot.test.ts, test/helpers/fixture-server.ts, test/fixtures/*.html (patterns + new fixtures)"
+  ],
+  "directory_structure": "src/tools/ (Assist MCP tools, one module each + index registry). src/laya/ (engine.ts real ONNX engine, stub.ts StubEngine, index.ts createEngine factory + UnavailableEngine, goal.ts goal<->control heuristics). src/autopilot/ (loop.ts runGoal, policy.ts deterministic rules, escalation.ts MCP sampling). src/browser.ts, snapshot.ts, state-builder.ts, config.ts, safety.ts, server.ts, index.ts, types.ts. test/ (vitest + fixtures/ HTML + helpers/fixture-server.ts + benchmark/). docs/PLAN.md."
+}
