@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-26T20:13:13.335Z",
+  "generatedAt": "2026-09-26T20:21:39.715Z",
   "runs": 5,
   "warmupDiscarded": 1,
   "tasks": [
@@ -11,14 +11,14 @@
         "rate": 1,
         "passed": true,
         "medianMs": 154,
-        "p90Ms": 162,
+        "p90Ms": 156,
         "rt": 2
       },
       "playwright": {
         "rate": 1,
         "passed": true,
-        "medianMs": 435,
-        "p90Ms": 507,
+        "medianMs": 439,
+        "p90Ms": 457,
         "rt": 2
       },
       "autopilot": {
@@ -32,21 +32,21 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 200,
-        "p90Ms": 209,
+        "medianMs": 205,
+        "p90Ms": 211,
         "rt": 4
       },
       "playwright": {
         "rate": 1,
         "passed": true,
-        "medianMs": 966,
-        "p90Ms": 1022,
+        "medianMs": 1002,
+        "p90Ms": 1027,
         "rt": 4
       },
       "autopilot": {
         "rate": 1,
         "passed": true,
-        "medianMs": 235,
+        "medianMs": 237,
         "rt": 2
       }
     },
@@ -57,21 +57,21 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 308,
-        "p90Ms": 318,
+        "medianMs": 315,
+        "p90Ms": 321,
         "rt": 9
       },
       "playwright": {
         "rate": 1,
         "passed": true,
-        "medianMs": 1109,
-        "p90Ms": 1122,
+        "medianMs": 1110,
+        "p90Ms": 1144,
         "rt": 9
       },
       "autopilot": {
         "rate": 0,
         "passed": false,
-        "medianMs": 248,
+        "medianMs": 251,
         "rt": 3
       }
     },
@@ -82,15 +82,15 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 196,
-        "p90Ms": 200,
+        "medianMs": 191,
+        "p90Ms": 198,
         "rt": 4
       },
       "playwright": {
         "rate": 1,
         "passed": true,
-        "medianMs": 476,
-        "p90Ms": 547,
+        "medianMs": 466,
+        "p90Ms": 523,
         "rt": 4
       },
       "autopilot": {
@@ -104,15 +104,15 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 226,
-        "p90Ms": 233,
+        "medianMs": 224,
+        "p90Ms": 227,
         "rt": 4
       },
       "playwright": {
         "rate": 1,
         "passed": true,
-        "medianMs": 991,
-        "p90Ms": 1013,
+        "medianMs": 996,
+        "p90Ms": 1040,
         "rt": 4
       },
       "autopilot": {
@@ -127,14 +127,14 @@
         "rate": 1,
         "passed": true,
         "medianMs": 228,
-        "p90Ms": 240,
+        "p90Ms": 232,
         "rt": 4
       },
       "playwright": {
         "rate": 1,
         "passed": true,
-        "medianMs": 497,
-        "p90Ms": 515,
+        "medianMs": 515,
+        "p90Ms": 534,
         "rt": 4
       },
       "autopilot": {
@@ -148,15 +148,15 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 959,
-        "p90Ms": 965,
+        "medianMs": 965,
+        "p90Ms": 971,
         "rt": 3
       },
       "playwright": {
         "rate": 1,
         "passed": true,
-        "medianMs": 1215,
-        "p90Ms": 1243,
+        "medianMs": 1218,
+        "p90Ms": 1253,
         "rt": 3
       },
       "autopilot": {
@@ -170,15 +170,15 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 234,
-        "p90Ms": 246,
+        "medianMs": 247,
+        "p90Ms": 343,
         "rt": 5
       },
       "playwright": {
         "rate": 1,
         "passed": true,
-        "medianMs": 1021,
-        "p90Ms": 1067,
+        "medianMs": 1033,
+        "p90Ms": 1039,
         "rt": 5
       },
       "autopilot": {
@@ -192,15 +192,15 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 225,
-        "p90Ms": 230,
+        "medianMs": 230,
+        "p90Ms": 235,
         "rt": 6
       },
       "playwright": {
         "rate": 1,
         "passed": true,
-        "medianMs": 1020,
-        "p90Ms": 1037,
+        "medianMs": 983,
+        "p90Ms": 1070,
         "rt": 6
       },
       "autopilot": {
@@ -215,14 +215,14 @@
         "rate": 1,
         "passed": true,
         "medianMs": 152,
-        "p90Ms": 155,
+        "p90Ms": 153,
         "rt": 3
       },
       "playwright": {
         "rate": 1,
         "passed": true,
-        "medianMs": 449,
-        "p90Ms": 482,
+        "medianMs": 433,
+        "p90Ms": 479,
         "rt": 3
       },
       "autopilot": {
@@ -236,15 +236,15 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 151,
-        "p90Ms": 151,
+        "medianMs": 156,
+        "p90Ms": 163,
         "rt": 3
       },
       "playwright": {
         "rate": 1,
         "passed": true,
-        "medianMs": 434,
-        "p90Ms": 487,
+        "medianMs": 433,
+        "p90Ms": 463,
         "rt": 3
       },
       "autopilot": {
@@ -258,15 +258,15 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 192,
-        "p90Ms": 194,
+        "medianMs": 190,
+        "p90Ms": 197,
         "rt": 2
       },
       "playwright": {
         "rate": 1,
         "passed": true,
-        "medianMs": 449,
-        "p90Ms": 540,
+        "medianMs": 498,
+        "p90Ms": 500,
         "rt": 2
       },
       "autopilot": {
@@ -280,8 +280,8 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 223,
-        "p90Ms": 227,
+        "medianMs": 219,
+        "p90Ms": 235,
         "rt": 5
       },
       "playwright": {
@@ -299,8 +299,8 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 217,
-        "p90Ms": 227,
+        "medianMs": 234,
+        "p90Ms": 239,
         "rt": 5
       },
       "playwright": {
@@ -319,14 +319,14 @@
         "rate": 1,
         "passed": true,
         "medianMs": 157,
-        "p90Ms": 161,
+        "p90Ms": 160,
         "rt": 2
       },
       "playwright": {
         "rate": 1,
         "passed": true,
-        "medianMs": 937,
-        "p90Ms": 999,
+        "medianMs": 944,
+        "p90Ms": 962,
         "rt": 2
       },
       "autopilot": {
@@ -340,7 +340,7 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 210,
+        "medianMs": 205,
         "p90Ms": 211,
         "rt": 5
       },
@@ -464,67 +464,67 @@
     {
       "id": "nav-basic",
       "layaMs": 154,
-      "pwMs": 435
+      "pwMs": 439
     },
     {
       "id": "search-type-submit",
-      "layaMs": 200,
-      "pwMs": 966
+      "layaMs": 205,
+      "pwMs": 1002
     },
     {
       "id": "login-fill-form",
-      "layaMs": 308,
-      "pwMs": 1109
+      "layaMs": 315,
+      "pwMs": 1110
     },
     {
       "id": "select-option",
-      "layaMs": 196,
-      "pwMs": 476
+      "layaMs": 191,
+      "pwMs": 466
     },
     {
       "id": "click-button",
-      "layaMs": 226,
-      "pwMs": 991
+      "layaMs": 224,
+      "pwMs": 996
     },
     {
       "id": "hover-reveal",
       "layaMs": 228,
-      "pwMs": 497
+      "pwMs": 515
     },
     {
       "id": "wait-for-dynamic",
-      "layaMs": 959,
-      "pwMs": 1215
+      "layaMs": 965,
+      "pwMs": 1218
     },
     {
       "id": "tabs-open",
-      "layaMs": 234,
-      "pwMs": 1021
+      "layaMs": 247,
+      "pwMs": 1033
     },
     {
       "id": "dialog-confirm",
-      "layaMs": 225,
-      "pwMs": 1020
+      "layaMs": 230,
+      "pwMs": 983
     },
     {
       "id": "console-capture",
       "layaMs": 152,
-      "pwMs": 449
+      "pwMs": 433
     },
     {
       "id": "network-capture",
-      "layaMs": 151,
-      "pwMs": 434
+      "layaMs": 156,
+      "pwMs": 433
     },
     {
       "id": "screenshot",
-      "layaMs": 192,
-      "pwMs": 449
+      "layaMs": 190,
+      "pwMs": 498
     },
     {
       "id": "evaluate",
       "layaMs": 157,
-      "pwMs": 937
+      "pwMs": 944
     }
   ],
   "roundTripTasks": [
@@ -554,19 +554,19 @@
       "applicable": 16,
       "passed": 16,
       "rate": 1,
-      "medianMs": 214
+      "medianMs": 212
     },
     "playwright": {
       "applicable": 13,
       "passed": 13,
       "rate": 1,
-      "medianMs": 937
+      "medianMs": 944
     },
     "layaAutopilot": {
       "applicable": 2,
       "passed": 1,
       "rate": 0.5,
-      "medianMs": 242
+      "medianMs": 244
     }
   },
   "toolCounts": {

@@ -15,68 +15,68 @@
 <text x="48" y="56" font-size="10" text-anchor="end" fill="#64748b">2.0k</text>
 <rect x="65" y="266.136" width="32.53846153846154" height="17.864" fill="#0f766e" rx="2"/>
 <text x="81.26923076923077" y="263.136" font-size="9" text-anchor="middle" fill="#1e293b">154</text>
-<rect x="101.53846153846155" y="233.54" width="32.53846153846154" height="50.46" fill="#4338ca" rx="2"/>
-<text x="117.80769230769232" y="230.54" font-size="9" text-anchor="middle" fill="#1e293b">435</text>
+<rect x="101.53846153846155" y="233.076" width="32.53846153846154" height="50.924" fill="#4338ca" rx="2"/>
+<text x="117.80769230769232" y="230.076" font-size="9" text-anchor="middle" fill="#1e293b">439</text>
 <text x="99.53846153846155" y="298" font-size="10" text-anchor="end" fill="#1e293b" transform="rotate(-35 99.53846153846155 298)">nav-basic</text>
-<rect x="152.0769230769231" y="260.8" width="32.53846153846154" height="23.2" fill="#0f766e" rx="2"/>
-<text x="168.34615384615387" y="257.8" font-size="9" text-anchor="middle" fill="#1e293b">200</text>
-<rect x="188.61538461538464" y="171.94400000000002" width="32.53846153846154" height="112.056" fill="#4338ca" rx="2"/>
-<text x="204.88461538461542" y="168.94400000000002" font-size="9" text-anchor="middle" fill="#1e293b">966</text>
+<rect x="152.0769230769231" y="260.22" width="32.53846153846154" height="23.78" fill="#0f766e" rx="2"/>
+<text x="168.34615384615387" y="257.22" font-size="9" text-anchor="middle" fill="#1e293b">205</text>
+<rect x="188.61538461538464" y="167.768" width="32.53846153846154" height="116.232" fill="#4338ca" rx="2"/>
+<text x="204.88461538461542" y="164.768" font-size="9" text-anchor="middle" fill="#1e293b">1002</text>
 <text x="186.61538461538464" y="298" font-size="10" text-anchor="end" fill="#1e293b" transform="rotate(-35 186.61538461538464 298)">search-type-submit</text>
-<rect x="239.15384615384616" y="248.272" width="32.53846153846154" height="35.728" fill="#0f766e" rx="2"/>
-<text x="255.42307692307693" y="245.272" font-size="9" text-anchor="middle" fill="#1e293b">308</text>
-<rect x="275.6923076923077" y="155.356" width="32.53846153846154" height="128.644" fill="#4338ca" rx="2"/>
-<text x="291.96153846153845" y="152.356" font-size="9" text-anchor="middle" fill="#1e293b">1109</text>
+<rect x="239.15384615384616" y="247.46" width="32.53846153846154" height="36.54" fill="#0f766e" rx="2"/>
+<text x="255.42307692307693" y="244.46" font-size="9" text-anchor="middle" fill="#1e293b">315</text>
+<rect x="275.6923076923077" y="155.24" width="32.53846153846154" height="128.76" fill="#4338ca" rx="2"/>
+<text x="291.96153846153845" y="152.24" font-size="9" text-anchor="middle" fill="#1e293b">1110</text>
 <text x="273.6923076923077" y="298" font-size="10" text-anchor="end" fill="#1e293b" transform="rotate(-35 273.6923076923077 298)">login-fill-form</text>
-<rect x="326.2307692307692" y="261.264" width="32.53846153846154" height="22.736" fill="#0f766e" rx="2"/>
-<text x="342.5" y="258.264" font-size="9" text-anchor="middle" fill="#1e293b">196</text>
-<rect x="362.7692307692308" y="228.784" width="32.53846153846154" height="55.216" fill="#4338ca" rx="2"/>
-<text x="379.03846153846155" y="225.784" font-size="9" text-anchor="middle" fill="#1e293b">476</text>
+<rect x="326.2307692307692" y="261.844" width="32.53846153846154" height="22.156" fill="#0f766e" rx="2"/>
+<text x="342.5" y="258.844" font-size="9" text-anchor="middle" fill="#1e293b">191</text>
+<rect x="362.7692307692308" y="229.94400000000002" width="32.53846153846154" height="54.056" fill="#4338ca" rx="2"/>
+<text x="379.03846153846155" y="226.94400000000002" font-size="9" text-anchor="middle" fill="#1e293b">466</text>
 <text x="360.7692307692308" y="298" font-size="10" text-anchor="end" fill="#1e293b" transform="rotate(-35 360.7692307692308 298)">select-option</text>
-<rect x="413.3076923076923" y="257.784" width="32.53846153846154" height="26.216" fill="#0f766e" rx="2"/>
-<text x="429.5769230769231" y="254.784" font-size="9" text-anchor="middle" fill="#1e293b">226</text>
-<rect x="449.84615384615387" y="169.04399999999998" width="32.53846153846154" height="114.956" fill="#4338ca" rx="2"/>
-<text x="466.11538461538464" y="166.04399999999998" font-size="9" text-anchor="middle" fill="#1e293b">991</text>
+<rect x="413.3076923076923" y="258.016" width="32.53846153846154" height="25.984" fill="#0f766e" rx="2"/>
+<text x="429.5769230769231" y="255.01600000000002" font-size="9" text-anchor="middle" fill="#1e293b">224</text>
+<rect x="449.84615384615387" y="168.464" width="32.53846153846154" height="115.536" fill="#4338ca" rx="2"/>
+<text x="466.11538461538464" y="165.464" font-size="9" text-anchor="middle" fill="#1e293b">996</text>
 <text x="447.84615384615387" y="298" font-size="10" text-anchor="end" fill="#1e293b" transform="rotate(-35 447.84615384615387 298)">click-button</text>
 <rect x="500.3846153846154" y="257.552" width="32.53846153846154" height="26.448" fill="#0f766e" rx="2"/>
 <text x="516.6538461538462" y="254.55200000000002" font-size="9" text-anchor="middle" fill="#1e293b">228</text>
-<rect x="536.9230769230769" y="226.348" width="32.53846153846154" height="57.652" fill="#4338ca" rx="2"/>
-<text x="553.1923076923076" y="223.348" font-size="9" text-anchor="middle" fill="#1e293b">497</text>
+<rect x="536.9230769230769" y="224.26" width="32.53846153846154" height="59.74" fill="#4338ca" rx="2"/>
+<text x="553.1923076923076" y="221.26" font-size="9" text-anchor="middle" fill="#1e293b">515</text>
 <text x="534.9230769230769" y="298" font-size="10" text-anchor="end" fill="#1e293b" transform="rotate(-35 534.9230769230769 298)">hover-reveal</text>
-<rect x="587.4615384615385" y="172.756" width="32.53846153846154" height="111.244" fill="#0f766e" rx="2"/>
-<text x="603.7307692307692" y="169.756" font-size="9" text-anchor="middle" fill="#1e293b">959</text>
-<rect x="624" y="143.06" width="32.53846153846154" height="140.94" fill="#4338ca" rx="2"/>
-<text x="640.2692307692307" y="140.06" font-size="9" text-anchor="middle" fill="#1e293b">1215</text>
+<rect x="587.4615384615385" y="172.06" width="32.53846153846154" height="111.94" fill="#0f766e" rx="2"/>
+<text x="603.7307692307692" y="169.06" font-size="9" text-anchor="middle" fill="#1e293b">965</text>
+<rect x="624" y="142.712" width="32.53846153846154" height="141.288" fill="#4338ca" rx="2"/>
+<text x="640.2692307692307" y="139.712" font-size="9" text-anchor="middle" fill="#1e293b">1218</text>
 <text x="622" y="298" font-size="10" text-anchor="end" fill="#1e293b" transform="rotate(-35 622 298)">wait-for-dynamic</text>
-<rect x="674.5384615384615" y="256.856" width="32.53846153846154" height="27.144" fill="#0f766e" rx="2"/>
-<text x="690.8076923076923" y="253.856" font-size="9" text-anchor="middle" fill="#1e293b">234</text>
-<rect x="711.0769230769231" y="165.564" width="32.53846153846154" height="118.436" fill="#4338ca" rx="2"/>
-<text x="727.3461538461538" y="162.564" font-size="9" text-anchor="middle" fill="#1e293b">1021</text>
+<rect x="674.5384615384615" y="255.348" width="32.53846153846154" height="28.652" fill="#0f766e" rx="2"/>
+<text x="690.8076923076923" y="252.348" font-size="9" text-anchor="middle" fill="#1e293b">247</text>
+<rect x="711.0769230769231" y="164.172" width="32.53846153846154" height="119.828" fill="#4338ca" rx="2"/>
+<text x="727.3461538461538" y="161.172" font-size="9" text-anchor="middle" fill="#1e293b">1033</text>
 <text x="709.0769230769231" y="298" font-size="10" text-anchor="end" fill="#1e293b" transform="rotate(-35 709.0769230769231 298)">tabs-open</text>
-<rect x="761.6153846153846" y="257.9" width="32.53846153846154" height="26.1" fill="#0f766e" rx="2"/>
-<text x="777.8846153846154" y="254.89999999999998" font-size="9" text-anchor="middle" fill="#1e293b">225</text>
-<rect x="798.1538461538462" y="165.68" width="32.53846153846154" height="118.32" fill="#4338ca" rx="2"/>
-<text x="814.4230769230769" y="162.68" font-size="9" text-anchor="middle" fill="#1e293b">1020</text>
+<rect x="761.6153846153846" y="257.32" width="32.53846153846154" height="26.68" fill="#0f766e" rx="2"/>
+<text x="777.8846153846154" y="254.32" font-size="9" text-anchor="middle" fill="#1e293b">230</text>
+<rect x="798.1538461538462" y="169.97199999999998" width="32.53846153846154" height="114.028" fill="#4338ca" rx="2"/>
+<text x="814.4230769230769" y="166.97199999999998" font-size="9" text-anchor="middle" fill="#1e293b">983</text>
 <text x="796.1538461538462" y="298" font-size="10" text-anchor="end" fill="#1e293b" transform="rotate(-35 796.1538461538462 298)">dialog-confirm</text>
 <rect x="848.6923076923077" y="266.368" width="32.53846153846154" height="17.632" fill="#0f766e" rx="2"/>
 <text x="864.9615384615385" y="263.368" font-size="9" text-anchor="middle" fill="#1e293b">152</text>
-<rect x="885.2307692307693" y="231.916" width="32.53846153846154" height="52.084" fill="#4338ca" rx="2"/>
-<text x="901.5" y="228.916" font-size="9" text-anchor="middle" fill="#1e293b">449</text>
+<rect x="885.2307692307693" y="233.772" width="32.53846153846154" height="50.228" fill="#4338ca" rx="2"/>
+<text x="901.5" y="230.772" font-size="9" text-anchor="middle" fill="#1e293b">433</text>
 <text x="883.2307692307693" y="298" font-size="10" text-anchor="end" fill="#1e293b" transform="rotate(-35 883.2307692307693 298)">console-capture</text>
-<rect x="935.7692307692308" y="266.484" width="32.53846153846154" height="17.516" fill="#0f766e" rx="2"/>
-<text x="952.0384615384615" y="263.484" font-size="9" text-anchor="middle" fill="#1e293b">151</text>
-<rect x="972.3076923076924" y="233.656" width="32.53846153846154" height="50.344" fill="#4338ca" rx="2"/>
-<text x="988.5769230769231" y="230.656" font-size="9" text-anchor="middle" fill="#1e293b">434</text>
+<rect x="935.7692307692308" y="265.904" width="32.53846153846154" height="18.096" fill="#0f766e" rx="2"/>
+<text x="952.0384615384615" y="262.904" font-size="9" text-anchor="middle" fill="#1e293b">156</text>
+<rect x="972.3076923076924" y="233.772" width="32.53846153846154" height="50.228" fill="#4338ca" rx="2"/>
+<text x="988.5769230769231" y="230.772" font-size="9" text-anchor="middle" fill="#1e293b">433</text>
 <text x="970.3076923076924" y="298" font-size="10" text-anchor="end" fill="#1e293b" transform="rotate(-35 970.3076923076924 298)">network-capture</text>
-<rect x="1022.8461538461539" y="261.728" width="32.53846153846154" height="22.272" fill="#0f766e" rx="2"/>
-<text x="1039.1153846153848" y="258.728" font-size="9" text-anchor="middle" fill="#1e293b">192</text>
-<rect x="1059.3846153846155" y="231.916" width="32.53846153846154" height="52.084" fill="#4338ca" rx="2"/>
-<text x="1075.6538461538462" y="228.916" font-size="9" text-anchor="middle" fill="#1e293b">449</text>
+<rect x="1022.8461538461539" y="261.96" width="32.53846153846154" height="22.04" fill="#0f766e" rx="2"/>
+<text x="1039.1153846153848" y="258.96" font-size="9" text-anchor="middle" fill="#1e293b">190</text>
+<rect x="1059.3846153846155" y="226.232" width="32.53846153846154" height="57.768" fill="#4338ca" rx="2"/>
+<text x="1075.6538461538462" y="223.232" font-size="9" text-anchor="middle" fill="#1e293b">498</text>
 <text x="1057.3846153846155" y="298" font-size="10" text-anchor="end" fill="#1e293b" transform="rotate(-35 1057.3846153846155 298)">screenshot</text>
 <rect x="1109.923076923077" y="265.788" width="32.53846153846154" height="18.212" fill="#0f766e" rx="2"/>
 <text x="1126.1923076923076" y="262.788" font-size="9" text-anchor="middle" fill="#1e293b">157</text>
-<rect x="1146.4615384615383" y="175.308" width="32.53846153846154" height="108.692" fill="#4338ca" rx="2"/>
-<text x="1162.730769230769" y="172.308" font-size="9" text-anchor="middle" fill="#1e293b">937</text>
+<rect x="1146.4615384615383" y="174.49599999999998" width="32.53846153846154" height="109.504" fill="#4338ca" rx="2"/>
+<text x="1162.730769230769" y="171.49599999999998" font-size="9" text-anchor="middle" fill="#1e293b">944</text>
 <text x="1144.4615384615383" y="298" font-size="10" text-anchor="end" fill="#1e293b" transform="rotate(-35 1144.4615384615383 298)">evaluate</text>
 <rect x="56" y="351" width="11" height="11" fill="#0f766e" rx="2"/>
 <text x="72" y="360" font-size="11" fill="#1e293b">laya (Assist)</text>
