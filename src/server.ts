@@ -83,6 +83,7 @@ export function createServer(options: CreateServerOptions = {}): CreatedServer {
       session,
       allowedDomains: config.allowedDomains,
       allowUnsafeCode: config.allowUnsafeCode,
+      config,
     },
     config.capabilities,
   );

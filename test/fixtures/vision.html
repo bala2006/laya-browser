@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Vision fixture</title>
+    <style>
+      body { margin: 0; }
+      #target {
+        position: absolute;
+        left: 100px;
+        top: 100px;
+        width: 120px;
+        height: 60px;
+      }
+      #spacer { height: 3000px; }
+    </style>
+  </head>
+  <body>
+    <button id="target" onclick="clicked()">Click me</button>
+    <p id="status">not clicked</p>
+    <div id="spacer"></div>
+    <script>
+      function clicked() {
+        document.getElementById("status").textContent = "clicked";
+      }
+    </script>
+  </body>
+</html>

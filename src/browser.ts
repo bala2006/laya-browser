@@ -598,6 +598,120 @@ export class BrowserSession {
     await context.setOffline(offline);
   }
 
+  // --- PDF boundary (capability: pdf) ---
+
+  /**
+   * Render the active page to PDF via `page.pdf`. This is Chromium-only in Playwright (it
+   * uses the DevTools print-to-PDF path), so callers on Firefox/WebKit will get an error.
+   * When `path` is given the PDF is also written there; the bytes are always returned so a
+   * caller can inspect or persist them.
+   */
+  async pdf(path?: string): Promise<Buffer> {
+    const page = await this.getPage();
+    return page.pdf(path ? { path } : {});
+  }
+
+  // --- Vision / raw mouse boundary (capability: vision) ---
+
+  /** Move the mouse to absolute page coordinates. */
+  async mouseMove(x: number, y: number): Promise<void> {
+    const page = await this.getPage();
+    await page.mouse.move(x, y);
+  }
+
+  /** Move to coordinates and click there with the given button (default left). */
+  async mouseClick(
+    x: number,
+    y: number,
+    button: "left" | "right" | "middle" = "left",
+  ): Promise<void> {
+    const page = await this.getPage();
+    await page.mouse.move(x, y);
+    await page.mouse.click(x, y, { button });
+  }
+
+  /** Press-and-hold the given mouse button at the current cursor position. */
+  async mouseDown(button: "left" | "right" | "middle" = "left"): Promise<void> {
+    const page = await this.getPage();
+    await page.mouse.down({ button });
+  }
+
+  /** Release the given mouse button at the current cursor position. */
+  async mouseUp(button: "left" | "right" | "middle" = "left"): Promise<void> {
+    const page = await this.getPage();
+    await page.mouse.up({ button });
+  }
+
+  /** Drag from a start coordinate to an end coordinate via down -> move -> up. */
+  async mouseDrag(
+    startX: number,
+    startY: number,
+    endX: number,
+    endY: number,
+  ): Promise<void> {
+    const page = await this.getPage();
+    await page.mouse.move(startX, startY);
+    await page.mouse.down();
+    // An intermediate move makes drag handlers that watch for movement fire reliably.
+    await page.mouse.move(endX, endY, { steps: 8 });
+    await page.mouse.up();
+  }
+
+  /** Scroll the page by a wheel delta. */
+  async mouseWheel(deltaX: number, deltaY: number): Promise<void> {
+    const page = await this.getPage();
+    await page.mouse.wheel(deltaX, deltaY);
+  }
+
+  // --- DevTools boundary (capability: devtools) ---
+
+  /**
+   * Start Playwright tracing on the context (screenshots + snapshots + sources). The trace
+   * is finalised and written to a zip by {@link stopTracing}.
+   */
+  async startTracing(): Promise<void> {
+    const context = await this.getContext();
+    await context.tracing.start({ screenshots: true, snapshots: true, sources: true });
+  }
+
+  /** Stop tracing and write the trace zip to `path`. */
+  async stopTracing(path: string): Promise<void> {
+    const context = await this.getContext();
+    await context.tracing.stop({ path });
+  }
+
+  /**
+   * Draw a visible outline around the element resolved from a ref/selector, via an injected
+   * inline style. Returns false when the element cannot be found. This is a real,
+   * evaluate-based highlight (the headless analogue of the codegen inspector overlay).
+   */
+  async highlight(target: string): Promise<boolean> {
+    await this.getPage();
+    const locator = this.resolveRef(target);
+    const count = await locator.count();
+    if (count === 0) return false;
+    await locator.first().evaluate((el) => {
+      const he = el as HTMLElement;
+      he.setAttribute("data-laya-highlight-prev", he.style.outline || "");
+      he.style.outline = "3px solid #ff00ff";
+      he.style.outlineOffset = "1px";
+    });
+    return true;
+  }
+
+  /** Remove any outline previously added by {@link highlight} across the page. */
+  async hideHighlight(): Promise<void> {
+    const page = await this.getPage();
+    await page.evaluate(() => {
+      const marked = document.querySelectorAll("[data-laya-highlight-prev]");
+      for (const el of Array.from(marked)) {
+        const he = el as HTMLElement;
+        he.style.outline = he.getAttribute("data-laya-highlight-prev") ?? "";
+        he.removeAttribute("data-laya-highlight-prev");
+      }
+    });
+  }
+
   /**
    * Run a raw Playwright snippet against the active page. The snippet is compiled as an
    * async function body receiving the `page` object, so callers can express arbitrary

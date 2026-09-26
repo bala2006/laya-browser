@@ -7,12 +7,19 @@
  */
 import { z } from "zod";
 import type { BrowserSession } from "../browser.js";
+import type { LayaBrowserConfig } from "../config.js";
 import { capture } from "../snapshot.js";
 
 /** The context handed to every Assist tool handler. */
 export interface ToolContext {
   /** The shared browser session all tools act on. */
   session: BrowserSession;
+  /**
+   * The resolved, typed configuration. Threaded inward so tools such as
+   * `browser_get_config` can report the effective settings without re-reading the
+   * environment. Optional so lightweight test contexts can omit it.
+   */
+  config?: LayaBrowserConfig;
   /**
    * Domain allow-list applied to navigating tools (e.g. `browser_navigate`). When
    * non-empty, navigation to a host not on the list is rejected. Empty means allow all.

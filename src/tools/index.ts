@@ -42,6 +42,11 @@ import * as localStorageTools from "./localstorage.js";
 import * as sessionStorageTools from "./sessionstorage.js";
 import * as storageState from "./storage_state.js";
 import * as route from "./route.js";
+import * as testing from "./testing.js";
+import * as pdf from "./pdf.js";
+import * as vision from "./vision.js";
+import * as getConfig from "./get_config.js";
+import * as devtools from "./devtools.js";
 
 /**
  * The full Assist toolset as a capability-gating table. Every entry today is CORE
@@ -99,6 +104,42 @@ export const REGISTRY: readonly RegisteredTool[] = [
   { module: route.listModule, capability: "network" },
   { module: route.unrouteModule, capability: "network" },
   { module: route.networkStateModule, capability: "network" },
+
+  // TESTING capability group: locator generation + verify_* assertions.
+  { module: testing.generateLocatorModule, capability: "testing" },
+  { module: testing.verifyElementVisibleModule, capability: "testing" },
+  { module: testing.verifyTextVisibleModule, capability: "testing" },
+  { module: testing.verifyListVisibleModule, capability: "testing" },
+  { module: testing.verifyValueModule, capability: "testing" },
+
+  // PDF capability group: save the page as a PDF (Chromium-only).
+  { module: pdf as unknown as ToolModule, capability: "pdf" },
+
+  // VISION capability group: coordinate-based mouse primitives.
+  { module: vision.moveModule, capability: "vision" },
+  { module: vision.clickModule, capability: "vision" },
+  { module: vision.dragModule, capability: "vision" },
+  { module: vision.downModule, capability: "vision" },
+  { module: vision.upModule, capability: "vision" },
+  { module: vision.wheelModule, capability: "vision" },
+
+  // CONFIG capability group: report the resolved configuration.
+  { module: getConfig as unknown as ToolModule, capability: "config" },
+
+  // DEVTOOLS capability group: real tracing + highlight, honest no-ops for codegen/video.
+  { module: devtools.startTracingModule, capability: "devtools" },
+  { module: devtools.stopTracingModule, capability: "devtools" },
+  { module: devtools.highlightModule, capability: "devtools" },
+  { module: devtools.hideHighlightModule, capability: "devtools" },
+  { module: devtools.startVideoModule, capability: "devtools" },
+  { module: devtools.stopVideoModule, capability: "devtools" },
+  { module: devtools.videoChapterModule, capability: "devtools" },
+  { module: devtools.videoShowActionsModule, capability: "devtools" },
+  { module: devtools.videoHideActionsModule, capability: "devtools" },
+  { module: devtools.startRecordingModule, capability: "devtools" },
+  { module: devtools.stopRecordingModule, capability: "devtools" },
+  { module: devtools.annotateModule, capability: "devtools" },
+  { module: devtools.resumeModule, capability: "devtools" },
 ];
 
 /** Whether a registry entry is enabled given the set of enabled capabilities. */
