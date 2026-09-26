@@ -378,6 +378,13 @@ function domWalk(visibleTextLimit: number): unknown {
       if (txt) control.value = txt;
     } else if (tag === "button" || role === "button") {
       const btn = el as HTMLButtonElement;
+      // Capture the button's type so submit controls are recognizable even when their
+      // accessible name is terse (e.g. DuckDuckGo's `<button type="submit">b</button>`).
+      // A <button> with no explicit type defaults to "submit" per the HTML spec.
+      if (tag === "button") {
+        const rawType = btn.getAttribute("type");
+        control.type = (rawType ?? "submit").toLowerCase();
+      }
       if (btn.disabled) control.disabled = true;
     }
 

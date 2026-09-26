@@ -60,7 +60,7 @@ export class StubEngine implements LayaDecisionEngine {
     // 2. Fill the first goal-implied field that is still empty.
     for (const c of state.controls) {
       if (!isTextField(c)) continue;
-      const value = fieldValueFromGoal(c, state.goal);
+      const value = fieldValueFromGoal(c, state.goal, state.controls);
       if (value === undefined) continue;
       const current = (c.value ?? "").trim();
       if (current === value.trim()) continue; // already filled
@@ -76,7 +76,7 @@ export class StubEngine implements LayaDecisionEngine {
 
     // 3. All goal-implied fields filled -> click the submit/search control.
     const anyGoalField = state.controls.some(
-      (c) => isTextField(c) && fieldValueFromGoal(c, state.goal) !== undefined,
+      (c) => isTextField(c) && fieldValueFromGoal(c, state.goal, state.controls) !== undefined,
     );
     if (anyGoalField) {
       const submit = state.controls.find(isSubmitControl);

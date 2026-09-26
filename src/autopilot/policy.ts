@@ -98,7 +98,7 @@ export function policySeed(state: PageState): PolicySeed | undefined {
   for (const c of state.controls) {
     if (!isChoiceControl(c)) continue;
     if (!lastActionTouched(state, c.ref)) continue;
-    const value = fieldValueFromGoal(c, state.goal);
+    const value = fieldValueFromGoal(c, state.goal, state.controls);
     if (value === undefined) continue;
     const current = (c.value ?? "").trim();
     if (current === value.trim()) continue;
@@ -118,7 +118,7 @@ export function policySeed(state: PageState): PolicySeed | undefined {
   // Rule 1: fill the first goal-implied field that is still empty.
   for (const c of state.controls) {
     if (!isTextField(c)) continue;
-    const value = fieldValueFromGoal(c, state.goal);
+    const value = fieldValueFromGoal(c, state.goal, state.controls);
     if (value === undefined) continue;
     const current = (c.value ?? "").trim();
     if (current === value.trim()) continue; // already filled
@@ -135,16 +135,32 @@ export function policySeed(state: PageState): PolicySeed | undefined {
     };
   }
 
-  // Rule 3: once every goal-stated field is filled, submit.
-  const goalFields = state.controls.filter(
-    (c) => isTextField(c) && fieldValueFromGoal(c, state.goal) !== undefined,
-  );
-  const allFilled =
-    goalFields.length > 0 &&
-    goalFields.every((c) => (c.value ?? "").trim() === (fieldValueFromGoal(c, state.goal) ?? "").trim());
-  if (allFilled) {
-    const submit = state.controls.find(isSubmitControl);
-    if (submit) {
+  // Rule 3: submit once the goal's fields are filled.
+  //
+  // This is deliberately robust so that a low-confidence run (where typing was driven by the
+  // model/LLM rather than Rule 1) still progresses to a CLICK instead of re-typing forever:
+  //
+  //   (a) every goal-stated field that DID map to a control is already filled, OR
+  //   (b) the goal has search intent and the plausible search field already holds the
+  //       goal's search value,
+  // and in either case a submit control exists.
+  //
+  // Because Rule 1 runs first and returns as soon as any goal field is still empty, reaching
+  // this point already implies no goal-mapped field is unfilled — so submitting here never
+  // races ahead of filling.
+  const submit = state.controls.find(isSubmitControl);
+  if (submit) {
+    const goalFields = state.controls.filter(
+      (c) => isTextField(c) && fieldValueFromGoal(c, state.goal, state.controls) !== undefined,
+    );
+    const allMappedFilled =
+      goalFields.length > 0 &&
+      goalFields.every(
+        (c) =>
+          (c.value ?? "").trim() ===
+          (fieldValueFromGoal(c, state.goal, state.controls) ?? "").trim(),
+      );
+    if (allMappedFilled) {
       return {
         decision: {
           operation: "CLICK",
@@ -175,7 +191,7 @@ export function refineWithGoalValue(decision: Decision, state: PageState): Decis
   if (decision.value !== undefined) return decision;
   const control = state.controls.find((c) => c.ref === decision.target);
   if (!control) return decision;
-  const value = fieldValueFromGoal(control, state.goal);
+  const value = fieldValueFromGoal(control, state.goal, state.controls);
   if (value === undefined) return decision;
   return { ...decision, value };
 }

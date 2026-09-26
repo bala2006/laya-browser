@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>DuckDuckGo</title>
+  </head>
+  <body>
+    <!--
+      Mirrors DuckDuckGo's html.duckduckgo.com/html/ terse naming: the text input's
+      accessible name is "q" (no friendly label matching the goal wording), and the submit
+      control's accessible name is "b" with type="submit". Clicking submit reveals a visible
+      results marker and updates document.title, mirroring search-form.html's behaviour.
+    -->
+    <form id="search" onsubmit="return false;">
+      <input id="q" name="q" type="text" aria-label="q" placeholder="Search the web" />
+      <button id="b" name="b" type="submit" aria-label="b" onclick="runSearch()">b</button>
+    </form>
+
+    <div id="results" aria-live="polite"></div>
+
+    <script>
+      function runSearch() {
+        const q = document.getElementById("q").value.trim();
+        const results = document.getElementById("results");
+        if (q) {
+          results.textContent = "Showing results for " + q;
+          document.title = "Results for " + q;
+        } else {
+          results.textContent = "Please enter a search term.";
+        }
+      }
+    </script>
+  </body>
+</html>

@@ -63,33 +63,85 @@ function controlTokens(c: Control): string[] {
     .flatMap((t) => t.split(" "));
 }
 
+/** Whether a control is an editable text-like field (input/textarea/textbox/searchbox). */
+function isEditableTextLike(c: Control): boolean {
+  if (!c.editable) return false;
+  return (
+    c.role === "textbox" ||
+    c.role === "searchbox" ||
+    c.tag === "input" ||
+    c.tag === "textarea"
+  );
+}
+
+/** Whether a control is explicitly typed/roled as a search field. */
+function isSearchField(c: Control): boolean {
+  return c.role === "searchbox" || norm(c.type ?? "") === "search";
+}
+
+/** Whether an assignment key matches a control by name/type/role tokens (either direction). */
+function keyMatchesControl(key: string, tokens: Set<string>): boolean {
+  const keyTokens = key.split(" ").filter(Boolean);
+  return keyTokens.some(
+    (kt) => tokens.has(kt) || [...tokens].some((t) => t.includes(kt) || kt.includes(t)),
+  );
+}
+
 /**
  * The value the goal implies for a given field control, if any.
  *
  * Matches the field's name/type against the goal's assignment keys (either direction of
  * containment), so `email is a@b.com` fills a field named "Email" and `search for "x"`
  * fills a field named/typed "search".
+ *
+ * SEARCH-INTENT FALLBACK: when the goal expresses a search intent (the `search for "..."`
+ * phrasing, i.e. the assignment key `search`) and no field matches by name/token, this
+ * falls back to the single most plausible search field — a control explicitly typed/roled
+ * as "search", or (only when exactly ONE editable text-like field exists on the page) that
+ * sole field. This is deliberately conservative: on a multi-field form (e.g. email +
+ * password) with no name match, the fallback does NOT fire, so a value is never dumped into
+ * an arbitrary field. Pass the page's full control list via `allControls` to enable it.
  */
-export function fieldValueFromGoal(c: Control, goal: string): string | undefined {
+export function fieldValueFromGoal(
+  c: Control,
+  goal: string,
+  allControls?: readonly Control[],
+): string | undefined {
   const assignments = goalAssignments(goal);
   if (assignments.size === 0) return undefined;
   const tokens = new Set(controlTokens(c));
 
   for (const [key, value] of assignments) {
-    const keyTokens = key.split(" ").filter(Boolean);
-    // A key matches if any of its tokens is one of the control's tokens, or vice versa.
-    const matches = keyTokens.some(
-      (kt) => tokens.has(kt) || [...tokens].some((t) => t.includes(kt) || kt.includes(t)),
-    );
-    if (matches) return value;
+    if (keyMatchesControl(key, tokens)) return value;
   }
+
+  // Search-intent fallback: only for the `search` assignment key, only when nothing on the
+  // page matched it by name/token, and only for a plausible sole/typed search field.
+  const searchValue = assignments.get("search");
+  if (searchValue !== undefined && allControls !== undefined) {
+    const anyNameMatch = allControls.some((other) =>
+      keyMatchesControl("search", new Set(controlTokens(other))),
+    );
+    if (!anyNameMatch) {
+      if (isSearchField(c)) return searchValue;
+      const textFields = allControls.filter(isEditableTextLike);
+      if (textFields.length === 1 && textFields[0]?.ref === c.ref) {
+        return searchValue;
+      }
+    }
+  }
+
   return undefined;
 }
 
 /** Whether a control looks like a submit/search/continue trigger. */
 export function isSubmitControl(c: Control): boolean {
   if (c.disabled) return false;
-  const isButton = c.role === "button" || c.tag === "button" || c.type === "submit";
+  // An explicit submit control (`<button type="submit">` / `<input type="submit">`) is a
+  // submit control regardless of its accessible name — e.g. DuckDuckGo's button is named
+  // "b" but is `type="submit"`.
+  if (c.type === "submit") return true;
+  const isButton = c.role === "button" || c.tag === "button";
   if (!isButton) return false;
   const name = norm(c.name);
   return /(submit|search|sign in|log in|login|continue|next|go|apply|save|send|find)/.test(
@@ -109,6 +161,14 @@ export function goalSuccessMarkers(goal: string): string[] {
   let m: RegExpExecArray | null;
   while ((m = re.exec(goal)) !== null) {
     if (m[1]) markers.push(m[1].trim());
+  }
+  // Fallback: when no explicit marker is declared but the goal is a search
+  // (`search for "x"`), treat the searched-for value being echoed on the page as the
+  // success marker. This lets bare `search for "laptop"` goals be verified without an
+  // explicit `expect "..."`, matching how a search result page echoes the query.
+  if (markers.length === 0) {
+    const search = goalAssignments(goal).get("search");
+    if (search) markers.push(search);
   }
   return markers;
 }

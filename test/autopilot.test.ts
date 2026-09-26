@@ -4,6 +4,7 @@ import { StubEngine, UnavailableEngine, createEngine } from "../src/laya/index.j
 import * as runGoalTool from "../src/tools/run_goal.js";
 import { runGoal } from "../src/autopilot/loop.js";
 import { buildState, RECOMMENDED_MAX_OPTIONS } from "../src/state-builder.js";
+import { fieldValueFromGoal, isSubmitControl } from "../src/laya/goal.js";
 import type { Snapshot } from "../src/snapshot.js";
 import type { Control, LayaDecisionEngine } from "../src/types.js";
 import { asRef } from "../src/types.js";
@@ -65,6 +66,103 @@ describe("state-builder limits", () => {
   });
 });
 
+describe("goal <-> control heuristics", () => {
+  it("recognizes an explicit type=submit control regardless of its terse name (Bug 2)", () => {
+    // DuckDuckGo's submit button is named "b" but has type="submit".
+    const submit: Control = {
+      ref: asRef("e2"),
+      index: 2,
+      role: "button",
+      name: "b",
+      tag: "button",
+      type: "submit",
+      editable: false,
+    };
+    expect(isSubmitControl(submit)).toBe(true);
+
+    // A non-submit control (type button) named "b" is NOT a submit control.
+    const notSubmit: Control = {
+      ref: asRef("e3"),
+      index: 3,
+      role: "button",
+      name: "b",
+      tag: "button",
+      type: "button",
+      editable: false,
+    };
+    expect(isSubmitControl(notSubmit)).toBe(false);
+
+    // Existing keyword-name matching still works for a plain non-submit button.
+    const namedSearch: Control = {
+      ref: asRef("e4"),
+      index: 4,
+      role: "button",
+      name: "Search",
+      tag: "button",
+      type: "button",
+      editable: false,
+    };
+    expect(isSubmitControl(namedSearch)).toBe(true);
+  });
+
+  it("falls back to the sole text field for a search-intent goal that matches no name (Bug 1)", () => {
+    // DuckDuckGo's field is named "q" — the goal wording "search" matches nothing by name.
+    const field: Control = {
+      ref: asRef("e1"),
+      index: 1,
+      role: "textbox",
+      name: "q",
+      tag: "input",
+      type: "text",
+      editable: true,
+    };
+    const controls = [field];
+    // Without the page context, no fallback (preserves the conservative default).
+    expect(fieldValueFromGoal(field, 'search for "laptop"')).toBeUndefined();
+    // With the page context and a single editable text field, fall back to it.
+    expect(fieldValueFromGoal(field, 'search for "laptop"', controls)).toBe("laptop");
+  });
+
+  it("does NOT mis-fill a multi-field form via the sole-field fallback (Bug 1 guard)", () => {
+    // Two editable text-like fields, neither matching a search-intent goal by name.
+    const email: Control = {
+      ref: asRef("e1"),
+      index: 1,
+      role: "textbox",
+      name: "email",
+      tag: "input",
+      type: "text",
+      editable: true,
+    };
+    const other: Control = {
+      ref: asRef("e2"),
+      index: 2,
+      role: "textbox",
+      name: "code",
+      tag: "input",
+      type: "text",
+      editable: true,
+    };
+    const controls = [email, other];
+    // The sole-field fallback must NOT fire: no value dumped into an arbitrary field.
+    expect(fieldValueFromGoal(email, 'search for "laptop"', controls)).toBeUndefined();
+    expect(fieldValueFromGoal(other, 'search for "laptop"', controls)).toBeUndefined();
+  });
+
+  it("still matches by name when the goal names the field (unchanged behavior)", () => {
+    const search: Control = {
+      ref: asRef("e1"),
+      index: 1,
+      role: "searchbox",
+      name: "Search",
+      tag: "input",
+      type: "search",
+      editable: true,
+    };
+    expect(fieldValueFromGoal(search, 'search for "laptop"', [search])).toBe("laptop");
+  });
+});
+
 describe("createEngine factory", () => {
   it("returns the stub when explicitly selected via config", async () => {
     const engine = await createEngine({ engine: "stub" });
@@ -118,6 +216,33 @@ describe("Autopilot loop with the StubEngine (real headless chromium, no weights
     const page = await session.getPage();
     expect(await page.locator("#results").textContent()).toBe("Showing results for laptops");
     expect(await page.title()).toBe("Results for laptops");
+  });
+
+  it("drives a DuckDuckGo-terse form (field 'q', submit 'b') to a verified result", async () => {
+    // Regression for Bugs 1+2+3 combined: the field is named "q" (no friendly label) and the
+    // submit control is named "b" with type="submit". The loop must (Bug 1) fall back to the
+    // sole text field, (Bug 2) recognize the type=submit button, and (Bug 3) CLICK submit
+    // after the query is typed rather than re-typing forever.
+    const engine = new StubEngine();
+    const result = await runGoal({
+      goal: 'search for "laptop"',
+      session,
+      engine,
+      url: fixtures.url("search-terse.html"),
+    });
+
+    expect(result.outcome).toBe("done");
+    expect(result.verification.checked).toBe(true);
+    expect(result.verification.verified).toBe(true);
+
+    const typed = result.transcript.find((s) => s.operation === "TYPE_TEXT");
+    expect(typed?.value).toBe("laptop");
+    expect(result.transcript.some((s) => s.operation === "CLICK")).toBe(true);
+
+    // The real DOM literally shows the results marker.
+    const page = await session.getPage();
+    expect(await page.locator("#results").textContent()).toBe("Showing results for laptop");
+    expect(await page.title()).toBe("Results for laptop");
   });
 
   it("returns a structured RunResult reaching DONE with a verified marker", async () => {

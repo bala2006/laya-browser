@@ -145,7 +145,7 @@ function resolveValue(
   if (decision.value !== undefined) return decision.value;
   const control = findControl(state, decision.target);
   if (!control) return undefined;
-  return fieldValueFromGoal(control, state.goal);
+  return fieldValueFromGoal(control, state.goal, state.controls);
 }
 
 /** Run an independent verification of the final page against the goal's markers. */
