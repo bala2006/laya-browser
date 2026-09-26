@@ -20,7 +20,7 @@
  */
 import { BrowserSession } from "../../src/browser.js";
 import { runGoal, type RunResult, type StepRecord } from "../../src/autopilot/loop.js";
-import type { LayaDecisionEngine, Operation } from "../../src/types.js";
+import type { DecisionSource, LayaDecisionEngine, Operation } from "../../src/types.js";
 import { startFixtureServer, type FixtureServer } from "../helpers/fixture-server.js";
 
 /** One benchmark case: a fixture + goal + the operation sequence a correct run should take. */
@@ -55,6 +55,16 @@ export const BENCH_CASES: BenchCase[] = [
     goal: 'email is "user@example.com" and expect "Signed in as user@example.com"',
     expectedOps: ["TYPE_TEXT", "CLICK"],
   },
+  {
+    name: "login-multi",
+    fixture: "login.html",
+    // A TWO-field goal: with the Part 2 batch rule this resolves in one FILL_FORM + one
+    // CLICK instead of TYPE_TEXT + TYPE_TEXT + CLICK. See test/autopilot-part2.test.ts for
+    // the step-count assertion.
+    goal:
+      'email is "user@example.com" and password is "hunter2" and expect "Signed in as user@example.com"',
+    expectedOps: ["FILL_FORM", "CLICK"],
+  },
 ];
 
 /** The per-case result of a benchmark run. */
@@ -74,6 +84,21 @@ export interface BenchResult {
   steps: number;
   /** The executed operations, for reporting. */
   executedOps: Operation[];
+  /**
+   * How each step was resolved: counts of steps whose decision came from a deterministic
+   * `rule`, the local `laya`/`stub` engine, or an `llm` escalation. This is the faster-
+   * automation breakdown: more `rule`/`stub` steps mean fewer remote round-trips.
+   */
+  sourceCounts: Record<DecisionSource, number>;
+  /** Wall-clock milliseconds for the run. */
+  wallMs: number;
+}
+
+/** Count how each step's decision was resolved (rule / laya / stub / llm). */
+function countSources(transcript: StepRecord[]): Record<DecisionSource, number> {
+  const counts: Record<DecisionSource, number> = { rule: 0, laya: 0, stub: 0, llm: 0 };
+  for (const s of transcript) counts[s.source]++;
+  return counts;
 }
 
 /**
@@ -121,6 +146,7 @@ export async function runBenchmark(
   try {
     for (const c of cases) {
       const engine = options.makeEngine();
+      const startedAt = Date.now();
       const result = await runGoal({
         goal: c.goal,
         session,
@@ -128,6 +154,7 @@ export async function runBenchmark(
         url: fixtures.url(c.fixture),
         maxSteps,
       });
+      const wallMs = Date.now() - startedAt;
       await engine.close().catch(() => {});
       results.push({
         name: c.name,
@@ -137,6 +164,8 @@ export async function runBenchmark(
         opsCoverage: opsCoverage(result.transcript, c.expectedOps),
         steps: result.transcript.length,
         executedOps: result.transcript.map((s) => s.operation),
+        sourceCounts: countSources(result.transcript),
+        wallMs,
       });
     }
   } finally {
@@ -152,13 +181,15 @@ export function formatSummaryTable(results: BenchResult[], engineName: string): 
   const lines: string[] = [];
   lines.push(`laya-browser-mcp offline benchmark (engine: ${engineName})`);
   lines.push("");
-  const header = ["case", "outcome", "success", "ops-cov", "steps"];
+  const header = ["case", "outcome", "success", "ops-cov", "steps", "rule/laya/stub/llm", "ms"];
   const rows = results.map((r) => [
     r.name,
     r.outcome,
     r.success ? "yes" : "no",
     `${Math.round(r.opsCoverage * 100)}%`,
     String(r.steps),
+    `${r.sourceCounts.rule}/${r.sourceCounts.laya}/${r.sourceCounts.stub}/${r.sourceCounts.llm}`,
+    String(r.wallMs),
   ]);
   const widths = header.map((h, i) =>
     Math.max(h.length, ...rows.map((row) => row[i]!.length)),
@@ -187,6 +218,15 @@ export function formatSummaryTable(results: BenchResult[], engineName: string): 
   );
   lines.push(
     "not penalize extra/wrong operations, so it is not a precision/accuracy figure.",
+  );
+  lines.push(
+    "'rule/laya/stub/llm' is the per-run breakdown of how each step was resolved: rule and",
+  );
+  lines.push(
+    "stub/laya steps are resolved LOCALLY (no remote round-trip); llm steps escalated. More",
+  );
+  lines.push(
+    "local steps and a single FILL_FORM batch (see the login-multi case) mean faster runs.",
   );
   return lines.join("\n");
 }

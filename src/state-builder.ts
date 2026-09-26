@@ -34,7 +34,15 @@ export interface BuildStateOptions {
   maxRecentActions?: number;
 }
 
-/** Laya's recommended upper bound on options per `choice` question. */
+/**
+ * Laya's recommended upper bound on options per `choice` question.
+ *
+ * This caps the TARGET question's option set (the numbered controls). The separate OPERATION
+ * question's option set is a fixed, small enumeration owned by the engine (see
+ * src/laya/engine.ts `OPERATIONS`); Part 2 kept that set compact (a handful of narrow
+ * single-control operations) precisely so the operation choice also stays within
+ * `head_max_len` even as the executable operation union grew.
+ */
 export const RECOMMENDED_MAX_OPTIONS = 20;
 
 const DEFAULTS: Required<BuildStateOptions> = {

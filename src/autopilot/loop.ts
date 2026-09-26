@@ -25,6 +25,7 @@ import type { BrowserSession } from "../browser.js";
 import { capture, type Snapshot } from "../snapshot.js";
 import { buildState, type BuildStateOptions } from "../state-builder.js";
 import { fieldValueFromGoal, goalSuccessMarkers } from "../laya/goal.js";
+import { applyFieldValue, type FieldKind } from "../tools/fill.js";
 import { policySeed, refineWithGoalValue } from "./policy.js";
 import { escalate, type SampleFn } from "./escalation.js";
 import { checkDestructiveSubmit, checkDomainAllowed } from "../safety.js";
@@ -50,6 +51,14 @@ export interface StepRecord {
   source: Decision["source"];
   /** The value typed/selected, when applicable. */
   value?: string;
+  /** The keyboard key pressed, for PRESS_KEY steps. */
+  key?: string;
+  /** The batch of fields filled, for FILL_FORM steps. */
+  fields?: { target: string; value: string }[];
+  /** The marker checked, for VERIFY steps. */
+  marker?: string;
+  /** Whether a VERIFY step found its marker (or a SCREENSHOT captured), for terminal steps. */
+  verified?: boolean;
   /** A short human-readable summary of what was executed. */
   detail: string;
   /** Optional note explaining how the decision was reached (rule seed / escalation). */
@@ -175,8 +184,28 @@ export function verifyFinalPage(goal: string, snapshot: Snapshot): Verification 
   };
 }
 
+/** The outcome of executing a single decision: a human-readable detail plus optional extras. */
+interface ExecuteResult {
+  /** A short human-readable summary of what was executed (recorded in the transcript). */
+  detail: string;
+  /** For a VERIFY/SCREENSHOT terminal step: whether the check passed / capture succeeded. */
+  verified?: boolean;
+}
+
+/** Pick the {@link FieldKind} used to fill a control in a FILL_FORM batch. */
+function fieldKindFor(control: Control | undefined): FieldKind {
+  if (!control) return "textbox";
+  if (control.type === "checkbox") return "checkbox";
+  if (control.type === "radio") return "radio";
+  if (control.role === "combobox" || control.role === "listbox" || control.tag === "select") {
+    return "combobox";
+  }
+  if (control.role === "slider" || control.type === "range") return "slider";
+  return "textbox";
+}
+
 /**
- * Execute a single decision against the page. Returns a short detail string describing
+ * Execute a single decision against the page. Returns an {@link ExecuteResult} describing
  * what happened. This is the ONLY function in the loop that performs Playwright IO.
  */
 async function execute(
@@ -184,19 +213,21 @@ async function execute(
   state: PageState,
   options: Required<Pick<RunGoalOptions, "waitMs">> & { scrollBy?: number },
   session: BrowserSession,
-): Promise<string> {
+): Promise<ExecuteResult> {
   switch (decision.operation) {
     case "CLICK": {
       const locator = session.resolveRef(decision.target);
       await locator.click();
       const c = findControl(state, decision.target);
-      return `CLICK ${decision.target}${c ? ` (${c.role} ${JSON.stringify(c.name)})` : ""}`;
+      return {
+        detail: `CLICK ${decision.target}${c ? ` (${c.role} ${JSON.stringify(c.name)})` : ""}`,
+      };
     }
     case "TYPE_TEXT": {
       const value = resolveValue(decision, state) ?? "";
       const locator = session.resolveRef(decision.target);
       await locator.fill(value);
-      return `TYPE_TEXT ${decision.target} = ${JSON.stringify(value)}`;
+      return { detail: `TYPE_TEXT ${decision.target} = ${JSON.stringify(value)}` };
     }
     case "SELECT": {
       const value = resolveValue(decision, state) ?? "";
@@ -206,7 +237,37 @@ async function execute(
         .catch(async () => {
           await locator.selectOption(value);
         });
-      return `SELECT ${decision.target} = ${JSON.stringify(value)}`;
+      return { detail: `SELECT ${decision.target} = ${JSON.stringify(value)}` };
+    }
+    case "HOVER": {
+      const locator = session.resolveRef(decision.target);
+      await locator.hover();
+      const c = findControl(state, decision.target);
+      return {
+        detail: `HOVER ${decision.target}${c ? ` (${c.role} ${JSON.stringify(c.name)})` : ""}`,
+      };
+    }
+    case "FILL_FORM": {
+      // Batch fill: apply every field in ONE step, reusing the same field-fill logic as the
+      // browser_fill_form tool so the deterministic "faster" path matches the manual tool.
+      const filled: string[] = [];
+      for (const field of decision.fields) {
+        const locator = session.resolveRef(field.target);
+        const kind = fieldKindFor(findControl(state, field.target));
+        await applyFieldValue(locator, field.value, kind);
+        filled.push(`${field.target}=${JSON.stringify(field.value)}`);
+      }
+      return { detail: `FILL_FORM [${filled.join(", ")}]` };
+    }
+    case "PRESS_KEY": {
+      const page = await session.getPage();
+      await page.keyboard.press(decision.key);
+      return { detail: `PRESS_KEY ${JSON.stringify(decision.key)}` };
+    }
+    case "NAVIGATE_BACK": {
+      const page = await session.getPage();
+      await page.goBack({ waitUntil: "domcontentloaded" }).catch(() => undefined);
+      return { detail: "NAVIGATE_BACK" };
     }
     case "SCROLL_DOWN": {
       const page = await session.getPage();
@@ -215,17 +276,34 @@ async function execute(
         (px) => window.scrollBy(0, px ?? window.innerHeight),
         by ?? null,
       );
-      return "SCROLL_DOWN";
+      return { detail: "SCROLL_DOWN" };
     }
     case "WAIT": {
       const page = await session.getPage();
       await page.waitForTimeout(options.waitMs);
-      return `WAIT ${options.waitMs}ms`;
+      return { detail: `WAIT ${options.waitMs}ms` };
+    }
+    case "SCREENSHOT": {
+      // Terminal/verification step: capture the page. We record that a screenshot was taken
+      // (verified=true) without persisting bytes, so the transcript proves the step ran.
+      const page = await session.getPage();
+      await page.screenshot();
+      return { detail: "SCREENSHOT", verified: true };
+    }
+    case "VERIFY": {
+      // Terminal verification: check the expected marker against the LIVE page text/title.
+      const snapshot = await capture(await session.getPage());
+      const haystack = `${snapshot.title} ${snapshot.visibleText}`.toLowerCase();
+      const verified = haystack.includes(decision.marker.toLowerCase());
+      return {
+        detail: `VERIFY ${JSON.stringify(decision.marker)} -> ${verified ? "present" : "absent"}`,
+        verified,
+      };
     }
     case "DONE":
-      return "DONE";
+      return { detail: "DONE" };
     case "BLOCKED":
-      return "BLOCKED";
+      return { detail: "BLOCKED" };
   }
 }
 
@@ -367,21 +445,34 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
         }
       }
 
-      const detail = await execute(decision, state, { waitMs, scrollBy }, session);
+      const executed = await execute(decision, state, { waitMs, scrollBy }, session);
       const record: StepRecord = {
         step,
         operation: decision.operation,
         operationConfidence: decision.operationConfidence,
         targetConfidence: decision.targetConfidence,
         source: decision.source,
-        detail,
+        detail: executed.detail,
         ...(note ? { note } : {}),
       };
       if (decision.target !== undefined) record.target = decision.target;
       const value = "value" in decision ? decision.value : undefined;
       if (value !== undefined) record.value = value;
+      if (decision.operation === "PRESS_KEY") record.key = decision.key;
+      if (decision.operation === "FILL_FORM") {
+        record.fields = decision.fields.map((f) => ({ target: f.target, value: f.value }));
+      }
+      if (decision.operation === "VERIFY") record.marker = decision.marker;
+      if (executed.verified !== undefined) record.verified = executed.verified;
       transcript.push(record);
-      recentActions.push(detail);
+      recentActions.push(executed.detail);
+
+      // SCREENSHOT and VERIFY are terminal/verification steps: once one runs, the goal-run
+      // ends (a VERIFY reports its result; a SCREENSHOT captures the final page).
+      if (decision.operation === "VERIFY" || decision.operation === "SCREENSHOT") {
+        outcome = "done";
+        break;
+      }
     }
   } catch (err) {
     outcome = "error";

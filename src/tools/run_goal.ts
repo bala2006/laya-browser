@@ -75,9 +75,19 @@ export function renderRunResult(result: RunResult): string {
       const conf = `op=${s.operationConfidence.toFixed(2)} tgt=${s.targetConfidence.toFixed(2)}`;
       const val = s.value !== undefined ? ` value=${JSON.stringify(s.value)}` : "";
       const tgt = s.target ? ` target=${s.target}` : "";
+      const key = s.key !== undefined ? ` key=${JSON.stringify(s.key)}` : "";
+      const fields =
+        s.fields !== undefined
+          ? ` fields=[${s.fields
+              .map((f) => `${f.target}=${JSON.stringify(f.value)}`)
+              .join(", ")}]`
+          : "";
+      const marker = s.marker !== undefined ? ` marker=${JSON.stringify(s.marker)}` : "";
+      const verified =
+        s.verified !== undefined ? ` verified=${s.verified ? "true" : "false"}` : "";
       const note = s.note ? ` (${s.note})` : "";
       lines.push(
-        `  ${s.step}. ${s.operation}${tgt}${val} [${s.source}, ${conf}] - ${s.detail}${note}`,
+        `  ${s.step}. ${s.operation}${tgt}${key}${fields}${marker}${val}${verified} [${s.source}, ${conf}] - ${s.detail}${note}`,
       );
     }
   }

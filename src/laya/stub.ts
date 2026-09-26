@@ -22,10 +22,12 @@ import type {
   LayaDecisionEngine,
   PageState,
 } from "../types.js";
+import type { FieldFill } from "../types.js";
 import {
   fieldValueFromGoal,
   goalSuccessMarkerPresent,
   isSubmitControl,
+  unfilledGoalFields,
 } from "./goal.js";
 
 /** High confidence used for the stub's deterministic decisions. */
@@ -57,7 +59,24 @@ export class StubEngine implements LayaDecisionEngine {
       };
     }
 
-    // 2. Fill the first goal-implied field that is still empty.
+    // 2a. Batch-fill when the goal maps to >=2 unfilled editable fields (the "faster" path:
+    // one FILL_FORM step instead of N TYPE_TEXT steps).
+    const unfilled = unfilledGoalFields(state.goal, state.controls);
+    if (unfilled.length >= 2) {
+      const fields: FieldFill[] = unfilled.map((f) => ({
+        target: f.control.ref,
+        value: f.value,
+      }));
+      return {
+        operation: "FILL_FORM",
+        operationConfidence: CONFIDENT,
+        targetConfidence: CONFIDENT,
+        fields,
+        source: "stub",
+      };
+    }
+
+    // 2b. Fill the first goal-implied field that is still empty (single-field path).
     for (const c of state.controls) {
       if (!isTextField(c)) continue;
       const value = fieldValueFromGoal(c, state.goal, state.controls);

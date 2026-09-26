@@ -65,4 +65,34 @@ describe("core types", () => {
     expect(op).toBe("DONE");
     expect(decision.target).toBeUndefined();
   });
+
+  it("models a FILL_FORM batch carrying fields but no single target", () => {
+    const decision: Decision = {
+      operation: "FILL_FORM",
+      operationConfidence: 0.99,
+      targetConfidence: 0.99,
+      fields: [
+        { target: asRef("e1"), value: "user@example.com" },
+        { target: asRef("e2"), value: "hunter2" },
+      ],
+      source: "rule",
+    };
+    expect(decision.operation).toBe("FILL_FORM");
+    expect(decision.target).toBeUndefined();
+    expect(decision.fields).toHaveLength(2);
+    expect(decision.fields[0]!.value).toBe("user@example.com");
+  });
+
+  it("models a PRESS_KEY carrying a key payload", () => {
+    const decision: Decision = {
+      operation: "PRESS_KEY",
+      operationConfidence: 1,
+      targetConfidence: 1,
+      key: "Enter",
+      source: "llm",
+    };
+    expect(decision.operation).toBe("PRESS_KEY");
+    expect(decision.key).toBe("Enter");
+    expect(decision.target).toBeUndefined();
+  });
 });

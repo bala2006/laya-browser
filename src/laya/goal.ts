@@ -134,6 +134,34 @@ export function fieldValueFromGoal(
   return undefined;
 }
 
+/** Whether a control is an editable text-like field (input/textarea/textbox/searchbox). */
+export function isTextFieldControl(c: Control): boolean {
+  return isEditableTextLike(c);
+}
+
+/**
+ * The goal-mapped editable text fields that are still UNFILLED, paired with the value the
+ * goal implies for each.
+ *
+ * This is the input to the "faster" batch-fill decision: when TWO OR MORE such fields exist,
+ * the deterministic layer prefers a single FILL_FORM step over N sequential TYPE_TEXT steps.
+ * A field is unfilled when its current value differs from the goal-implied value.
+ */
+export function unfilledGoalFields(
+  goal: string,
+  controls: readonly Control[],
+): { control: Control; value: string }[] {
+  const out: { control: Control; value: string }[] = [];
+  for (const c of controls) {
+    if (!isEditableTextLike(c)) continue;
+    const value = fieldValueFromGoal(c, goal, controls);
+    if (value === undefined) continue;
+    if ((c.value ?? "").trim() === value.trim()) continue; // already filled
+    out.push({ control: c, value });
+  }
+  return out;
+}
+
 /** Whether a control looks like a submit/search/continue trigger. */
 export function isSubmitControl(c: Control): boolean {
   if (c.disabled) return false;

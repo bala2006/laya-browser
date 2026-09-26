@@ -47,13 +47,24 @@ export interface LayaEngineOptions {
   executionProviders?: string[];
 }
 
-/** The seven operations, in the order offered to the model. */
+/**
+ * The operations offered to the model as the `operation` choice set, in order.
+ *
+ * Deliberately COMPACT: it is the narrow single-control set the model can pick from turn by
+ * turn (CLICK/TYPE_TEXT/SELECT/HOVER/SCROLL_DOWN/WAIT/NAVIGATE_BACK/DONE/BLOCKED). The
+ * batch/payload operations added in Part 2 are NOT offered here — FILL_FORM is emitted by the
+ * deterministic layer (it needs a resolved field/value list), and PRESS_KEY/SCREENSHOT/VERIFY
+ * need a payload/marker the narrow choice question cannot supply. Keeping this set small keeps
+ * the `operation` question within Laya's `head_max_len` budget.
+ */
 const OPERATIONS: Operation[] = [
   "CLICK",
   "TYPE_TEXT",
   "SELECT",
+  "HOVER",
   "SCROLL_DOWN",
   "WAIT",
+  "NAVIGATE_BACK",
   "DONE",
   "BLOCKED",
 ];
@@ -62,15 +73,27 @@ const TARGETED: ReadonlySet<Operation> = new Set<Operation>([
   "CLICK",
   "TYPE_TEXT",
   "SELECT",
+  "HOVER",
 ]);
 
-/** Short human descriptions for each operation, used as the `choice` criteria values. */
+/**
+ * Short human descriptions for each operation, used as the `choice` criteria values.
+ *
+ * Covers the whole {@link Operation} union so the map stays exhaustive even though only the
+ * compact {@link OPERATIONS} subset is offered to the model.
+ */
 const OPERATION_CRITERIA: Record<Operation, string> = {
   CLICK: "Click a button, link, or checkbox to act on it.",
   TYPE_TEXT: "Type text into an input or textarea field.",
   SELECT: "Choose an option in a dropdown/combobox.",
+  HOVER: "Hover the pointer over a control to reveal hidden content.",
   SCROLL_DOWN: "Scroll the page down to reveal more content.",
   WAIT: "Wait for the page to update before acting.",
+  NAVIGATE_BACK: "Go back to the previous page in history.",
+  PRESS_KEY: "Press a keyboard key such as Enter or Escape.",
+  FILL_FORM: "Fill several form fields in one batch step.",
+  SCREENSHOT: "Capture a screenshot of the page.",
+  VERIFY: "Verify an expected marker is present on the page.",
   DONE: "The goal appears complete; stop.",
   BLOCKED: "The goal cannot be progressed from this page.",
 };

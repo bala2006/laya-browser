@@ -8,6 +8,7 @@ import {
   type ToolContext,
   type ToolResult,
 } from "./shared.js";
+import { applyFieldValue } from "./fill.js";
 
 const fieldSchema = z.object({
   element: elementDescription,
@@ -30,12 +31,6 @@ export const inputSchema = {
 type Field = z.infer<typeof fieldSchema>;
 type Args = { fields: Field[] };
 
-/** Interpret a string value as a boolean for checkbox/radio fields. */
-function asChecked(value: string): boolean {
-  const v = value.trim().toLowerCase();
-  return v === "true" || v === "checked" || v === "on" || v === "1" || v === "yes";
-}
-
 export function makeHandler(ctx: ToolContext) {
   return async (args: Args): Promise<ToolResult> => {
     // Ensure the page exists ONCE before resolving any refs: resolveRef() is sync and throws
@@ -46,26 +41,8 @@ export function makeHandler(ctx: ToolContext) {
       const label = field.element ?? field.target;
       try {
         const locator = ctx.session.resolveRef(field.target);
-        const kind = field.type ?? "textbox";
-        switch (kind) {
-          case "checkbox":
-          case "radio":
-            await locator.setChecked(asChecked(field.value));
-            break;
-          case "combobox":
-            // Try matching by label first, then fall back to value, like browser_select_option.
-            await locator
-              .selectOption({ label: field.value })
-              .catch(async () => {
-                await locator.selectOption(field.value);
-              });
-            break;
-          case "slider":
-          case "textbox":
-          default:
-            await locator.fill(field.value);
-            break;
-        }
+        // Reuse the shared field-fill logic so the tool and the Autopilot batch fill match.
+        await applyFieldValue(locator, field.value, field.type ?? "textbox");
       } catch (err) {
         return textResult(`Failed to fill ${label}: ${(err as Error).message}`, true);
       }

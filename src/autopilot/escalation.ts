@@ -27,8 +27,11 @@ const OPERATIONS: readonly Operation[] = [
   "CLICK",
   "TYPE_TEXT",
   "SELECT",
+  "HOVER",
   "SCROLL_DOWN",
   "WAIT",
+  "NAVIGATE_BACK",
+  "PRESS_KEY",
   "DONE",
   "BLOCKED",
 ];
@@ -37,6 +40,7 @@ const TARGETED: ReadonlySet<Operation> = new Set<Operation>([
   "CLICK",
   "TYPE_TEXT",
   "SELECT",
+  "HOVER",
 ]);
 
 /** Confidence attributed to an LLM-sourced decision (it is a fallback, not ground truth). */
@@ -51,7 +55,7 @@ export function buildEscalationPrompt(state: PageState): string {
     renderState(state),
     "",
     "Respond with ONLY a JSON object on one line, no prose, of the form:",
-    '{"operation":"CLICK|TYPE_TEXT|SELECT|SCROLL_DOWN|WAIT|DONE|BLOCKED","target":"<ref like e5, required for CLICK/TYPE_TEXT/SELECT>","value":"<text to type or option to select, optional>"}',
+    '{"operation":"CLICK|TYPE_TEXT|SELECT|HOVER|SCROLL_DOWN|WAIT|NAVIGATE_BACK|PRESS_KEY|DONE|BLOCKED","target":"<ref like e5, required for CLICK/TYPE_TEXT/SELECT/HOVER>","value":"<text to type or option to select, optional>","key":"<key like Enter/Escape, required for PRESS_KEY>"}',
     "Use a target ref that appears in the CONTROLS list above. If nothing can progress the goal, return BLOCKED.",
   ].join("\n");
 }
@@ -111,7 +115,7 @@ export function parseDecision(raw: string, knownRefs: ReadonlySet<string>): Deci
     }
     const value = typeof obj.value === "string" ? obj.value : undefined;
     const decision: Decision = {
-      operation: operation as "CLICK" | "TYPE_TEXT" | "SELECT",
+      operation: operation as "CLICK" | "TYPE_TEXT" | "SELECT" | "HOVER",
       operationConfidence: LLM_CONFIDENCE,
       target: asRef(target) as Ref,
       targetConfidence: LLM_CONFIDENCE,
@@ -121,8 +125,21 @@ export function parseDecision(raw: string, knownRefs: ReadonlySet<string>): Deci
     return decision;
   }
 
+  // PRESS_KEY: guard the required `key` payload; a missing/empty key collapses to BLOCKED.
+  if (operation === "PRESS_KEY") {
+    const key = typeof obj.key === "string" ? obj.key.trim() : "";
+    if (!key) return blocked();
+    return {
+      operation: "PRESS_KEY",
+      operationConfidence: LLM_CONFIDENCE,
+      targetConfidence: 1,
+      key,
+      source: "llm",
+    };
+  }
+
   return {
-    operation: operation as "SCROLL_DOWN" | "WAIT" | "DONE" | "BLOCKED",
+    operation: operation as "SCROLL_DOWN" | "WAIT" | "NAVIGATE_BACK" | "DONE" | "BLOCKED",
     operationConfidence: LLM_CONFIDENCE,
     targetConfidence: 1,
     source: "llm",

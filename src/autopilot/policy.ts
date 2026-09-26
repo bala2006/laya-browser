@@ -20,11 +20,12 @@
  * The goal<->control heuristics are reused from {@link ../laya/goal} (NOT re-implemented) so
  * the stub engine, the loop, and this policy layer stay consistent.
  */
-import type { Control, Decision, PageState } from "../types.js";
+import type { Control, Decision, FieldFill, PageState } from "../types.js";
 import {
   fieldValueFromGoal,
   goalSuccessMarkerPresent,
   isSubmitControl,
+  unfilledGoalFields,
 } from "../laya/goal.js";
 
 /** Confidence assigned to a high-confidence deterministic rule decision. */
@@ -115,7 +116,29 @@ export function policySeed(state: PageState): PolicySeed | undefined {
     };
   }
 
-  // Rule 1: fill the first goal-implied field that is still empty.
+  // Rule 1a (the "faster" batch): when the goal maps to TWO OR MORE editable fields that are
+  // still unfilled, fill them ALL in a single FILL_FORM step instead of emitting N sequential
+  // TYPE_TEXT steps (each of which would otherwise be its own snapshot+decide+execute cycle).
+  // This is the concrete faster-automation mechanism: fewer steps, no per-field round-trip.
+  const unfilled = unfilledGoalFields(state.goal, state.controls);
+  if (unfilled.length >= 2) {
+    const fields: FieldFill[] = unfilled.map((f) => ({ target: f.control.ref, value: f.value }));
+    return {
+      decision: {
+        operation: "FILL_FORM",
+        operationConfidence: RULE_CONFIDENCE,
+        targetConfidence: RULE_CONFIDENCE,
+        fields,
+        source: "rule",
+      },
+      reason: `Batch-filling ${fields.length} goal-stated fields in one FILL_FORM step (${fields
+        .map((f) => f.target)
+        .join(", ")}).`,
+    };
+  }
+
+  // Rule 1b: a single goal-implied field is still empty -> fill just it (keep the one-field
+  // path unchanged so a single-field goal does not pay batch overhead).
   for (const c of state.controls) {
     if (!isTextField(c)) continue;
     const value = fieldValueFromGoal(c, state.goal, state.controls);

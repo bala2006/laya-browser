@@ -73,6 +73,31 @@ describe("parseDecision boundary", () => {
   it("blocks on non-JSON garbage", () => {
     expect(parseDecision("no json here", refs).operation).toBe("BLOCKED");
   });
+
+  it("parses a HOVER as a targeted operation", () => {
+    const d = parseDecision('{"operation":"HOVER","target":"e1"}', refs);
+    expect(d.operation).toBe("HOVER");
+    expect(d.target).toBe("e1");
+    expect(d.source).toBe("llm");
+  });
+
+  it("parses a targetless NAVIGATE_BACK", () => {
+    const d = parseDecision('{"operation":"NAVIGATE_BACK"}', refs);
+    expect(d.operation).toBe("NAVIGATE_BACK");
+    expect(d.target).toBeUndefined();
+  });
+
+  it("parses a PRESS_KEY carrying a key payload", () => {
+    const d = parseDecision('{"operation":"PRESS_KEY","key":"Enter"}', refs);
+    expect(d).toMatchObject({ operation: "PRESS_KEY", key: "Enter", source: "llm" });
+  });
+
+  it("blocks a PRESS_KEY that is missing its key payload", () => {
+    expect(parseDecision('{"operation":"PRESS_KEY"}', refs).operation).toBe("BLOCKED");
+    expect(parseDecision('{"operation":"PRESS_KEY","key":"  "}', refs).operation).toBe(
+      "BLOCKED",
+    );
+  });
 });
 
 describe("escalate() with an injected sampler", () => {

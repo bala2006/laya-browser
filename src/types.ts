@@ -80,15 +80,31 @@ export interface PageState {
 /**
  * The operations the decision engine can choose.
  *
- * Mirrors `abedinia/laya-web-agent` exactly: the model emits one of these as the
- * `operation` answer, plus a `target` naming the numbered control when applicable.
+ * The base set (`CLICK`/`TYPE_TEXT`/`SELECT`/`SCROLL_DOWN`/`WAIT`/`DONE`/`BLOCKED`) mirrors
+ * `abedinia/laya-web-agent`. Part 2 broadens it so Laya can drive the richer Assist toolset
+ * FASTER:
+ *   - `HOVER` — move the pointer over a control (targeted);
+ *   - `NAVIGATE_BACK` — go back in history (targetless);
+ *   - `PRESS_KEY` — press a keyboard key such as `Enter`/`Escape` (carries a `key` payload);
+ *   - `FILL_FORM` — fill SEVERAL fields in ONE batch step (carries a `fields` list, no single
+ *     target) so a multi-field goal resolves in one step instead of N `TYPE_TEXT` steps;
+ *   - `SCREENSHOT` — capture the page as a terminal/verification step;
+ *   - `VERIFY` — check an expected marker against the live page as a terminal step.
+ * The model still emits one operation per step; the deterministic layer PREFERS `FILL_FORM`
+ * when the goal maps to multiple editable fields (see src/autopilot/policy.ts).
  */
 export type Operation =
   | "CLICK"
   | "TYPE_TEXT"
   | "SELECT"
+  | "HOVER"
   | "SCROLL_DOWN"
   | "WAIT"
+  | "NAVIGATE_BACK"
+  | "PRESS_KEY"
+  | "FILL_FORM"
+  | "SCREENSHOT"
+  | "VERIFY"
   | "DONE"
   | "BLOCKED";
 
@@ -96,22 +112,47 @@ export type Operation =
 export type DecisionSource = "laya" | "rule" | "llm" | "stub";
 
 /**
- * Operations that act on a specific control and therefore MUST carry a target ref.
+ * Operations that act on a single specific control and therefore MUST carry a target ref
+ * (and no batch `fields`/`key`/marker payload).
  */
-export type TargetedOperation = "CLICK" | "TYPE_TEXT" | "SELECT";
+export type TargetedOperation = "CLICK" | "TYPE_TEXT" | "SELECT" | "HOVER";
 
 /**
- * Operations that act on the page as a whole and therefore need no target.
+ * Operations that act on the page as a whole and therefore need no target and no payload.
  */
-export type TargetlessOperation = "SCROLL_DOWN" | "WAIT" | "DONE" | "BLOCKED";
+export type TargetlessOperation =
+  | "SCROLL_DOWN"
+  | "WAIT"
+  | "NAVIGATE_BACK"
+  | "SCREENSHOT"
+  | "DONE"
+  | "BLOCKED";
 
 /**
- * A decision from an engine, modelled as a discriminated union so illegal states
- * are unrepresentable: a `CLICK`/`TYPE_TEXT`/`SELECT` decision is required to carry a
- * `target`, while `DONE`/`BLOCKED`/`SCROLL_DOWN`/`WAIT` cannot.
+ * One field of a {@link "FILL_FORM"} batch: which control to fill and the value to set.
+ */
+export interface FieldFill {
+  /** The control this entry fills. */
+  target: Ref;
+  /** The value to set (text, option label, or `true`/`false` for checkboxes). */
+  value: string;
+}
+
+/**
+ * A decision from an engine, modelled as a discriminated union so illegal states are
+ * unrepresentable. Each operation family carries exactly the payload it can act on:
+ *   - targeted ops (`CLICK`/`TYPE_TEXT`/`SELECT`/`HOVER`) carry a single `target`;
+ *   - targetless ops (`SCROLL_DOWN`/`WAIT`/`NAVIGATE_BACK`/`SCREENSHOT`/`DONE`/`BLOCKED`)
+ *     carry no `target`, `key`, `fields`, or `value`;
+ *   - `PRESS_KEY` carries a `key` (and no `target`);
+ *   - `FILL_FORM` carries a `fields` list (and no single `target`);
+ *   - `VERIFY` carries an expected `marker` (and no `target`).
  *
- * Confidences are in `[0, 1]`; the autopilot loop uses them to decide when to escalate
- * to the client LLM via MCP sampling.
+ * So a `FILL_FORM` can never have a lone `target`, a `PRESS_KEY` can never lack a `key`, and a
+ * `DONE` can never carry a value — the type system rules those out.
+ *
+ * Confidences are in `[0, 1]`; the autopilot loop uses them to decide when to escalate to the
+ * client LLM via MCP sampling.
  */
 export type Decision =
   | {
@@ -131,6 +172,37 @@ export type Decision =
       target?: undefined;
       /** No target, so target confidence is fixed. */
       targetConfidence: number;
+      value?: undefined;
+      source: DecisionSource;
+    }
+  | {
+      operation: "PRESS_KEY";
+      operationConfidence: number;
+      target?: undefined;
+      targetConfidence: number;
+      /** The keyboard key to press, e.g. `"Enter"`, `"Escape"`, `"ArrowDown"`. */
+      key: string;
+      value?: undefined;
+      source: DecisionSource;
+    }
+  | {
+      operation: "FILL_FORM";
+      operationConfidence: number;
+      /** A batch fill carries a list of fields, not a single target. */
+      target?: undefined;
+      targetConfidence: number;
+      /** The fields to fill in one step. */
+      fields: FieldFill[];
+      value?: undefined;
+      source: DecisionSource;
+    }
+  | {
+      operation: "VERIFY";
+      operationConfidence: number;
+      target?: undefined;
+      targetConfidence: number;
+      /** The expected marker/value to look for on the live page. */
+      marker: string;
       value?: undefined;
       source: DecisionSource;
     };

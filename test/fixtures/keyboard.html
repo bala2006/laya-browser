@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Keyboard demo</title>
+  </head>
+  <body>
+    <h1>Keyboard demo</h1>
+    <input id="field" type="text" />
+    <p id="status">idle</p>
+
+    <script>
+      const field = document.getElementById("field");
+      const status = document.getElementById("status");
+      field.focus();
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          status.textContent = "submitted";
+          document.title = "Keyboard submitted";
+        }
+      });
+    </script>
+  </body>
+</html>
