@@ -9,11 +9,16 @@
  *      rejected. An empty allow-list means "no restriction" (allow all).
  *
  *   2. {@link checkDestructiveSubmit} — a destructive-form guard. Before Autopilot
- *      auto-submits (clicks a submit-like control), it inspects the target control and the
- *      surrounding controls/text for destructive signals (delete / remove / pay / purchase /
- *      confirm order / transfer / deactivate) and for the password + payment-field
- *      combination. When a signal is present it refuses the auto-submit and surfaces the
- *      reason so the client can confirm explicitly.
+ *      auto-submits (clicks a submit-like control), it inspects text SCOPED TO THE TARGET
+ *      control — the target's own accessible name, current value, and option labels — plus
+ *      the names of the other actionable controls (buttons/links) on the page, for
+ *      destructive signals (delete / remove / pay / purchase / confirm order / transfer /
+ *      deactivate), and it flags the password + payment-field combination. It deliberately
+ *      does NOT scan the whole page's visible body text, which would false-positive on any
+ *      page that merely mentions a destructive word in prose. When a signal is present it
+ *      refuses the auto-submit and surfaces the reason so the client can confirm explicitly.
+ *      The guard covers the Autopilot auto-submit (CLICK) path only; the human-driven Assist
+ *      tools apply no destructive check by design.
  */
 import type { Control, PageState } from "./types.js";
 
@@ -110,13 +115,18 @@ function isPasswordField(c: Control): boolean {
 /**
  * Inspect a submit action for destructive signals.
  *
- * `target` is the control about to be clicked (the submit trigger). Returns a verdict that
- * refuses the auto-submit when:
- *   - the target's own text matches a destructive keyword, OR
- *   - any nearby control (another button/link) matches a destructive keyword, OR
- *   - the visible text near the action matches a destructive keyword, OR
+ * `target` is the control about to be clicked (the submit trigger). The text check is SCOPED
+ * TO THE TARGET (its accessible name, current value, and option labels) and to the other
+ * actionable controls on the page — it does NOT scan the whole page's visible body text,
+ * which would false-positive on any page that merely mentions a destructive word in prose.
+ * Returns a verdict that refuses the auto-submit when:
+ *   - the target control's own text (name / value / options) matches a destructive keyword, OR
+ *   - any other actionable control (a button/link) matches a destructive keyword, OR
  *   - the page combines a password field with a payment-like field (a signal of a
  *     sensitive credential + payment form).
+ *
+ * The verdict still errs toward refusing (fail-safe); scoping only removes the whole-page
+ * body-text false positive, it does not loosen the target/neighbour/password+payment signals.
  *
  * When `enabled` is false the guard is inert and always allows (the operator opted out).
  */
@@ -127,7 +137,11 @@ export function checkDestructiveSubmit(
 ): GuardVerdict {
   if (!enabled) return { allowed: true };
 
-  const targetText = norm(target.name);
+  // Text scoped to the target control itself: its label/name, current value, and any option
+  // labels it exposes. This is the text a human would read on/around the control it clicks.
+  const targetText = norm(
+    [target.name, target.value ?? "", ...(target.options ?? [])].join(" "),
+  );
   if (DESTRUCTIVE_PATTERN.test(targetText)) {
     return {
       allowed: false,
@@ -150,15 +164,6 @@ export function checkDestructiveSubmit(
       reason: `Refusing to auto-submit: a nearby control ${JSON.stringify(
         destructiveNeighbour.name,
       )} indicates a destructive action on this page. Confirm explicitly before submitting.`,
-    };
-  }
-
-  // Visible text near the action indicates a destructive intent.
-  if (DESTRUCTIVE_PATTERN.test(norm(state.visibleText))) {
-    return {
-      allowed: false,
-      reason:
-        "Refusing to auto-submit: the page text contains a destructive/high-stakes signal (delete/pay/purchase/transfer/deactivate). Confirm explicitly before submitting.",
     };
   }
 

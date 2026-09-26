@@ -101,8 +101,10 @@ unit-testable without a live MCP client.
     (result `content` is a single block with `.type`/`.text`) and
     `McpServer.server.getClientCapabilities()?.sampling` for capability detection — confirmed
     against the installed SDK type declarations.
-  - The full offline test suite + `pnpm run bench` are green with the stub (3/3 fixtures,
-    100% per-step), headless Chromium, no weights.
+  - The full offline test suite + `pnpm run bench` are green with the stub (3/3 fixtures
+    end-to-end success via the independent final-page check, 100% expected-ops COVERAGE —
+    a subsequence match that does not penalize extra/wrong ops, so it is not a precision
+    figure), headless Chromium, no weights.
 - **INFERRED (from docs/patterns, not run here):**
   - Real per-step accuracy (~97.7% clean forms, ~1 step in 5 on real Mind2Web) — from the
     checkpoint's reported figures; not reproduced offline.
@@ -218,9 +220,20 @@ without the export step.
 - **Goal-grammar coverage.** The deterministic goal parser handles the explicit structured
   grammar (assignments + `expect`/`see`/`until` markers). Unquoted values stop at punctuation,
   so values containing dots (e.g. emails) should be quoted; the benchmark and docs reflect this.
-- **Safety heuristics are keyword-based.** The destructive-form guard matches a keyword set and
-  the password+payment combination. It can miss unusual phrasings or over-trigger on benign
-  text; it is a guard rail requiring explicit confirmation, not a proof, and is configurable.
+- **Safety heuristics are keyword-based and Autopilot-only.** The destructive-form guard
+  matches a keyword set against a scoped set of signals — the target control's own name /
+  value / option labels and the names of the other actionable controls (buttons/links) — plus
+  the password+payment combination. It deliberately does NOT scan the whole page's visible
+  body text (that would over-trigger on any prose mentioning "delete"), so it can still miss
+  unusual phrasings or off-screen/image-only signals; it errs toward refusing (fail-safe). It
+  covers the Autopilot auto-submit (`CLICK`) path only — the human-driven Assist tools apply
+  no destructive check by design. It is a guard rail requiring explicit confirmation, not a
+  proof, and is configurable (`LAYA_DESTRUCTIVE_GUARD`).
+- **Benchmark metric is coverage, not precision.** The `pnpm run bench` `ops-cov` column is
+  expected-ops COVERAGE (a subsequence match): it does not penalize extra or wrong operations,
+  so a 100% row only means every expected op appeared in order. The end-to-end success column
+  (the independent final-page check) is the trustworthy signal; the harness output, README,
+  and this plan all label the metric as coverage rather than accuracy/precision.
 
 ## Licensing / attribution
 

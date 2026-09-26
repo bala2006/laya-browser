@@ -5,9 +5,12 @@
  * decision engine (the {@link StubEngine} by default; the real engine when LAYA_MODEL_DIR is
  * set) and records, per fixture:
  *   - end-to-end SUCCESS via the loop's INDEPENDENT final-page verification (DONE alone is
- *     never treated as success), and
- *   - per-step correctness: each executed operation is compared against the fixture's
- *     expected operation sequence.
+ *     never treated as success) — the trustworthy signal, and
+ *   - EXPECTED-OPS COVERAGE: the fraction of the fixture's expected operations that appear,
+ *     in order, in the executed transcript. This is a subsequence-coverage measure: it does
+ *     NOT penalize extra or wrong operations, so it is deliberately labelled "coverage"
+ *     rather than "accuracy"/"precision" — 100% coverage only means every expected op was
+ *     present in order, not that the run took exactly the right steps.
  *
  * It is fully offline: the fixtures are served from a loopback http server and no weights
  * are needed for the stub path. {@link formatSummaryTable} renders a compact ASCII table.
@@ -61,16 +64,25 @@ export interface BenchResult {
   outcome: RunResult["outcome"];
   /** End-to-end success = independent final-page verification passed. */
   success: boolean;
-  /** Fraction of expected operations that appeared, in order, in the transcript. */
-  stepAccuracy: number;
+  /**
+   * Expected-ops coverage: the fraction of expected operations that appeared, in order, in
+   * the transcript. This is a subsequence-coverage measure, NOT a precision/accuracy metric:
+   * it does not penalize extra or wrong operations.
+   */
+  opsCoverage: number;
   /** Number of steps executed. */
   steps: number;
   /** The executed operations, for reporting. */
   executedOps: Operation[];
 }
 
-/** Compare the transcript's operations against the expected sequence (subsequence match). */
-function stepAccuracy(transcript: StepRecord[], expected: Operation[]): number {
+/**
+ * Expected-ops coverage: fraction of the expected operations that appear, in order, in the
+ * transcript (a subsequence match). This deliberately does NOT penalize extra or wrong
+ * operations — it measures coverage of the expected sequence, not precision. Read the
+ * end-to-end success column for the trustworthy signal.
+ */
+function opsCoverage(transcript: StepRecord[], expected: Operation[]): number {
   if (expected.length === 0) return 1;
   const executed = transcript.map((s) => s.operation);
   let matched = 0;
@@ -122,7 +134,7 @@ export async function runBenchmark(
         goal: c.goal,
         outcome: result.outcome,
         success: result.verification.checked && result.verification.verified,
-        stepAccuracy: stepAccuracy(result.transcript, c.expectedOps),
+        opsCoverage: opsCoverage(result.transcript, c.expectedOps),
         steps: result.transcript.length,
         executedOps: result.transcript.map((s) => s.operation),
       });
@@ -140,12 +152,12 @@ export function formatSummaryTable(results: BenchResult[], engineName: string): 
   const lines: string[] = [];
   lines.push(`laya-browser-mcp offline benchmark (engine: ${engineName})`);
   lines.push("");
-  const header = ["case", "outcome", "success", "step-acc", "steps"];
+  const header = ["case", "outcome", "success", "ops-cov", "steps"];
   const rows = results.map((r) => [
     r.name,
     r.outcome,
     r.success ? "yes" : "no",
-    `${Math.round(r.stepAccuracy * 100)}%`,
+    `${Math.round(r.opsCoverage * 100)}%`,
     String(r.steps),
   ]);
   const widths = header.map((h, i) =>
@@ -158,17 +170,23 @@ export function formatSummaryTable(results: BenchResult[], engineName: string): 
   for (const row of rows) lines.push(fmt(row));
   lines.push("");
   const passed = results.filter((r) => r.success).length;
-  const avgAcc =
+  const avgCov =
     results.length === 0
       ? 0
-      : results.reduce((s, r) => s + r.stepAccuracy, 0) / results.length;
+      : results.reduce((s, r) => s + r.opsCoverage, 0) / results.length;
   lines.push(
-    `End-to-end success: ${passed}/${results.length}. Mean per-step accuracy: ${Math.round(
-      avgAcc * 100,
+    `End-to-end success: ${passed}/${results.length}. Mean expected-ops coverage: ${Math.round(
+      avgCov * 100,
     )}%.`,
   );
   lines.push(
-    "Note: end-to-end success is measured by the INDEPENDENT final-page check, not by a DONE decision.",
+    "Note: end-to-end success (the INDEPENDENT final-page check, not a DONE decision) is the",
+  );
+  lines.push(
+    "trustworthy signal. 'ops-cov' is expected-ops COVERAGE (a subsequence match); it does",
+  );
+  lines.push(
+    "not penalize extra/wrong operations, so it is not a precision/accuracy figure.",
   );
   return lines.join("\n");
 }

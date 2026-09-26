@@ -22,8 +22,9 @@ describe("offline benchmark harness (stub engine)", () => {
     for (const r of results) {
       expect(r.outcome, `${r.name} outcome`).toBe("done");
       expect(r.success, `${r.name} end-to-end success`).toBe(true);
-      // Per-step accuracy is perfect for the stub on these clean forms.
-      expect(r.stepAccuracy, `${r.name} step accuracy`).toBe(1);
+      // Expected-ops coverage is full for the stub on these clean forms (every expected op
+      // appears in order). This is coverage, not precision — see harness.ts.
+      expect(r.opsCoverage, `${r.name} expected-ops coverage`).toBe(1);
     }
   });
 

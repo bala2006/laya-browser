@@ -72,12 +72,18 @@ regardless of how the loop ended.
 - **Domain allow-list.** When `LAYA_ALLOWED_DOMAINS` is set, `browser_navigate` and every
   Autopilot navigation are restricted to those hosts and their subdomains; off-list
   navigation is rejected with a reason (fail-closed).
-- **Destructive-form guard.** Before an Autopilot auto-submit, the target and its
-  surroundings are inspected for destructive signals
-  (`delete`/`remove`/`pay`/`purchase`/`confirm order`/`transfer`/`deactivate`, or a form
-  combining a password field with a payment-like field). When one is present, the auto-submit
-  is refused and the reason is surfaced, so a human can confirm explicitly. Disable with
-  `LAYA_DESTRUCTIVE_GUARD=false`.
+- **Destructive-form guard.** This guard covers the **Autopilot auto-submit (`CLICK`) path
+  only** — the human-driven Assist tools (`browser_click`, `browser_type`, …) apply no
+  destructive check by design. Before Autopilot auto-submits, it inspects a **scoped** set of
+  signals for a destructive keyword
+  (`delete`/`remove`/`pay`/`purchase`/`confirm order`/`transfer`/`deactivate`):
+  the target control's own accessible name, current value, and option labels; and the names
+  of the other actionable controls (buttons/links) on the page. It also flags a form that
+  combines a password field with a payment-like field. It deliberately does **not** scan the
+  whole page's visible body text, so prose that merely mentions "delete" elsewhere on the page
+  does not trip it. When a signal is present the auto-submit is refused and the reason is
+  surfaced, so a human can confirm explicitly. The check errs toward refusing (fail-safe).
+  Disable with `LAYA_DESTRUCTIVE_GUARD=false`.
 
 ## Install
 
@@ -196,9 +202,13 @@ pnpm run bench       # offline benchmark over local fixtures with the stub engin
 ```
 
 The offline benchmark (`pnpm run bench`) runs `laya_run_goal` with the StubEngine over the
-local structured-form fixtures under `test/fixtures/`, records per-step correctness and
-end-to-end success (via the independent final-page check), and prints a summary table. When
-`LAYA_MODEL_DIR` is set, it also benchmarks the real engine.
+local structured-form fixtures under `test/fixtures/`, and prints a summary table with two
+columns: **end-to-end success** (via the independent final-page check — the trustworthy
+signal) and **expected-ops coverage** (`ops-cov`). The coverage column is a
+subsequence match — the fraction of each fixture's expected operations that appear, in order,
+in the transcript — so it does **not** penalize extra or wrong steps and should not be read as
+precision/accuracy; a 100% coverage row only means every expected op was present in order.
+When `LAYA_MODEL_DIR` is set, it also benchmarks the real engine.
 
 ## License and attribution
 
