@@ -267,9 +267,9 @@ reproduce steps live in [`benchmark/RESULTS.md`](./benchmark/RESULTS.md).
 | Metric | laya-browser-mcp (Assist) | Playwright MCP |
 | --- | --- | --- |
 | Tasks applicable | 16 | 13 |
-| Tasks passed | 15 | 13 |
-| Success rate | 94% | 100% |
-| Median latency (applicable tasks) | 210 ms | 950 ms |
+| Tasks passed | 16 | 13 |
+| Success rate | 100% | 100% |
+| Median latency (applicable tasks) | 211 ms | 919 ms |
 | Tools exposed | 25 core / 72 all-caps | 24 core |
 
 ### Per-task results
@@ -283,7 +283,7 @@ reproduce steps live in [`benchmark/RESULTS.md`](./benchmark/RESULTS.md).
 | click-button | click | PASS | 211 | 4 | PASS | 962 | 4 |
 | hover-reveal | hover | PASS | 218 | 4 | PASS | 484 | 4 |
 | wait-for-dynamic | wait-for | PASS | 966 | 3 | PASS | 1225 | 3 |
-| tabs-open | tabs | FAIL | 227 | 5 | PASS | 1017 | 5 |
+| tabs-open | tabs | PASS | 235 | 5 | PASS | 1040 | 5 |
 | dialog-confirm | dialogs | PASS | 228 | 6 | PASS | 1001 | 6 |
 | console-capture | console | PASS | 149 | 3 | PASS | 450 | 3 |
 | network-capture | network | PASS | 157 | 3 | PASS | 415 | 3 |
@@ -308,9 +308,10 @@ Numbers above are one recorded run; re-running regenerates them.)_
 
 ### What each side won and lost (honest)
 
-- **Playwright wins tab popups.** Playwright MCP auto-tracks a `window.open` popup as a tab;
-  laya-browser-mcp's tab tool tracks only tabs it opened, so laya honestly **FAILS**
-  `tabs-open` while Playwright passes. Shown as FAIL, not hidden.
+- **Both track tab popups.** Like Playwright MCP, laya-browser-mcp now subscribes to the
+  browser context's `page` event, so a `window.open` popup the page opens itself is tracked as
+  a listable, selectable tab (focus stays on the opener until you select it). Both pass
+  `tabs-open`.
 - **laya wins on latency here.** Against local fixtures laya's median per-task time is well
   under Playwright MCP's. This is an in-process advantage on local pages, not a claim about
   live-web robustness.
@@ -319,7 +320,7 @@ Numbers above are one recorded run; re-running regenerates them.)_
   `storage` / `testing` capabilities. Neither side is penalised for a capability the other
   simply does not offer.
 - **Both pass all shared basics** (navigation, search, multi-field form, select, click, hover,
-  wait-for-dynamic, dialogs, console, network, screenshot, evaluate).
+  wait-for-dynamic, tabs, dialogs, console, network, screenshot, evaluate).
 
 ### Limitations of this benchmark
 

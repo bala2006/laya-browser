@@ -268,7 +268,7 @@ function renderResults(model, chartFiles) {
     "- **Single machine, headless.** Latency figures include per-task process spin-up amortised by the warm-up run being discarded; absolute milliseconds are environment-specific and only the relative comparison is meaningful.",
   );
   lines.push(
-    "- **Where Playwright wins, the table shows it.** Playwright MCP auto-tracks `window.open` popups as tabs; laya-browser-mcp's tab tool tracks only tabs it opens, so laya honestly FAILS the `tabs-open` popup task while Playwright passes.",
+    "- **Both track `window.open` popups.** Like Playwright MCP, laya-browser-mcp subscribes to the browser context's `page` event, so a popup the page opens itself (via `window.open`, `target=\"_blank\"`, or ctrl/cmd+click) becomes a listable, selectable tab; focus stays on the opener until you select it. Both pass the `tabs-open` popup task.",
   );
   lines.push(
     "- **N/A is honest, not a loss.** Cookie, localStorage, and verify/assert tasks are N/A for Playwright MCP core because its core toolset has no such tools; laya exposes them under its `storage` / `testing` capabilities. Neither side is penalised for a capability the other simply does not offer.",

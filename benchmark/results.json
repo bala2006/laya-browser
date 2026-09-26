@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-26T19:44:16.240Z",
+  "generatedAt": "2026-09-26T20:13:13.335Z",
   "runs": 5,
   "warmupDiscarded": 1,
   "tasks": [
@@ -10,15 +10,15 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 153,
-        "p90Ms": 160,
+        "medianMs": 154,
+        "p90Ms": 162,
         "rt": 2
       },
       "playwright": {
         "rate": 1,
         "passed": true,
-        "medianMs": 431,
-        "p90Ms": 449,
+        "medianMs": 435,
+        "p90Ms": 507,
         "rt": 2
       },
       "autopilot": {
@@ -32,21 +32,21 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 201,
-        "p90Ms": 202,
+        "medianMs": 200,
+        "p90Ms": 209,
         "rt": 4
       },
       "playwright": {
         "rate": 1,
         "passed": true,
-        "medianMs": 972,
-        "p90Ms": 1030,
+        "medianMs": 966,
+        "p90Ms": 1022,
         "rt": 4
       },
       "autopilot": {
         "rate": 1,
         "passed": true,
-        "medianMs": 237,
+        "medianMs": 235,
         "rt": 2
       }
     },
@@ -57,21 +57,21 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 306,
-        "p90Ms": 312,
+        "medianMs": 308,
+        "p90Ms": 318,
         "rt": 9
       },
       "playwright": {
         "rate": 1,
         "passed": true,
-        "medianMs": 1147,
-        "p90Ms": 1171,
+        "medianMs": 1109,
+        "p90Ms": 1122,
         "rt": 9
       },
       "autopilot": {
         "rate": 0,
         "passed": false,
-        "medianMs": 251,
+        "medianMs": 248,
         "rt": 3
       }
     },
@@ -82,15 +82,15 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 194,
-        "p90Ms": 199,
+        "medianMs": 196,
+        "p90Ms": 200,
         "rt": 4
       },
       "playwright": {
         "rate": 1,
         "passed": true,
-        "medianMs": 457,
-        "p90Ms": 520,
+        "medianMs": 476,
+        "p90Ms": 547,
         "rt": 4
       },
       "autopilot": {
@@ -104,15 +104,15 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 217,
-        "p90Ms": 228,
+        "medianMs": 226,
+        "p90Ms": 233,
         "rt": 4
       },
       "playwright": {
         "rate": 1,
         "passed": true,
-        "medianMs": 1030,
-        "p90Ms": 1065,
+        "medianMs": 991,
+        "p90Ms": 1013,
         "rt": 4
       },
       "autopilot": {
@@ -126,15 +126,15 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 227,
-        "p90Ms": 233,
+        "medianMs": 228,
+        "p90Ms": 240,
         "rt": 4
       },
       "playwright": {
         "rate": 1,
         "passed": true,
-        "medianMs": 538,
-        "p90Ms": 540,
+        "medianMs": 497,
+        "p90Ms": 515,
         "rt": 4
       },
       "autopilot": {
@@ -148,15 +148,15 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 960,
-        "p90Ms": 963,
+        "medianMs": 959,
+        "p90Ms": 965,
         "rt": 3
       },
       "playwright": {
         "rate": 1,
         "passed": true,
-        "medianMs": 1216,
-        "p90Ms": 1279,
+        "medianMs": 1215,
+        "p90Ms": 1243,
         "rt": 3
       },
       "autopilot": {
@@ -168,17 +168,17 @@
       "category": "tabs",
       "description": "Open a second tab via window.open and list tabs",
       "laya": {
-        "rate": 0,
-        "passed": false,
-        "medianMs": 225,
-        "p90Ms": 226,
+        "rate": 1,
+        "passed": true,
+        "medianMs": 234,
+        "p90Ms": 246,
         "rt": 5
       },
       "playwright": {
         "rate": 1,
         "passed": true,
-        "medianMs": 1032,
-        "p90Ms": 1047,
+        "medianMs": 1021,
+        "p90Ms": 1067,
         "rt": 5
       },
       "autopilot": {
@@ -193,14 +193,14 @@
         "rate": 1,
         "passed": true,
         "medianMs": 225,
-        "p90Ms": 228,
+        "p90Ms": 230,
         "rt": 6
       },
       "playwright": {
         "rate": 1,
         "passed": true,
-        "medianMs": 1021,
-        "p90Ms": 1048,
+        "medianMs": 1020,
+        "p90Ms": 1037,
         "rt": 6
       },
       "autopilot": {
@@ -214,15 +214,15 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 149,
-        "p90Ms": 150,
+        "medianMs": 152,
+        "p90Ms": 155,
         "rt": 3
       },
       "playwright": {
         "rate": 1,
         "passed": true,
-        "medianMs": 463,
-        "p90Ms": 487,
+        "medianMs": 449,
+        "p90Ms": 482,
         "rt": 3
       },
       "autopilot": {
@@ -236,15 +236,15 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 156,
-        "p90Ms": 156,
+        "medianMs": 151,
+        "p90Ms": 151,
         "rt": 3
       },
       "playwright": {
         "rate": 1,
         "passed": true,
-        "medianMs": 422,
-        "p90Ms": 476,
+        "medianMs": 434,
+        "p90Ms": 487,
         "rt": 3
       },
       "autopilot": {
@@ -258,15 +258,15 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 187,
-        "p90Ms": 189,
+        "medianMs": 192,
+        "p90Ms": 194,
         "rt": 2
       },
       "playwright": {
         "rate": 1,
         "passed": true,
-        "medianMs": 496,
-        "p90Ms": 550,
+        "medianMs": 449,
+        "p90Ms": 540,
         "rt": 2
       },
       "autopilot": {
@@ -280,8 +280,8 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 227,
-        "p90Ms": 236,
+        "medianMs": 223,
+        "p90Ms": 227,
         "rt": 5
       },
       "playwright": {
@@ -299,8 +299,8 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 224,
-        "p90Ms": 230,
+        "medianMs": 217,
+        "p90Ms": 227,
         "rt": 5
       },
       "playwright": {
@@ -318,15 +318,15 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 154,
-        "p90Ms": 156,
+        "medianMs": 157,
+        "p90Ms": 161,
         "rt": 2
       },
       "playwright": {
         "rate": 1,
         "passed": true,
-        "medianMs": 951,
-        "p90Ms": 962,
+        "medianMs": 937,
+        "p90Ms": 999,
         "rt": 2
       },
       "autopilot": {
@@ -340,8 +340,8 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 208,
-        "p90Ms": 214,
+        "medianMs": 210,
+        "p90Ms": 211,
         "rt": 5
       },
       "playwright": {
@@ -405,7 +405,7 @@
     },
     {
       "category": "tabs",
-      "layaRate": 0,
+      "layaRate": 1,
       "pwRate": 1,
       "layaN": 1,
       "pwN": 1
@@ -463,68 +463,68 @@
   "tasksBoth": [
     {
       "id": "nav-basic",
-      "layaMs": 153,
-      "pwMs": 431
+      "layaMs": 154,
+      "pwMs": 435
     },
     {
       "id": "search-type-submit",
-      "layaMs": 201,
-      "pwMs": 972
+      "layaMs": 200,
+      "pwMs": 966
     },
     {
       "id": "login-fill-form",
-      "layaMs": 306,
-      "pwMs": 1147
+      "layaMs": 308,
+      "pwMs": 1109
     },
     {
       "id": "select-option",
-      "layaMs": 194,
-      "pwMs": 457
+      "layaMs": 196,
+      "pwMs": 476
     },
     {
       "id": "click-button",
-      "layaMs": 217,
-      "pwMs": 1030
+      "layaMs": 226,
+      "pwMs": 991
     },
     {
       "id": "hover-reveal",
-      "layaMs": 227,
-      "pwMs": 538
+      "layaMs": 228,
+      "pwMs": 497
     },
     {
       "id": "wait-for-dynamic",
-      "layaMs": 960,
-      "pwMs": 1216
+      "layaMs": 959,
+      "pwMs": 1215
     },
     {
       "id": "tabs-open",
-      "layaMs": 225,
-      "pwMs": 1032
+      "layaMs": 234,
+      "pwMs": 1021
     },
     {
       "id": "dialog-confirm",
       "layaMs": 225,
-      "pwMs": 1021
+      "pwMs": 1020
     },
     {
       "id": "console-capture",
-      "layaMs": 149,
-      "pwMs": 463
+      "layaMs": 152,
+      "pwMs": 449
     },
     {
       "id": "network-capture",
-      "layaMs": 156,
-      "pwMs": 422
+      "layaMs": 151,
+      "pwMs": 434
     },
     {
       "id": "screenshot",
-      "layaMs": 187,
-      "pwMs": 496
+      "layaMs": 192,
+      "pwMs": 449
     },
     {
       "id": "evaluate",
-      "layaMs": 154,
-      "pwMs": 951
+      "layaMs": 157,
+      "pwMs": 937
     }
   ],
   "roundTripTasks": [
@@ -546,27 +546,27 @@
     "pwTools": 24,
     "layaCategories": 15,
     "pwCategories": 13,
-    "layaPassed": 15,
+    "layaPassed": 16,
     "pwPassed": 13
   },
   "summary": {
     "laya": {
       "applicable": 16,
-      "passed": 15,
-      "rate": 0.9375,
-      "medianMs": 213
+      "passed": 16,
+      "rate": 1,
+      "medianMs": 214
     },
     "playwright": {
       "applicable": 13,
       "passed": 13,
       "rate": 1,
-      "medianMs": 951
+      "medianMs": 937
     },
     "layaAutopilot": {
       "applicable": 2,
       "passed": 1,
       "rate": 0.5,
-      "medianMs": 244
+      "medianMs": 242
     }
   },
   "toolCounts": {

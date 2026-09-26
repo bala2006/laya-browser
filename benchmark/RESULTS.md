@@ -1,37 +1,37 @@
 # Benchmark: laya-browser-mcp vs Playwright MCP
 
-Generated 2026-09-26T19:44:16.240Z — 5 runs per task (first discarded as warm-up), median reported. Baseline: the real Playwright MCP (`@playwright/mcp`). All tasks run against identical local loopback HTML fixtures (no live sites) for deterministic, fair results.
+Generated 2026-09-26T20:13:13.335Z — 5 runs per task (first discarded as warm-up), median reported. Baseline: the real Playwright MCP (`@playwright/mcp`). All tasks run against identical local loopback HTML fixtures (no live sites) for deterministic, fair results.
 
 ## Headline
 
 | Metric | laya-browser-mcp (Assist) | Playwright MCP |
 | --- | --- | --- |
 | Tasks applicable | 16 | 13 |
-| Tasks passed | 15 | 13 |
-| Success rate | 94% | 100% |
-| Median latency (applicable tasks) | 213 ms | 951 ms |
+| Tasks passed | 16 | 13 |
+| Success rate | 100% | 100% |
+| Median latency (applicable tasks) | 214 ms | 937 ms |
 | Tools exposed | 25 core / 72 all-caps | 24 core |
 
 ## Per-task results
 
 | Task | Category | laya | laya ms | laya calls | Playwright | PW ms | PW calls |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| nav-basic | navigation | PASS | 153 | 2 | PASS | 431 | 2 |
-| search-type-submit | forms | PASS | 201 | 4 | PASS | 972 | 4 |
-| login-fill-form | multi-field-form | PASS | 306 | 9 | PASS | 1147 | 9 |
-| select-option | selection | PASS | 194 | 4 | PASS | 457 | 4 |
-| click-button | click | PASS | 217 | 4 | PASS | 1030 | 4 |
-| hover-reveal | hover | PASS | 227 | 4 | PASS | 538 | 4 |
-| wait-for-dynamic | wait-for | PASS | 960 | 3 | PASS | 1216 | 3 |
-| tabs-open | tabs | FAIL | 225 | 5 | PASS | 1032 | 5 |
-| dialog-confirm | dialogs | PASS | 225 | 6 | PASS | 1021 | 6 |
-| console-capture | console | PASS | 149 | 3 | PASS | 463 | 3 |
-| network-capture | network | PASS | 156 | 3 | PASS | 422 | 3 |
-| screenshot | screenshot | PASS | 187 | 2 | PASS | 496 | 2 |
-| storage-cookies | storage | PASS | 227 | 5 | N/A | N/A | N/A |
-| storage-localstorage | storage | PASS | 224 | 5 | N/A | N/A | N/A |
-| evaluate | evaluate | PASS | 154 | 2 | PASS | 951 | 2 |
-| verify-text | verify | PASS | 208 | 5 | N/A | N/A | N/A |
+| nav-basic | navigation | PASS | 154 | 2 | PASS | 435 | 2 |
+| search-type-submit | forms | PASS | 200 | 4 | PASS | 966 | 4 |
+| login-fill-form | multi-field-form | PASS | 308 | 9 | PASS | 1109 | 9 |
+| select-option | selection | PASS | 196 | 4 | PASS | 476 | 4 |
+| click-button | click | PASS | 226 | 4 | PASS | 991 | 4 |
+| hover-reveal | hover | PASS | 228 | 4 | PASS | 497 | 4 |
+| wait-for-dynamic | wait-for | PASS | 959 | 3 | PASS | 1215 | 3 |
+| tabs-open | tabs | PASS | 234 | 5 | PASS | 1021 | 5 |
+| dialog-confirm | dialogs | PASS | 225 | 6 | PASS | 1020 | 6 |
+| console-capture | console | PASS | 152 | 3 | PASS | 449 | 3 |
+| network-capture | network | PASS | 151 | 3 | PASS | 434 | 3 |
+| screenshot | screenshot | PASS | 192 | 2 | PASS | 449 | 2 |
+| storage-cookies | storage | PASS | 223 | 5 | N/A | N/A | N/A |
+| storage-localstorage | storage | PASS | 217 | 5 | N/A | N/A | N/A |
+| evaluate | evaluate | PASS | 157 | 2 | PASS | 937 | 2 |
+| verify-text | verify | PASS | 210 | 5 | N/A | N/A | N/A |
 
 ## Success rate by category
 
@@ -44,7 +44,7 @@ Generated 2026-09-26T19:44:16.240Z — 5 runs per task (first discarded as warm-
 | click | 100% | 100% |
 | hover | 100% | 100% |
 | wait-for | 100% | 100% |
-| tabs | 0% | 100% |
+| tabs | 100% | 100% |
 | dialogs | 100% | 100% |
 | console | 100% | 100% |
 | network | 100% | 100% |
@@ -77,7 +77,7 @@ laya-browser-mcp offers `laya_run_goal`, a single MCP call that runs the whole g
 - **Autopilot uses the REFERENCE stub engine (no model weights).** Its success reflects the deterministic rule layer (fill goal-stated fields, submit, verify the success marker), NOT a web-tuned model. On the multi-field login goal the reference stub batch-fills the text fields and submits without choosing the role option, so it does not satisfy the stricter Assist-mode verify — an honest reference-layer limitation, shown as FAIL.
 - **Local fixtures, not live sites.** Every task runs against loopback HTML served from `benchmark/fixtures/`. This removes bot-detection and network-latency skew so the comparison is deterministic and fair; it is NOT a claim about live-web robustness.
 - **Single machine, headless.** Latency figures include per-task process spin-up amortised by the warm-up run being discarded; absolute milliseconds are environment-specific and only the relative comparison is meaningful.
-- **Where Playwright wins, the table shows it.** Playwright MCP auto-tracks `window.open` popups as tabs; laya-browser-mcp's tab tool tracks only tabs it opens, so laya honestly FAILS the `tabs-open` popup task while Playwright passes.
+- **Both track `window.open` popups.** Like Playwright MCP, laya-browser-mcp subscribes to the browser context's `page` event, so a popup the page opens itself (via `window.open`, `target="_blank"`, or ctrl/cmd+click) becomes a listable, selectable tab; focus stays on the opener until you select it. Both pass the `tabs-open` popup task.
 - **N/A is honest, not a loss.** Cookie, localStorage, and verify/assert tasks are N/A for Playwright MCP core because its core toolset has no such tools; laya exposes them under its `storage` / `testing` capabilities. Neither side is penalised for a capability the other simply does not offer.
 
 ## Reproduce

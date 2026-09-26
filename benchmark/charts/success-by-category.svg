@@ -48,8 +48,8 @@
 <rect x="623.0666666666667" y="52" width="32.46666666666667" height="232" fill="#4338ca" rx="2"/>
 <text x="639.3000000000001" y="49" font-size="9" text-anchor="middle" fill="#1e293b">100%</text>
 <text x="621.0666666666667" y="298" font-size="10" text-anchor="end" fill="#1e293b" transform="rotate(-35 621.0666666666667 298)">wait-for</text>
-<rect x="673.5333333333333" y="284" width="32.46666666666667" height="0" fill="#0f766e" rx="2"/>
-<text x="689.7666666666667" y="281" font-size="9" text-anchor="middle" fill="#1e293b">0%</text>
+<rect x="673.5333333333333" y="52" width="32.46666666666667" height="232" fill="#0f766e" rx="2"/>
+<text x="689.7666666666667" y="49" font-size="9" text-anchor="middle" fill="#1e293b">100%</text>
 <rect x="710" y="52" width="32.46666666666667" height="232" fill="#4338ca" rx="2"/>
 <text x="726.2333333333333" y="49" font-size="9" text-anchor="middle" fill="#1e293b">100%</text>
 <text x="708" y="298" font-size="10" text-anchor="end" fill="#1e293b" transform="rotate(-35 708 298)">tabs</text>

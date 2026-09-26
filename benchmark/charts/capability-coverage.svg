@@ -23,8 +23,8 @@
 <rect x="360.00000000000006" y="253.84" width="89.66666666666667" height="30.16" fill="#4338ca" rx="2"/>
 <text x="404.83333333333337" y="250.84" font-size="9" text-anchor="middle" fill="#1e293b">13</text>
 <text x="358.00000000000006" y="298" font-size="10" text-anchor="end" fill="#1e293b" transform="rotate(-35 358.00000000000006 298)">Task categories attempted</text>
-<rect x="467.6666666666667" y="249.2" width="89.66666666666667" height="34.8" fill="#0f766e" rx="2"/>
-<text x="512.5" y="246.2" font-size="9" text-anchor="middle" fill="#1e293b">15</text>
+<rect x="467.6666666666667" y="246.88" width="89.66666666666667" height="37.12" fill="#0f766e" rx="2"/>
+<text x="512.5" y="243.88" font-size="9" text-anchor="middle" fill="#1e293b">16</text>
 <rect x="561.3333333333334" y="253.84" width="89.66666666666667" height="30.16" fill="#4338ca" rx="2"/>
 <text x="606.1666666666667" y="250.84" font-size="9" text-anchor="middle" fill="#1e293b">13</text>
 <text x="559.3333333333334" y="298" font-size="10" text-anchor="end" fill="#1e293b" transform="rotate(-35 559.3333333333334 298)">Tasks passed</text>
