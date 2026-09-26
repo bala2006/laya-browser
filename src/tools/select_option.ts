@@ -22,6 +22,10 @@ type Args = { element?: string; target: string; values: string[] };
 export function makeHandler(ctx: ToolContext) {
   return async (args: Args): Promise<ToolResult> => {
     try {
+      // Ensure the page exists before resolving the ref: resolveRef() is sync and throws
+      // when the browser is still launching (e.g. a pipelined navigate+select). getPage() is
+      // idempotent and serialises concurrent launches, matching the other tools' pattern.
+      await ctx.session.getPage();
       const locator = ctx.session.resolveRef(args.target);
       // Try matching by label first, then fall back to value, so callers can use either.
       await locator.selectOption(args.values.map((v) => ({ label: v }))).catch(async () => {

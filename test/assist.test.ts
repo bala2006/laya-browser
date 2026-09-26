@@ -100,4 +100,66 @@ describe("Assist-mode tools (real headless chromium, no weights)", () => {
     expect(result.isError).toBe(true);
     expect(textOf(result)).toContain("Failed to click");
   });
+
+  // Regression: ref-based tools must await getPage() before resolveRef(), because
+  // resolveRef() is synchronous and throws while the browser is still launching.
+  // A real MCP client pipelines calls against one shared session, so a browser_type
+  // can reach resolveRef() before the page exists. These tests use their OWN fresh,
+  // never-launched session so the page really is undefined at the first ref resolution;
+  // they fail (with "call getPage() first") if the getPage() await is removed.
+  describe("resolveRef before page exists (pipelined-call regression)", () => {
+    let raceSession: BrowserSession;
+    let raceCtx: ToolContext;
+
+    beforeAll(() => {
+      raceSession = new BrowserSession({ headless: true });
+      raceCtx = { session: raceSession };
+    });
+
+    afterAll(async () => {
+      await raceSession.close();
+    });
+
+    it("browser_type succeeds as the first action, before any page is created", async () => {
+      // No prior navigate/getPage on this session: the page is undefined here.
+      expect(raceSession.launched).toBe(false);
+      // Navigate so there is a document to type into, but do it as a pipelined pair:
+      // kick off navigate and immediately issue type WITHOUT awaiting navigate first,
+      // exactly as an MCP client that pipelines requests over stdio would.
+      const navPromise = navigate
+        .makeHandler(raceCtx)({ url: fixtures.url("login.html") });
+      const typePromise = typeTool.makeHandler(raceCtx)({
+        target: "#email",
+        text: "race@example.com",
+        element: "Email field",
+      });
+      const [, typeResult] = await Promise.all([navPromise, typePromise]);
+
+      // The type must have succeeded, and the DOM must actually reflect the typed value.
+      expect(typeResult.isError).toBeFalsy();
+      const page = await raceSession.getPage();
+      expect(await page.locator("#email").inputValue()).toBe("race@example.com");
+    });
+
+    it("browser_click resolves a ref immediately after navigate on a fresh session", async () => {
+      const clickSession = new BrowserSession({ headless: true });
+      const clickCtx: ToolContext = { session: clickSession };
+      try {
+        const navPromise = navigate
+          .makeHandler(clickCtx)({ url: fixtures.url("login.html") });
+        const clickPromise = clickTool.makeHandler(clickCtx)({
+          target: "#help",
+          element: "Help link",
+        });
+        const [, clickResult] = await Promise.all([navPromise, clickPromise]);
+
+        expect(clickResult.isError).toBeFalsy();
+        const page = await clickSession.getPage();
+        // The help link sets the URL hash on click: a literal DOM/nav outcome.
+        expect(page.url()).toContain("#help");
+      } finally {
+        await clickSession.close();
+      }
+    });
+  });
 });

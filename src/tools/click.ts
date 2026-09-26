@@ -29,6 +29,10 @@ type Args = {
 export function makeHandler(ctx: ToolContext) {
   return async (args: Args): Promise<ToolResult> => {
     try {
+      // Ensure the page exists before resolving the ref: resolveRef() is sync and throws
+      // when the browser is still launching (e.g. a pipelined navigate+click). getPage() is
+      // idempotent and serialises concurrent launches, matching the other tools' pattern.
+      await ctx.session.getPage();
       const locator = ctx.session.resolveRef(args.target);
       const options = args.button ? { button: args.button } : {};
       if (args.doubleClick) {
