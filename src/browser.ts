@@ -36,6 +36,7 @@ import type {
   TabInfo,
 } from "./types.js";
 import type { OverlayConfig } from "./config.js";
+import { BrowserOverlay } from "./overlay.js";
 
 /** The Playwright engine a {@link BrowserSession} drives. */
 export type BrowserEngineName = "chromium" | "firefox" | "webkit";
@@ -131,6 +132,13 @@ export class BrowserSession {
   /** Active route-mocking rules, keyed by URL pattern (one rule per pattern). */
   private routeRules = new Map<string, RouteRule>();
 
+  /**
+   * The visual overlay (agentLens HUD). Built from the resolved overlay config; injected via
+   * `context.addInitScript` in {@link launch} when active. Disabled (a no-op controller) when
+   * no overlay config was threaded in.
+   */
+  private readonly overlay: BrowserOverlay;
+
   constructor(options: BrowserSessionOptions = {}) {
     this.options = {
       engine: options.engine ?? "chromium",
@@ -143,6 +151,28 @@ export class BrowserSession {
     };
     this.browserType = BROWSER_TYPES[this.options.engine];
     this.effectiveHeadless = this.options.headless;
+    // Build the overlay from the resolved config. When no overlay config was threaded in,
+    // synthesise a disabled one so the controller is a safe no-op.
+    this.overlay = new BrowserOverlay(
+      this.options.overlay ?? {
+        enabled: false,
+        mode: "off",
+        accent: "#a855f7",
+        typingEffect: false,
+        waitCountdown: false,
+        debugSeeElements: false,
+        activityLog: true,
+      },
+    );
+  }
+
+  /**
+   * The visual overlay controller, so the Autopilot loop (and other in-boundary callers) can
+   * narrate through the same HUD the session installs. Always returns a controller; it is a
+   * no-op when the overlay is disabled.
+   */
+  getOverlay(): BrowserOverlay {
+    return this.overlay;
   }
 
   /** Whether a browser has actually been launched yet. */
@@ -230,6 +260,24 @@ export class BrowserSession {
     const page = await context.newPage();
     // The "page" event above will have registered `page`; ensure it is the active tab.
     this.registerPage(page, { activate: true });
+
+    // Resolve the overlay against the EFFECTIVE headless mode: in `auto` mode the overlay is
+    // on only when actually headed; `on`/`off` force it regardless. Forced `on` MUST inject
+    // even headless so visual verification (which runs headless) can assert the HUD exists.
+    const overlayCfg = this.options.overlay;
+    if (overlayCfg) {
+      const active =
+        overlayCfg.mode === "on"
+          ? true
+          : overlayCfg.mode === "off"
+            ? false
+            : !this.effectiveHeadless;
+      this.overlay.enable(active);
+      if (active) {
+        // addInitScript covers future loads/tabs; inject into the already-open page too.
+        await this.overlay.install(context, [page]);
+      }
+    }
     return page;
   }
 
@@ -740,6 +788,9 @@ export class BrowserSession {
   async mouseMove(x: number, y: number): Promise<void> {
     const page = await this.getPage();
     await page.mouse.move(x, y);
+    // Best-effort, AFTER the real action: mirror the synthetic cursor so vision-mode
+    // coordinate moves are visible in the HUD without ever changing move semantics.
+    await this.overlay.moveCursor(page, x, y);
   }
 
   /** Move to coordinates and click there with the given button (default left). */
@@ -751,6 +802,9 @@ export class BrowserSession {
     const page = await this.getPage();
     await page.mouse.move(x, y);
     await page.mouse.click(x, y, { button });
+    // Best-effort ripple + cursor AFTER the real click so click behaviour never changes.
+    await this.overlay.moveCursor(page, x, y);
+    await this.overlay.ripple(page, x, y);
   }
 
   /** Press-and-hold the given mouse button at the current cursor position. */
@@ -778,6 +832,8 @@ export class BrowserSession {
     // An intermediate move makes drag handlers that watch for movement fire reliably.
     await page.mouse.move(endX, endY, { steps: 8 });
     await page.mouse.up();
+    // Best-effort cursor trail AFTER the real drag so drag semantics never change.
+    await this.overlay.moveCursor(page, endX, endY);
   }
 
   /** Scroll the page by a wheel delta. */
@@ -809,10 +865,33 @@ export class BrowserSession {
    * evaluate-based highlight (the headless analogue of the codegen inspector overlay).
    */
   async highlight(target: string): Promise<boolean> {
-    await this.getPage();
+    const page = await this.getPage();
     const locator = this.resolveRef(target);
     const count = await locator.count();
     if (count === 0) return false;
+    // When the overlay is active, spotlight the target through the HUD so the highlight
+    // survives navigation and matches the agentLens visual language. Still keep the inline
+    // outline too (best-effort) so browser_hide_highlight has something to clear even if the
+    // overlay is torn down mid-session, and so the contract is identical either way.
+    if (this.overlay.isEnabled()) {
+      const trimmed = target.trim();
+      if (REF_PATTERN.test(trimmed)) {
+        await this.overlay.spotlight(page, trimmed);
+      } else {
+        const rect = await locator
+          .first()
+          .boundingBox()
+          .catch(() => null);
+        if (rect) {
+          await this.overlay.spotlight(page, {
+            x: rect.x,
+            y: rect.y,
+            width: rect.width,
+            height: rect.height,
+          });
+        }
+      }
+    }
     await locator.first().evaluate((el) => {
       const he = el as HTMLElement;
       he.setAttribute("data-laya-highlight-prev", he.style.outline || "");
@@ -825,6 +904,9 @@ export class BrowserSession {
   /** Remove any outline previously added by {@link highlight} across the page. */
   async hideHighlight(): Promise<void> {
     const page = await this.getPage();
+    if (this.overlay.isEnabled()) {
+      await this.overlay.hideSpotlight(page);
+    }
     await page.evaluate(() => {
       const marked = document.querySelectorAll("[data-laya-highlight-prev]");
       for (const el of Array.from(marked)) {
