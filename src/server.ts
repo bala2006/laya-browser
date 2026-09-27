@@ -18,6 +18,7 @@ import * as runGoalTool from "./tools/run_goal.js";
 import { UnavailableEngine } from "./laya/index.js";
 import { samplerFromServer } from "./autopilot/escalation.js";
 import { loadConfig, type LayaBrowserConfig } from "./config.js";
+import { createRunArtifactsHolder } from "./tools/run_artifacts.js";
 import type { LayaDecisionEngine } from "./types.js";
 
 /** Result of {@link createServer}: the server plus the session it drives. */
@@ -58,6 +59,44 @@ const INSTRUCTIONS = [
   "MCP sampling, so clients intending to use Autopilot should support the 'sampling' capability.",
 ].join(" ");
 
+/**
+ * (B2) Ask the connected client for inline human approval of a destructive action via MCP
+ * elicitation, returning `true` only on an explicit accept.
+ *
+ * Resolved lazily at call time behind a check of the client's `elicitation` capability
+ * (mirroring how {@link samplerFromServer} gates sampling). When the client did not advertise
+ * elicitation, or the request fails, or the human declines/cancels, this resolves to `false`
+ * so the loop preserves its refuse-by-default fail-safe. Never throws.
+ */
+async function confirmViaElicitation(
+  server: McpServer,
+  prompt: string,
+): Promise<boolean> {
+  try {
+    const capabilities = server.server.getClientCapabilities();
+    if (!capabilities?.elicitation) return false;
+    const result = await server.server.elicitInput({
+      message: prompt,
+      requestedSchema: {
+        type: "object",
+        properties: {
+          approve: {
+            type: "boolean",
+            title: "Approve",
+            description: "Approve this destructive action.",
+          },
+        },
+        required: ["approve"],
+      },
+    });
+    // Only an explicit accept with approve === true authorises the action; a decline, a
+    // cancel, or a missing/false field is treated as a refusal (fail-safe).
+    return result.action === "accept" && result.content?.approve === true;
+  } catch {
+    return false;
+  }
+}
+
 /** Construct the MCP server, register Assist + Autopilot tools, and wire the session. */
 export function createServer(options: CreateServerOptions = {}): CreatedServer {
   const config = options.config ?? loadConfig();
@@ -74,6 +113,12 @@ export function createServer(options: CreateServerOptions = {}): CreatedServer {
   };
   const session = options.session ?? new BrowserSession(browserOptions);
   const engine = options.engine ?? new UnavailableEngine();
+
+  // (D1) The shared holder for the most recent Autopilot run's observability artifacts. It is
+  // passed BY REFERENCE into both the laya_run_goal tool context (which records into it when a
+  // run enables artifact recording) and the laya_export_run tool context (which reads it to
+  // write a replay). One session -> one "current" run, so a single holder suffices.
+  const artifacts = createRunArtifactsHolder();
 
   const server = new McpServer(
     {
@@ -94,7 +139,12 @@ export function createServer(options: CreateServerOptions = {}): CreatedServer {
       session,
       allowedDomains: config.allowedDomains,
       allowUnsafeCode: config.allowUnsafeCode,
+      // (B3) Opt-in destructive guard for Assist tools (default off). When off, Assist tools
+      // behave exactly as before; when on, browser_click refuses a destructive click.
+      assistDestructiveGuard: config.assistDestructiveGuard,
       config,
+      // (D1) Share the last-run artifacts holder so laya_export_run can write a replay.
+      artifacts,
     },
     config.capabilities,
   );
@@ -112,6 +162,34 @@ export function createServer(options: CreateServerOptions = {}): CreatedServer {
       allowedDomains: config.allowedDomains,
       destructiveFormGuard: config.destructiveFormGuard,
       waitMs: config.autopilotWaitMs,
+      selfHealRetries: config.selfHealRetries,
+      settleProbe: config.settleProbe,
+      loopDetection: config.loopDetection,
+      loopWindow: config.loopWindow,
+      // (B1) Mask secret values/patterns out of the transcript/overlay/logs.
+      redactSecrets: config.redactSecrets,
+      // (B2) Require inline confirmation before a destructive auto-submit CLICK.
+      confirmDestructive: config.confirmDestructive,
+      // (C1) Which snapshot backend the loop captures with (domwalk default vs aria).
+      snapshotBackend: config.snapshotBackend,
+      // (C3) Order/cap controls by viewport visibility first.
+      viewportPriority: config.viewportPriority,
+      // (C2) Send only the snapshot delta to the LLM on escalation when a diff exists.
+      deltaPrompt: true,
+      // (D1) Per-step replay recording is an explicit opt-in (LAYA_RECORD_ARTIFACTS, default
+      // OFF) so a normal run captures no screenshots. When off the shared holder simply never
+      // receives a run and laya_export_run reports none recorded.
+      recordArtifacts: config.recordArtifacts,
+      // (D1) Share the artifacts holder so a run records per-step artifacts for the
+      // laya_export_run replay tool WHEN recording is enabled above. The holder alone does
+      // NOT enable recording.
+      artifacts,
+      // (B2) Wire the real confirmation via MCP elicitation, resolved lazily at call time
+      // (the client's `elicitation` capability is only known after it connects/initializes,
+      // which happens after createServer). Mirrors how `sample` is wired for sampling. When
+      // the client lacks elicitation, confirm resolves to false (refuse), preserving the
+      // refuse-by-default fail-safe. Never throws.
+      confirm: async (prompt) => confirmViaElicitation(server, prompt),
       // Resolve the sampler lazily at call time: the client's `sampling` capability is only
       // known after it has connected and initialized, which happens after createServer.
       sample: async (prompt) => {

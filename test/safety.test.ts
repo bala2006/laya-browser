@@ -12,6 +12,8 @@ import { BrowserSession } from "../src/browser.js";
 import { runGoal } from "../src/autopilot/loop.js";
 import { StubEngine } from "../src/laya/index.js";
 import * as navigate from "../src/tools/navigate.js";
+import * as click from "../src/tools/click.js";
+import { capture } from "../src/snapshot.js";
 import {
   checkDomainAllowed,
   checkDestructiveSubmit,
@@ -223,5 +225,50 @@ describe("Autopilot safety (real chromium, no weights)", () => {
     expect(result.outcome).toBe("blocked");
     const page = await session.getPage();
     expect(await page.locator("#status").textContent()).toBe("Cart pending");
+  });
+});
+
+describe("B3 assist-tool destructive guard (opt-in, default OFF)", () => {
+  let fixtures: FixtureServer;
+  let session: BrowserSession;
+
+  beforeAll(async () => {
+    fixtures = await startFixtureServer();
+    session = new BrowserSession({ headless: true });
+  });
+
+  afterAll(async () => {
+    await session.close();
+    await fixtures.close();
+  });
+
+  it("refuses a 'Delete account' click when the guard is enabled and does not mutate the page", async () => {
+    await navigate.makeHandler({ session })({ url: fixtures.url("delete-account.html") });
+    const page = await session.getPage();
+    const snap = await capture(page);
+    const deleteRef = snap.controls.find((c) => /delete/i.test(c.name))!.ref;
+    expect(await page.locator("#status").textContent()).toBe("Account active");
+
+    const handler = click.makeHandler({ session, assistDestructiveGuard: true });
+    const result = await handler({ target: deleteRef, element: "Delete account" });
+
+    // The click is refused with the guard reason surfaced, and the page is NOT mutated.
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toMatch(/destructive|delete/i);
+    expect(await page.locator("#status").textContent()).toBe("Account active");
+  });
+
+  it("clicks normally when the guard is off (default), mutating the page", async () => {
+    await navigate.makeHandler({ session })({ url: fixtures.url("delete-account.html") });
+    const page = await session.getPage();
+    const snap = await capture(page);
+    const deleteRef = snap.controls.find((c) => /delete/i.test(c.name))!.ref;
+
+    // Default context: no assistDestructiveGuard -> behaviour unchanged, the click proceeds.
+    const handler = click.makeHandler({ session });
+    const result = await handler({ target: deleteRef, element: "Delete account" });
+
+    expect(result.isError).toBeFalsy();
+    expect(await page.locator("#status").textContent()).toBe("Account deleted");
   });
 });

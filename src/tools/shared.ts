@@ -8,6 +8,7 @@
 import { z } from "zod";
 import type { BrowserSession } from "../browser.js";
 import type { LayaBrowserConfig } from "../config.js";
+import type { RunArtifactsHolder } from "./run_artifacts.js";
 import { capture } from "../snapshot.js";
 
 /** The context handed to every Assist tool handler. */
@@ -30,6 +31,21 @@ export interface ToolContext {
    * default) the tool refuses with a clear message instead of running anything.
    */
   allowUnsafeCode?: boolean;
+  /**
+   * (B3) Whether the destructive-action guard also applies to Assist-mode tools (opt-in).
+   * Default false: when false, Assist tools behave byte-for-byte as before (no snapshot, no
+   * guard). When true, `browser_click` captures a snapshot, resolves the target control, and
+   * refuses a destructive click. Scoped to `browser_click` as the required example; other
+   * Assist tools remain unguarded by design.
+   */
+  assistDestructiveGuard?: boolean;
+  /**
+   * (D1) Shared holder for the most recent Autopilot run's observability artifacts, used by
+   * the laya_export_run tool to write a replay. Created once in src/server.ts and shared by
+   * reference with the laya_run_goal tool context. Optional so lightweight test contexts and
+   * tools that do not need it can omit it.
+   */
+  artifacts?: RunArtifactsHolder;
 }
 
 /** MCP tool result content block (text). */
@@ -94,7 +110,24 @@ export async function snapshotResult(
   header?: string,
 ): Promise<ToolResult> {
   const page = await ctx.session.getPage();
-  const snap = await capture(page);
+  // (C1/C3) Honour the configured snapshot backend and viewport-priority ordering when a
+  // typed config was threaded in; defaults (domwalk, no reordering) keep existing behaviour.
+  const snap = await capture(page, captureOptionsFromConfig(ctx.config));
   const body = header ? `${header}\n\n${snap.text}` : snap.text;
   return textResult(body);
+}
+
+/**
+ * Derive {@link capture} options from the typed config: the C1 snapshot backend and the C3
+ * viewport-priority ordering. Returns empty options (all defaults) when no config is present,
+ * so lightweight test contexts and untyped callers are unaffected.
+ */
+export function captureOptionsFromConfig(
+  config?: LayaBrowserConfig,
+): { backend?: LayaBrowserConfig["snapshotBackend"]; viewportPriority?: boolean } {
+  if (!config) return {};
+  return {
+    backend: config.snapshotBackend,
+    viewportPriority: config.viewportPriority,
+  };
 }

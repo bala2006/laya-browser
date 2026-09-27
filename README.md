@@ -223,6 +223,7 @@ nor callable.
 | --- | --- |
 | `browser_start_tracing` | Start Playwright context tracing (screenshots + snapshots + sources). |
 | `browser_stop_tracing` | Stop tracing and write the trace zip (open with `npx playwright show-trace`). |
+| `laya_export_run` | Export a replay of the most recent `laya_run_goal` run to a path: a JSON file (per-step decision, confidence, timing, snapshot + embedded base64 screenshots) and/or a self-contained HTML replay page. `format`: `html` \| `json` \| `both` (default `both`). Complements the tracing tools; captures the Laya decision trail rather than the raw Playwright action trace. Per-step recording is opt-in via `LAYA_RECORD_ARTIFACTS=true`. |
 | `browser_highlight` | Draw a visible outline around an element via an injected style. |
 | `browser_hide_highlight` | Remove any outlines added by `browser_highlight`. |
 | `browser_start_video` | Honest no-op: video capture needs `recordVideo` set at context creation (see divergence notes). |
@@ -395,6 +396,31 @@ honestly as **FAIL**. This reflects the deterministic rule layer with **no model
 a web-tuned model. `DONE` is never trusted on its own: after the loop, the independent
 final-page verification runs regardless of how the loop ended.
 
+### Observability (replay export + progress streaming)
+
+Autopilot is observable in two additive ways, both of which keep secret text masked (the same
+B1 redaction applied to the transcript also applies to everything exported or streamed):
+
+- **Per-step replay export (`laya_export_run`, DEVTOOLS capability).** When the export tool is
+  used, the loop records a per-step artifact for the run: step number, operation, target, the
+  operation/target confidences, the decision source, the (redacted) detail, the per-step timing
+  in milliseconds, a PNG screenshot, and the compact snapshot text. `laya_export_run` then
+  writes a **JSON replay** (per-step decision / confidence / timing / snapshot with the
+  screenshots embedded as base64) and/or a **self-contained HTML replay page** (inline
+  screenshots + a per-step list) to a path you choose, returning the written path(s) and byte
+  sizes. It **complements** `browser_start_tracing` / `browser_stop_tracing`: those write a raw
+  Playwright trace zip, while this captures the Laya *decision* trail. Artifact recording is
+  **off by default** so normal runs are not slowed; it is an explicit opt-in via
+  `LAYA_RECORD_ARTIFACTS=true`. With recording enabled, run `laya_run_goal` first, then
+  `laya_export_run`. With recording off (the default) no per-step screenshots are captured and
+  `laya_export_run` reports that no run was recorded.
+- **Structured MCP progress notifications (step N/max).** When a client sends a
+  `progressToken` on the `laya_run_goal` request, the loop emits an MCP `notifications/progress`
+  for each step (`progress` = step, `total` = maxSteps, `message` like
+  `step 3/15: clicking Sign in`, redacted), so the client UI mirrors the on-page overlay. When
+  no `progressToken` is supplied, no progress notifications are emitted and behaviour is
+  unchanged.
+
 ## How it works
 
 ### Assist mode (standalone, no weights)
@@ -436,6 +462,50 @@ Every step in the returned transcript records its **source** (`rule` / `laya` / 
 `stub`) and confidences. After the loop, the **independent final-page verification** runs
 regardless of how the loop ended.
 
+### Reliability and self-healing
+
+Three always-on (by default) reliability behaviours keep a run robust and bounded:
+
+- **Self-healing refs (`LAYA_SELF_HEAL_RETRIES`, default `1`).** When a targeted action
+  (`CLICK`/`TYPE_TEXT`/`SELECT`/`HOVER`) fails because its captured ref went stale (the DOM
+  re-rendered between snapshot and execution), Autopilot re-captures the page, re-resolves the
+  **same** element by its accessible **name + role**, and retries against the fresh ref. When
+  no matching element is found the original error is rethrown. Steps that needed a retry record
+  `retries` in the transcript and surface a "Re-resolving stale element" hint on the overlay.
+- **Settle detection (`LAYA_SETTLE_PROBE`, default on).** After each action the loop runs a
+  short, bounded probe (`document.readyState` + URL change + a brief `MutationObserver` window,
+  capped at ~400ms). It uses **no** `networkidle` and **no** `slowMo`. The probe is purely
+  observational: it records `settled` on the step (and toasts "No change detected" when nothing
+  moved) but never changes the decision path or the run outcome.
+- **Loop detection / stuck guard (`LAYA_LOOP_DETECTION`, default on; `LAYA_LOOP_WINDOW`,
+  default `3`).** The loop signs each step by URL + control set + decision. When the last
+  `LAYA_LOOP_WINDOW` steps are identical (no progress) it stops early with the additive
+  **`stuck`** outcome instead of burning the whole step budget.
+
+### Perception cost and speed
+
+Three additive knobs tune how the page is perceived, to cut cost and surface the most
+relevant controls without changing the `Snapshot` / `Control[]` contract:
+
+- **Snapshot backend (`LAYA_SNAPSHOT_BACKEND`, default `domwalk`).** The default `domwalk`
+  runs the in-house in-page DOM walk. Setting it to `aria` instead maps Playwright's
+  accessibility tree (`ariaSnapshot`, Playwright 1.63) into the **same** `Control[]` contract
+  and stamps the same `data-laya-ref="eN"` attributes, so `resolveRef('eN')` resolves the same
+  elements either way. `npm run bench` prints a `domwalk` vs `aria` comparison table with the
+  per-backend wall-ms numbers so the perception cost of each is visible.
+- **Viewport-priority capture (`LAYA_VIEWPORT_PRIORITY`, default `true`).** The DOM walk keeps
+  `eN` assignment in DOM order (so ref resolution is never affected) but orders the **returned**
+  control list so controls that intersect or are near the viewport come first. The downstream
+  ~20-control cap in `state-builder.ts` then retains the nearest-viewport controls.
+- **Snapshot diffing + delta prompts (`src/snapshot-diff.ts`).** Each Autopilot step diffs the
+  new snapshot against the previous one (keyed by a stable `role + name` identity, since `eN`
+  refs are per-snapshot). When new controls appear, a first-class "N new controls appeared"
+  toast/log event is surfaced on the overlay. On an escalation, when a meaningful diff exists
+  and it is not the first step, the loop can send the client LLM only the **delta**
+  (added/removed/changed controls plus goal/url/title) instead of the full control list, cutting
+  tokens; the full-snapshot prompt is always used on the first step or when there is no
+  meaningful diff.
+
 ### Safety guards (`src/safety.ts`)
 
 - **Domain allow-list.** When `LAYA_ALLOWED_DOMAINS` is set, `browser_navigate` and every
@@ -453,6 +523,30 @@ regardless of how the loop ended.
   it. When a signal is present the auto-submit is refused and the reason is surfaced, so a human
   can confirm explicitly. The check errs toward refusing (fail-safe). Disable with
   `LAYA_DESTRUCTIVE_GUARD=false`.
+- **Secret redaction (`LAYA_REDACT_SECRETS`, default `true`).** Values the Autopilot types
+  into secret-looking fields (a `password` input, or a field whose name/type matches
+  `password`/`secret`/`token`/`apikey`/`cvv`/`ssn`/`pin`), plus common secret patterns
+  (JWTs, `Bearer` tokens, `sk-` API keys, AWS `AKIA…` ids, long hex/base64 blobs), are masked
+  with a bullet token wherever they would otherwise be **displayed or logged**: the transcript
+  `detail`/`value`/`fields[].value`, the final snapshot text, the rendered `laya_run_goal`
+  output, and the on-page overlay log/toast/caption/status. The **real** value is still typed
+  into the page and the independent final-page verification still runs against the real text, so
+  automation is never weakened. Set `LAYA_REDACT_SECRETS=false` to disable masking.
+- **Confirmation hook for destructive submits (`LAYA_CONFIRM_DESTRUCTIVE`, default `false`).**
+  When on **and** the connected client supports MCP **elicitation**, a destructive auto-submit
+  `CLICK` that the guard would refuse instead triggers an inline human approval request (an
+  amber "awaiting confirmation" overlay state plus an `About to click "…" - approve?` prompt).
+  Approval proceeds with the click and records `approved via confirmation` on the step; a
+  decline, cancel, or a client that lacks elicitation resolves to a refusal. When
+  `LAYA_CONFIRM_DESTRUCTIVE` is off, or no confirmation callback is wired, the original
+  **refuse-by-default** fail-safe is preserved exactly.
+- **Assist-tool destructive guard (`LAYA_ASSIST_DESTRUCTIVE_GUARD`, default `false`).** Opt-in
+  extension of the destructive guard to the human-driven `browser_click` Assist tool. When on,
+  `browser_click` captures a snapshot, resolves the target control, runs the same pure
+  destructive-submit guard, and refuses the click (returning an error with the reason, and
+  **not** clicking) when it fires. When off (the default) `browser_click` behaves exactly as
+  before (no snapshot, no guard). This is scoped to `browser_click` as the required example;
+  other Assist tools remain unguarded by design.
 
 ## Configuration reference
 
@@ -483,6 +577,16 @@ constructor options, then handed inward as typed config.
 | `LAYA_CAPS` | (core-only) | Comma/space-separated tool capability groups to enable. |
 | `LAYA_BROWSER` | `chromium` | Browser engine: `chromium`, `firefox`, or `webkit`. |
 | `LAYA_ALLOW_UNSAFE_CODE` | `false` | `true` lets `browser_run_code_unsafe` actually run raw Playwright snippets. |
+| `LAYA_SELF_HEAL_RETRIES` | `1` | Autopilot self-healing retries for a failed targeted action, re-resolving the same element by name+role (clamped `0..3`; `0` disables). |
+| `LAYA_SETTLE_PROBE` | `true` | `false` disables the purely-observational post-action settle probe (readyState + URL + a short bounded MutationObserver window; never `networkidle`). |
+| `LAYA_LOOP_DETECTION` | `true` | `false` disables loop detection; when on, an Autopilot run that repeats the identical step stops early with the `stuck` outcome. |
+| `LAYA_LOOP_WINDOW` | `3` | How many recent steps the loop detector compares before declaring a run `stuck` (clamped `2..6`). |
+| `LAYA_REDACT_SECRETS` | `true` | `false` disables masking of secret values/patterns in the transcript, overlay, and rendered output. The real value is always typed into the page regardless. |
+| `LAYA_CONFIRM_DESTRUCTIVE` | `false` | `true` requests inline human approval (via MCP elicitation) before a destructive Autopilot auto-submit `CLICK`, instead of refusing outright. Falls back to refuse-by-default when the client lacks elicitation. |
+| `LAYA_ASSIST_DESTRUCTIVE_GUARD` | `false` | `true` applies the destructive guard to the Assist `browser_click` tool (refuses a destructive click); default `false` leaves Assist-tool behaviour unchanged. |
+| `LAYA_SNAPSHOT_BACKEND` | `domwalk` | Which backend enumerates page controls: `domwalk` (the in-house DOM walk) or `aria` (Playwright's accessibility tree). Both produce the same `Control[]` contract and stamp `data-laya-ref="eN"`, so ref resolution is identical either way. |
+| `LAYA_VIEWPORT_PRIORITY` | `true` | `true` orders captured controls so those in/near the viewport come first, so the ~20-control cap keeps the most relevant. `eN` refs stay in DOM order (ref resolution is unaffected); only the offered order changes. |
+| `LAYA_RECORD_ARTIFACTS` | `false` | `true` records per-step replay artifacts (screenshot + snapshot + decision + confidence + timing) so `laya_export_run` can write a replay. Off by default so normal runs capture no per-step screenshots and are not slowed. |
 
 ### Cross-browser (`LAYA_BROWSER`)
 

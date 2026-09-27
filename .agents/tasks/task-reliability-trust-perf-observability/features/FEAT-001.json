@@ -1,0 +1,25 @@
+{
+  "id": "FEAT-001",
+  "type": "chore",
+  "description": "Confirm the baseline is green and establish the shared config + redaction scaffolding that later features build on. This is the environment-setup / baseline feature: verify existing build and tests pass before making changes, then add the new typed config knobs (parsed once in src/config.ts) and a reusable secret-redaction utility that features B1/B2/B3/C1/C2/C3/D1/D2 depend on. Purely additive: no behavior change to existing paths.",
+  "status": "completed",
+  "steps": [
+    "Run `npm run typecheck` and `npm run test` to confirm the baseline: expect 154 passed / 3 skipped, typecheck clean. Record the numbers. If chromium is missing, run `npx playwright install chromium` first.",
+    "In src/config.ts add new typed knobs to LayaBrowserConfig + ConfigOverrides, parsed ONCE using the existing helpers (envBoolDefaultTrue/envBoolDefaultFalse/parseNumber/clamp), each with a LAYA_-prefixed env var and a documented default. Add: selfHealRetries (env LAYA_SELF_HEAL_RETRIES, default 1, clamped 0..3) for A1; settleProbe (env LAYA_SETTLE_PROBE, default true) for A2; loopDetection (env LAYA_LOOP_DETECTION, default true) and loopWindow (env LAYA_LOOP_WINDOW, default 3, clamped 2..6) for A3; redactSecrets (env LAYA_REDACT_SECRETS, default true) for B1; confirmDestructive (env LAYA_CONFIRM_DESTRUCTIVE, default false) for B2; assistDestructiveGuard (env LAYA_ASSIST_DESTRUCTIVE_GUARD, default false) for B3; snapshotBackend (env LAYA_SNAPSHOT_BACKEND, values 'domwalk'|'aria', default 'domwalk') for C1; viewportPriority (env LAYA_VIEWPORT_PRIORITY, default true) for C3; and keep existing knobs untouched. Update the file's top-of-file env doc comment block and JSDoc for each new field.",
+    "Create src/redact.ts: a small PURE reusable redactor. Export `redactText(text: string, extraSecrets?: string[]): string` that masks (a) any string in extraSecrets (the actual typed secret values, so a password value appears masked wherever it is logged) and (b) common secret PATTERNS in free text (bearer tokens, API keys like sk-..., AWS-style AKIA..., long hex/base64 blobs, JWTs). Mask to a fixed token like `\\u2022\\u2022\\u2022\\u2022` (four bullets). Export `redactValueForField(fieldNameOrType: string, value: string): string` returning the masked token when the field looks secret (type 'password' or name/type containing password/secret/token/apikey/api_key/cvv/ssn/pin) else the value. Keep it dependency-free and defensive (never throw). Include JSDoc explaining it masks only the DISPLAYED/LOGGED representation, never the value actually typed into the page.",
+    "Add unit tests test/config.test.ts additions (or a new block) asserting each new knob parses from env, honors its default, and clamps where applicable; and test/redact.test.ts asserting redactText masks a known secret value and common token patterns while leaving benign text intact, and redactValueForField masks password-type fields and passes through normal text fields."
+  ],
+  "acceptance_criteria": [
+    "`npm run typecheck` passes with no errors after the config + redact additions.",
+    "`npm run test` still passes with no regressions (>=154 passed, 3 skipped preserved) plus the new config/redact tests.",
+    "loadConfig() returns the new fields with the documented defaults when no env is set, and reads/clamps them from LAYA_-prefixed env vars.",
+    "src/redact.ts exports redactText and redactValueForField; both are pure and never throw."
+  ],
+  "verification": [
+    "Run `npm run typecheck` and confirm clean.",
+    "Run `npm run test` and confirm all pass with the 3 pre-existing skips intact.",
+    "Run `npx vitest run test/config.test.ts test/redact.test.ts` and confirm the new assertions pass."
+  ],
+  "blocked_reason": null,
+  "findings": "Baseline confirmed before changes: 154 passed / 3 skipped, typecheck clean (the 3 skips are the WebKit launch smoke test + two real-weights Autopilot tests when LAYA_MODEL_DIR unset). Added 9 new typed knobs to src/config.ts (selfHealRetries, settleProbe, loopDetection, loopWindow, redactSecrets, confirmDestructive, assistDestructiveGuard, snapshotBackend, viewportPriority) each with a LAYA_-prefixed env var, ConfigOverrides field, documented default, JSDoc, and top-of-file env doc line; added SnapshotBackend type + SNAPSHOT_BACKENDS + default/bounds constants (DEFAULT_SELF_HEAL_RETRIES/SELF_HEAL_RETRIES_MIN/MAX, DEFAULT_LOOP_WINDOW/LOOP_WINDOW_MIN/MAX, DEFAULT_SNAPSHOT_BACKEND). Created src/redact.ts (pure, dependency-free, never throws) exporting redactText, redactValueForField, REDACTION_MASK (four U+2022 bullets). Added 9 new config tests + test/redact.test.ts (8 tests). After changes: typecheck clean, full suite 171 passed / 3 skipped (17 new tests, all 3 pre-existing skips preserved), npx vitest run on the two files = 29 passed. Note: an untracked package-lock.json exists in the tree and was intentionally left untracked (pnpm-lock.yaml is the committed lockfile). Purely additive: no existing behavior changed. Later features A1/A2/A3/B1/B2/B3/C1/C3 (and B1/B2/B3 redaction) can consume these knobs and src/redact.ts."
+}
