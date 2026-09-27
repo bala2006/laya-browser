@@ -71,7 +71,7 @@ describe("agentLens overlay end-to-end (real headless chromium, overlay forced O
     }, OVERLAY_ROOT);
 
     expect(info).not.toBeNull();
-    expect(info!.text).toContain("Laya is controlling this browser");
+    expect(info!.text).toContain("Laya is working");
     expect(info!.display).not.toBe("none");
     expect(info!.visibility).not.toBe("hidden");
     expect(info!.pointerEvents).toBe("none");
@@ -101,7 +101,7 @@ describe("agentLens overlay end-to-end (real headless chromium, overlay forced O
     expect(page.url()).toContain("search-form.html");
     expect(await page.locator(OVERLAY_ROOT).count()).toBe(1);
     const text = await page.locator(`${OVERLAY_ROOT}`).textContent();
-    expect(text ?? "").toContain("Laya is controlling this browser");
+    expect(text ?? "").toContain("Laya is working");
   });
 
   it("never intercepts a real click even under the banner region", async () => {
@@ -160,13 +160,20 @@ describe("agentLens overlay end-to-end (real headless chromium, overlay forced O
       const barWrap = banner.children[5] as HTMLElement;
       // Named nodes located by their distinctive text/style.
       const allText = root.textContent ?? "";
-      // spotlight = the node with a solid border and display block among direct children.
+      // spotlight = the node with a 2px solid border and display block among direct children
+      // (the 1px-bordered pill/hint chips are excluded by the border width).
       const children = Array.from(root.children) as HTMLElement[];
       const spotlight = children.find(
-        (c) => style(c)!.borderStyle.includes("solid") && style(c)!.display === "block",
+        (c) =>
+          style(c)!.borderStyle.includes("solid") &&
+          style(c)!.borderTopWidth === "2px" &&
+          style(c)!.display === "block",
       );
-      // cursor = node containing an <svg>.
-      const cursor = children.find((c) => c.querySelector("svg"));
+      // cursor = the top-level node that IS an <svg> arrow (not the pill, whose leading icon
+      // also contains an svg glyph). The cursor node's only child is the svg.
+      const cursor = children.find(
+        (c) => c !== banner && c.children.length === 1 && c.firstElementChild?.tagName.toLowerCase() === "svg",
+      );
       return {
         status: status.textContent,
         stateColor: style(stateLabel)!.color,
@@ -230,7 +237,7 @@ describe("agentLens overlay end-to-end (real headless chromium, overlay forced O
     expect(uncertain.color).toBe("rgb(245, 158, 11)"); // #f59e0b
   });
 
-  it("anchors the banner + hint to the bottom-centre with frosted-glass styling", async () => {
+  it("renders the feedback pill in the lower-right as a glowing frosted-blue rounded pill", async () => {
     await navigate.makeHandler(ctx)({ url: fixtures.url("login.html") });
     const page = await session.getPage();
 
@@ -245,10 +252,13 @@ describe("agentLens overlay end-to-end (real headless chromium, overlay forced O
       );
       const hs = hint ? getComputedStyle(hint) : null;
       const radius = parseFloat(bs.borderTopLeftRadius) || 0;
+      // The leading icon square holds a pointer/cursor SVG glyph.
+      const icon = banner.children[0] as HTMLElement;
       return {
         bannerBottom: bs.bottom,
+        bannerRight: bs.right,
         bannerTop: banner.style.top, // inline; must be unset for a bottom anchor
-        bannerTransform: bs.transform,
+        bannerLeft: banner.style.left, // inline; must be unset (right-anchored, not centred)
         bannerRadius: radius,
         // backdrop-filter is vendor-prefixed in headless chromium.
         bannerBlur:
@@ -256,7 +266,11 @@ describe("agentLens overlay end-to-end (real headless chromium, overlay forced O
           (bs as unknown as Record<string, string>).webkitBackdropFilter ||
           "",
         bannerBg: bs.backgroundColor,
+        // A soft blue glow/halo: box-shadow references the blue accent rgb.
+        bannerShadow: bs.boxShadow,
+        iconHasGlyph: !!icon.querySelector("svg"),
         hintBottom: hs ? hs.bottom : null,
+        hintRight: hs ? hs.right : null,
         hintTop: hint ? hint.style.top : null,
       };
     }, OVERLAY_ROOT);
@@ -266,19 +280,27 @@ describe("agentLens overlay end-to-end (real headless chromium, overlay forced O
     expect(info!.bannerBottom).not.toBe("auto");
     expect(parseFloat(info!.bannerBottom)).toBeGreaterThan(0);
     expect(info!.bannerTop).toBe("");
-    // Centred horizontally.
-    expect(info!.bannerTransform).not.toBe("none");
-    // Frosted glass: rounded >= 12px, a blur backdrop-filter, translucent background.
-    expect(info!.bannerRadius).toBeGreaterThanOrEqual(12);
+    // Anchored to the lower-RIGHT (not dead-centre): a right offset, no inline left.
+    expect(info!.bannerRight).not.toBe("auto");
+    expect(parseFloat(info!.bannerRight)).toBeGreaterThan(0);
+    expect(info!.bannerLeft).toBe("");
+    // Fully rounded pill: a large radius (>= 24px reads as a pill, not a 16px card).
+    expect(info!.bannerRadius).toBeGreaterThanOrEqual(24);
+    // Frosted glass: a blur backdrop-filter and a translucent background.
     expect(info!.bannerBlur).toContain("blur");
     expect(info!.bannerBg).toMatch(/rgba?\(/);
-    // Hint moved to the bottom with the banner.
+    // Soft blue glow/halo tied to the blue accent (#3b82f6 => rgb 59,130,246).
+    expect(info!.bannerShadow).toContain("59, 130, 246");
+    // Left icon carries the pointer/cursor glyph.
+    expect(info!.iconHasGlyph).toBe(true);
+    // Hint sits with the pill in the lower-right.
     expect(info!.hintBottom).not.toBe(null);
     expect(parseFloat(info!.hintBottom!)).toBeGreaterThan(0);
+    expect(parseFloat(info!.hintRight!)).toBeGreaterThan(0);
     expect(info!.hintTop).toBe("");
   });
 
-  it("shows the synthetic cursor on showCursor and drives the four-corner session frame", async () => {
+  it("shows the synthetic cursor on showCursor and drives the restrained blue session-presence frame", async () => {
     await navigate.makeHandler(ctx)({ url: fixtures.url("login.html") });
     const page = await session.getPage();
     const overlay = session.getOverlay();
@@ -291,7 +313,10 @@ describe("agentLens overlay end-to-end (real headless chromium, overlay forced O
       const root = document.querySelector(sel) as HTMLElement | null;
       if (!root) return null;
       const children = Array.from(root.children) as HTMLElement[];
-      const cursor = children.find((c) => c.querySelector("svg"));
+      const banner = children[0] as HTMLElement;
+      const cursor = children.find(
+        (c) => c !== banner && c.children.length === 1 && c.firstElementChild?.tagName.toLowerCase() === "svg",
+      );
       // The session frame is the fixed container holding the four corner children.
       const frame = children.find((c) => c.children.length === 4);
       const cornersOk = frame
@@ -299,9 +324,10 @@ describe("agentLens overlay end-to-end (real headless chromium, overlay forced O
             (c) => getComputedStyle(c).pointerEvents === "none",
           )
         : false;
-      // The corner brackets must be drawn in the BLUE accent (#3b82f6 => rgb 59,130,246),
-      // shown via their border colour and/or glow (boxShadow). Concatenate every corner's
-      // relevant computed styles so we do not depend on which border side a given corner sets.
+      // The (now restrained) corner accents must still be drawn in the BLUE accent
+      // (#3b82f6 => rgb 59,130,246), shown via their border colour and/or glow (boxShadow).
+      // Concatenate every corner's relevant computed styles so we do not depend on which
+      // border side a given corner sets.
       const cornerAccent = frame
         ? (Array.from(frame.children) as HTMLElement[])
             .map((c) => {
@@ -332,7 +358,7 @@ describe("agentLens overlay end-to-end (real headless chromium, overlay forced O
     expect(on!.frameCorners).toBe(4);
     expect(on!.frameEvents).toBe("none");
     expect(on!.cornersPointerNone).toBe(true);
-    // The four-corner highlight must be the BLUE accent (#3b82f6 => rgb 59, 130, 246).
+    // The corner accents must be the BLUE accent (#3b82f6 => rgb 59, 130, 246).
     expect(on!.cornerAccent).toContain("59, 130, 246");
 
     // sessionFrame(false) hides it again.

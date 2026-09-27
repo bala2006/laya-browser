@@ -129,33 +129,47 @@ function buildClientScript(optsJson: string): string {
   }
 
   function build() {
-    // --- Banner (T1 / issue 3): frosted-glass HUD card, BOTTOM-centre raised up ---
+    // --- Feedback pill (T1 / issue 3): a LIGHT, glassy, frosted-blue rounded PILL anchored in
+    // the LOWER-RIGHT of the viewport with a soft blue glow/halo. It reads as part of the page
+    // rather than a heavy dark HUD bar. Layout (child order is load-bearing for the tests):
+    //   0 icon   1 title   2 stateLabel   3 status   4 progress   5 barWrap   6 meter
+    // A small square icon (rounded-square glyph with a pointer/cursor mark) sits on the left,
+    // then the concise "Laya is working…" phrase, with the live status/state/progress/meter
+    // surfaced inline. Fully rounded (pill) via a large borderRadius.
     const banner = mkDiv({
-      position: "fixed", bottom: "28px", left: "50%", transform: "translateX(-50%)",
+      position: "fixed", bottom: "36px", right: "32px",
       display: "flex", alignItems: "center", gap: "10px",
-      background: "rgba(255,255,255,0.14)",
-      backgroundImage: "linear-gradient(135deg, " + accentRgba(0.22) + ", rgba(255,255,255,0.04))",
-      backdropFilter: "blur(14px)", webkitBackdropFilter: "blur(14px)",
-      color: "#f8fafc",
-      padding: "10px 16px", borderRadius: "16px", fontSize: "13px", lineHeight: "1.3",
-      boxShadow: "0 8px 30px rgba(0,0,0,0.18)",
-      border: "1px solid rgba(255,255,255,0.25)", maxWidth: "min(560px, 80vw)",
+      background: "rgba(255,255,255,0.16)",
+      backgroundImage: "linear-gradient(135deg, " + accentRgba(0.42) + ", " + accentRgba(0.16) + ")",
+      backdropFilter: "blur(16px) saturate(140%)", webkitBackdropFilter: "blur(16px) saturate(140%)",
+      color: "#ffffff",
+      padding: "9px 18px 9px 11px", borderRadius: "999px", fontSize: "13px", lineHeight: "1.3",
+      boxShadow: "0 10px 34px " + accentRgba(0.45) + ", 0 0 0 1px " + accentRgba(0.35) + " inset, 0 0 22px " + accentRgba(0.4),
+      border: "1px solid " + accentRgba(0.55), maxWidth: "min(520px, 78vw)",
+      textShadow: "0 1px 2px rgba(15,23,42,0.35)",
       transition: "border-color 200ms ease, box-shadow 300ms ease",
     });
+    // Left icon: a rounded-square glyph containing a pointer/cursor mark. The dot handle is
+    // kept (tests + setState pulse reference the pill's leading marker); it now IS this icon
+    // square, whose background tints with the current state colour.
     const dot = mkDiv({
-      width: "9px", height: "9px", borderRadius: "50%", background: OPTS.accent,
-      flex: "0 0 auto", transition: "transform 300ms ease, background 200ms ease",
+      width: "22px", height: "22px", borderRadius: "7px",
+      background: accentRgba(0.9),
+      boxShadow: "0 0 10px " + accentRgba(0.6) + ", 0 1px 3px rgba(15,23,42,0.4)",
+      flex: "0 0 auto", display: "flex", alignItems: "center", justifyContent: "center",
+      transition: "transform 300ms ease, background 200ms ease, box-shadow 200ms ease",
     });
+    dot.innerHTML = "<svg width='13' height='13' viewBox='0 0 24 24' fill='#ffffff' stroke='#ffffff' stroke-width='0.5'><path d='M4 2 L4 20 L9 15 L12 22 L15 21 L12 14 L19 14 Z'/></svg>";
     const title = mkDiv({ fontWeight: "600", whiteSpace: "nowrap" });
-    title.textContent = "\u{1F916} Laya is controlling this browser";
-    const stateLabel = mkDiv({ color: OPTS.accent, fontWeight: "600", whiteSpace: "nowrap" });
+    title.textContent = "Laya is working\u2026";
+    const stateLabel = mkDiv({ color: "#ffffff", fontWeight: "600", whiteSpace: "nowrap" });
     stateLabel.textContent = "";
-    const status = mkDiv({ color: "#cbd5e1", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "40vw" });
-    const progress = mkDiv({ color: "#94a3b8", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" });
+    const status = mkDiv({ color: "rgba(255,255,255,0.82)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "40vw" });
+    const progress = mkDiv({ color: "rgba(255,255,255,0.7)", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" });
 
-    // progress bar under the banner text
-    const barWrap = mkDiv({ position: "relative", width: "70px", height: "4px", background: "rgba(148,163,184,0.3)", borderRadius: "3px", overflow: "hidden", display: "none" });
-    const barFill = mkDiv({ position: "absolute", left: "0", top: "0", bottom: "0", width: "0%", background: OPTS.accent, transition: "width 250ms ease" });
+    // progress bar inside the pill
+    const barWrap = mkDiv({ position: "relative", width: "70px", height: "4px", background: "rgba(255,255,255,0.28)", borderRadius: "3px", overflow: "hidden", display: "none" });
+    const barFill = mkDiv({ position: "absolute", left: "0", top: "0", bottom: "0", width: "0%", background: "#ffffff", transition: "width 250ms ease" });
     barWrap.appendChild(barFill);
 
     banner.appendChild(dot);
@@ -170,29 +184,35 @@ function buildClientScript(optsJson: string): string {
     // steps, LLM escalation count, and an estimated token spend for the run so the user sees
     // the running cost of the automation at a glance.
     const meter = mkDiv({
-      display: "none", alignItems: "center", gap: "8px", color: "#94a3b8",
+      display: "none", alignItems: "center", gap: "8px", color: "rgba(255,255,255,0.75)",
       fontSize: "11px", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap",
-      borderLeft: "1px solid rgba(148,163,184,0.3)", paddingLeft: "8px", marginLeft: "2px",
+      borderLeft: "1px solid rgba(255,255,255,0.35)", paddingLeft: "8px", marginLeft: "2px",
     });
     banner.appendChild(meter);
 
-    // --- Esc-to-release hint (T4) ---
+    // --- Esc-to-release hint (T4): a light frosted-blue chip sitting just above the pill in
+    // the lower-right, matching the pill's glassy look. ---
     const hint = mkDiv({
-      position: "fixed", bottom: "70px", left: "50%", transform: "translateX(-50%)",
-      background: "rgba(17,17,23,0.75)", color: "#94a3b8", padding: "3px 8px",
-      borderRadius: "6px", fontSize: "11px", whiteSpace: "nowrap",
+      position: "fixed", bottom: "72px", right: "32px",
+      background: accentRgba(0.28),
+      backdropFilter: "blur(10px)", webkitBackdropFilter: "blur(10px)",
+      color: "rgba(255,255,255,0.9)", padding: "3px 10px",
+      borderRadius: "999px", fontSize: "11px", whiteSpace: "nowrap",
+      border: "1px solid " + accentRgba(0.4), textShadow: "0 1px 2px rgba(15,23,42,0.35)",
     });
     hint.textContent = "controlled by Laya \u2014 press Esc to release";
     root.appendChild(hint);
 
-    // --- Synthetic cursor (T1) ---
+    // --- Synthetic cursor (T1): a realistic BLUE arrow pointer with a soft blue glow/shadow so
+    // it reads clearly against any page yet stays inert (pointer-events:none). ---
     const cursor = mkDiv({
-      position: "fixed", left: "0", top: "0", width: "20px", height: "20px",
+      position: "fixed", left: "0", top: "0", width: "24px", height: "24px",
       transform: "translate(-4px,-2px)",
+      filter: "drop-shadow(0 0 6px " + accentRgba(0.8) + ") drop-shadow(0 2px 4px rgba(15,23,42,0.4))",
       transition: "left 450ms cubic-bezier(.22,.61,.36,1), top 450ms cubic-bezier(.22,.61,.36,1)",
       display: "none",
     });
-    cursor.innerHTML = "<svg width='20' height='20' viewBox='0 0 24 24' fill='" + OPTS.accent + "' stroke='white' stroke-width='1'><path d='M4 2 L4 20 L9 15 L12 22 L15 21 L12 14 L19 14 Z'/></svg>";
+    cursor.innerHTML = "<svg width='24' height='24' viewBox='0 0 24 24' fill='" + OPTS.accent + "' stroke='white' stroke-width='1.4'><path d='M4 2 L4 20 L9 15 L12 22 L15 21 L12 14 L19 14 Z'/></svg>";
     root.appendChild(cursor);
 
     // --- Caption/popover near the cursor (T2) ---
@@ -260,28 +280,33 @@ function buildClientScript(optsJson: string): string {
     const seen = mkDiv({ position: "fixed", left: "0", top: "0", width: "0", height: "0", display: "none" });
     root.appendChild(seen);
 
-    // --- Session frame (issue 4): four L-shaped blue corner brackets at the viewport edges,
-    // shown for the duration of an autopilot run so the user sees Laya is in control. The
-    // container and every corner child are pointer-events:none so they never intercept a
-    // click (the overlay invariant / test iterates ALL nodes under the root).
+    // --- Session frame (issue 4): a RESTRAINED page-edge presence treatment shown for the
+    // duration of an autopilot run, so Laya's control reads as a subtle blue tint rather than a
+    // dominating four-corner bracket frame. The container carries a soft inset blue glow (a
+    // faint page-edge halo); it still holds FOUR pointer-events:none corner nodes, but they are
+    // now thin, small, low-opacity accents (a gentle hint at the corners) instead of sharp,
+    // bright brackets. Keeping four corner children + the blue accent preserves the overlay
+    // invariant and the API/test surface. ---
     const sessionFrame = mkDiv({
       position: "fixed", top: "0", left: "0", right: "0", bottom: "0",
-      display: "none", pointerEvents: "none",
+      display: "none", pointerEvents: "none", borderRadius: "10px",
+      boxShadow: "inset 0 0 0 1px " + accentRgba(0.16) + ", inset 0 0 60px " + accentRgba(0.1),
     });
-    const cornerLen = "34px";
-    const cornerThick = "3px";
-    const cornerInset = "10px";
-    const cornerGlow = "0 0 10px " + accentRgba(0.55);
+    const cornerLen = "18px";
+    const cornerThick = "1.5px";
+    const cornerInset = "12px";
+    const cornerGlow = "0 0 6px " + accentRgba(0.28);
+    const cornerColor = accentRgba(0.55);
     const corners = [
-      { top: cornerInset, left: cornerInset, borderTop: cornerThick + " solid " + OPTS.accent, borderLeft: cornerThick + " solid " + OPTS.accent, borderTopLeftRadius: "8px" },
-      { top: cornerInset, right: cornerInset, borderTop: cornerThick + " solid " + OPTS.accent, borderRight: cornerThick + " solid " + OPTS.accent, borderTopRightRadius: "8px" },
-      { bottom: cornerInset, left: cornerInset, borderBottom: cornerThick + " solid " + OPTS.accent, borderLeft: cornerThick + " solid " + OPTS.accent, borderBottomLeftRadius: "8px" },
-      { bottom: cornerInset, right: cornerInset, borderBottom: cornerThick + " solid " + OPTS.accent, borderRight: cornerThick + " solid " + OPTS.accent, borderBottomRightRadius: "8px" },
+      { top: cornerInset, left: cornerInset, borderTop: cornerThick + " solid " + cornerColor, borderLeft: cornerThick + " solid " + cornerColor, borderTopLeftRadius: "8px" },
+      { top: cornerInset, right: cornerInset, borderTop: cornerThick + " solid " + cornerColor, borderRight: cornerThick + " solid " + cornerColor, borderTopRightRadius: "8px" },
+      { bottom: cornerInset, left: cornerInset, borderBottom: cornerThick + " solid " + cornerColor, borderLeft: cornerThick + " solid " + cornerColor, borderBottomLeftRadius: "8px" },
+      { bottom: cornerInset, right: cornerInset, borderBottom: cornerThick + " solid " + cornerColor, borderRight: cornerThick + " solid " + cornerColor, borderBottomRightRadius: "8px" },
     ];
     for (const c of corners) {
       const corner = mkDiv(Object.assign({
         position: "fixed", width: cornerLen, height: cornerLen,
-        boxShadow: cornerGlow, pointerEvents: "none",
+        boxShadow: cornerGlow, opacity: "0.85", pointerEvents: "none",
       }, c));
       sessionFrame.appendChild(corner);
     }
@@ -647,7 +672,8 @@ export class BrowserOverlay {
   }
 
   /**
-   * Toggle the four-corner "Laya is controlling this browser" frame on/off. Shown for the
+   * Toggle the subtle page-edge "Laya is in control" presence treatment on/off (a faint blue
+   * inset glow with restrained corner accents, not a dominating bracket frame). Shown for the
    * duration of an autopilot run. A guarded best-effort no-op like every overlay call.
    */
   async sessionFrame(page: Page | undefined, on: boolean): Promise<void> {
