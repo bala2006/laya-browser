@@ -24,7 +24,7 @@ function overlayOn(overrides: Partial<OverlayConfig> = {}): OverlayConfig {
   return {
     enabled: true,
     mode: "on",
-    accent: "#a855f7",
+    accent: "#3b82f6",
     typingEffect: false,
     waitCountdown: false,
     debugSeeElements: false,
@@ -228,6 +228,104 @@ describe("agentLens overlay end-to-end (real headless chromium, overlay forced O
     const uncertain = await colourFor("uncertain");
     expect(uncertain.label).toContain("Uncertain");
     expect(uncertain.color).toBe("rgb(245, 158, 11)"); // #f59e0b
+  });
+
+  it("anchors the banner + hint to the bottom-centre with frosted-glass styling", async () => {
+    await navigate.makeHandler(ctx)({ url: fixtures.url("login.html") });
+    const page = await session.getPage();
+
+    const info = await page.evaluate((sel) => {
+      const root = document.querySelector(sel) as HTMLElement | null;
+      if (!root) return null;
+      const banner = root.children[0] as HTMLElement;
+      const bs = getComputedStyle(banner);
+      // The hint is the node containing the "press Esc to release" text.
+      const hint = (Array.from(root.children) as HTMLElement[]).find((c) =>
+        (c.textContent ?? "").includes("press Esc to release"),
+      );
+      const hs = hint ? getComputedStyle(hint) : null;
+      const radius = parseFloat(bs.borderTopLeftRadius) || 0;
+      return {
+        bannerBottom: bs.bottom,
+        bannerTop: banner.style.top, // inline; must be unset for a bottom anchor
+        bannerTransform: bs.transform,
+        bannerRadius: radius,
+        // backdrop-filter is vendor-prefixed in headless chromium.
+        bannerBlur:
+          (bs as unknown as Record<string, string>).backdropFilter ||
+          (bs as unknown as Record<string, string>).webkitBackdropFilter ||
+          "",
+        bannerBg: bs.backgroundColor,
+        hintBottom: hs ? hs.bottom : null,
+        hintTop: hint ? hint.style.top : null,
+      };
+    }, OVERLAY_ROOT);
+
+    expect(info).not.toBeNull();
+    // Bottom-anchored (has a bottom offset) and NOT top-anchored.
+    expect(info!.bannerBottom).not.toBe("auto");
+    expect(parseFloat(info!.bannerBottom)).toBeGreaterThan(0);
+    expect(info!.bannerTop).toBe("");
+    // Centred horizontally.
+    expect(info!.bannerTransform).not.toBe("none");
+    // Frosted glass: rounded >= 12px, a blur backdrop-filter, translucent background.
+    expect(info!.bannerRadius).toBeGreaterThanOrEqual(12);
+    expect(info!.bannerBlur).toContain("blur");
+    expect(info!.bannerBg).toMatch(/rgba?\(/);
+    // Hint moved to the bottom with the banner.
+    expect(info!.hintBottom).not.toBe(null);
+    expect(parseFloat(info!.hintBottom!)).toBeGreaterThan(0);
+    expect(info!.hintTop).toBe("");
+  });
+
+  it("shows the synthetic cursor on showCursor and drives the four-corner session frame", async () => {
+    await navigate.makeHandler(ctx)({ url: fixtures.url("login.html") });
+    const page = await session.getPage();
+    const overlay = session.getOverlay();
+
+    // Cursor is present (display:block) after showCursor, before any moveCursor.
+    await overlay.showCursor(page);
+    await overlay.sessionFrame(page, true);
+
+    const on = await page.evaluate((sel) => {
+      const root = document.querySelector(sel) as HTMLElement | null;
+      if (!root) return null;
+      const children = Array.from(root.children) as HTMLElement[];
+      const cursor = children.find((c) => c.querySelector("svg"));
+      // The session frame is the fixed container holding the four corner children.
+      const frame = children.find((c) => c.children.length === 4);
+      const cornersOk = frame
+        ? (Array.from(frame.children) as HTMLElement[]).every(
+            (c) => getComputedStyle(c).pointerEvents === "none",
+          )
+        : false;
+      return {
+        cursorVisible: !!cursor && getComputedStyle(cursor).display !== "none",
+        frameVisible: !!frame && getComputedStyle(frame).display !== "none",
+        frameCorners: frame ? frame.children.length : 0,
+        frameEvents: frame ? getComputedStyle(frame).pointerEvents : null,
+        cornersPointerNone: cornersOk,
+      };
+    }, OVERLAY_ROOT);
+
+    expect(on).not.toBeNull();
+    expect(on!.cursorVisible).toBe(true);
+    expect(on!.frameVisible).toBe(true);
+    expect(on!.frameCorners).toBe(4);
+    expect(on!.frameEvents).toBe("none");
+    expect(on!.cornersPointerNone).toBe(true);
+
+    // sessionFrame(false) hides it again.
+    await overlay.sessionFrame(page, false);
+    const off = await page.evaluate((sel) => {
+      const root = document.querySelector(sel) as HTMLElement | null;
+      if (!root) return null;
+      const frame = (Array.from(root.children) as HTMLElement[]).find(
+        (c) => c.children.length === 4,
+      );
+      return frame ? getComputedStyle(frame).display : null;
+    }, OVERLAY_ROOT);
+    expect(off).toBe("none");
   });
 });
 

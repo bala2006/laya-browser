@@ -586,6 +586,18 @@ class Narrator {
     await this.overlay!.hideSpotlight(this.page);
   }
 
+  /** Make the synthetic cursor visible (default: viewport centre). Best-effort no-op. */
+  async showCursor(): Promise<void> {
+    if (!this.on) return;
+    await this.overlay!.showCursor(this.page);
+  }
+
+  /** Toggle the four-corner session frame on/off. Best-effort no-op. */
+  async sessionFrame(on: boolean): Promise<void> {
+    if (!this.on) return;
+    await this.overlay!.sessionFrame(this.page, on);
+  }
+
   /**
    * Point the synthetic cursor + spotlight at a targeted control (resolved via the overlay's
    * `data-laya-ref` helper), optionally with a caption. Returns the target rect (or null) so
@@ -979,6 +991,13 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
     await page.goto(url, { waitUntil: "domcontentloaded" });
   }
 
+  // (Issues 2 + 4) Announce that Laya is controlling the browser: make the synthetic cursor
+  // visible from the start (it then moves in real time via focusTarget->moveCursor per step)
+  // and light up the four-corner session frame for the duration of the run. Both are
+  // best-effort no-ops when no overlay/page is present.
+  await narrator.showCursor();
+  await narrator.sessionFrame(true);
+
   const recentActions: string[] = [];
   const transcript: StepRecord[] = [];
   // (D1) Per-step observability artifacts, accumulated only when recordArtifacts is on.
@@ -1352,6 +1371,8 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
     await narrator.setState("error", "Stopped on error");
     await narrator.toast(`Error: ${(err as Error).message}`, "error");
     await narrator.hideSpotlight();
+    // (Issue 4) Laya is no longer controlling the browser: clear the four-corner frame.
+    await narrator.sessionFrame(false);
     return {
       goal,
       outcome,
@@ -1409,6 +1430,8 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
     );
   }
   await narrator.hideSpotlight();
+  // (Issue 4) Run is over: clear the four-corner "controlling" frame.
+  await narrator.sessionFrame(false);
 
   return {
     goal,

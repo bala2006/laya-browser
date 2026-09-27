@@ -85,6 +85,25 @@ function buildClientScript(optsJson: string): string {
 
   function css(node, styles) { for (const k in styles) node.style[k] = styles[k]; }
 
+  // Turn OPTS.accent (#rgb or #rrggbb) into an "rgba(r,g,b,a)" string so accent-tinted
+  // glows/fills track the brand accent instead of hardcoding a colour. Falls back to a
+  // neutral blue-grey if the hex is somehow malformed.
+  function accentRgba(alpha) {
+    const hex = String(OPTS.accent || "").replace("#", "");
+    let r = 59, g = 130, b = 246;
+    if (hex.length === 3) {
+      r = parseInt(hex[0] + hex[0], 16);
+      g = parseInt(hex[1] + hex[1], 16);
+      b = parseInt(hex[2] + hex[2], 16);
+    } else if (hex.length === 6) {
+      r = parseInt(hex.slice(0, 2), 16);
+      g = parseInt(hex.slice(2, 4), 16);
+      b = parseInt(hex.slice(4, 6), 16);
+    }
+    if (isNaN(r) || isNaN(g) || isNaN(b)) { r = 59; g = 130; b = 246; }
+    return "rgba(" + r + "," + g + "," + b + "," + alpha + ")";
+  }
+
   function mkDiv(styles) {
     const d = document.createElement("div");
     css(d, Object.assign({ pointerEvents: "none" }, styles || {}));
@@ -110,14 +129,17 @@ function buildClientScript(optsJson: string): string {
   }
 
   function build() {
-    // --- Banner (T1): dark HUD bar top-centre ---
+    // --- Banner (T1 / issue 3): frosted-glass HUD card, BOTTOM-centre raised up ---
     const banner = mkDiv({
-      position: "fixed", top: "10px", left: "50%", transform: "translateX(-50%)",
+      position: "fixed", bottom: "28px", left: "50%", transform: "translateX(-50%)",
       display: "flex", alignItems: "center", gap: "10px",
-      background: "rgba(17,17,23,0.92)", color: "#e5e7eb",
-      padding: "8px 14px", borderRadius: "10px", fontSize: "13px", lineHeight: "1.3",
-      boxShadow: "0 4px 18px rgba(0,0,0,0.45)",
-      border: "1px solid " + OPTS.accent, maxWidth: "80vw",
+      background: "rgba(255,255,255,0.14)",
+      backgroundImage: "linear-gradient(135deg, " + accentRgba(0.22) + ", rgba(255,255,255,0.04))",
+      backdropFilter: "blur(14px)", webkitBackdropFilter: "blur(14px)",
+      color: "#f8fafc",
+      padding: "10px 16px", borderRadius: "16px", fontSize: "13px", lineHeight: "1.3",
+      boxShadow: "0 8px 30px rgba(0,0,0,0.18)",
+      border: "1px solid rgba(255,255,255,0.25)", maxWidth: "min(560px, 80vw)",
       transition: "border-color 200ms ease, box-shadow 300ms ease",
     });
     const dot = mkDiv({
@@ -156,7 +178,7 @@ function buildClientScript(optsJson: string): string {
 
     // --- Esc-to-release hint (T4) ---
     const hint = mkDiv({
-      position: "fixed", top: "48px", left: "50%", transform: "translateX(-50%)",
+      position: "fixed", bottom: "70px", left: "50%", transform: "translateX(-50%)",
       background: "rgba(17,17,23,0.75)", color: "#94a3b8", padding: "3px 8px",
       borderRadius: "6px", fontSize: "11px", whiteSpace: "nowrap",
     });
@@ -186,7 +208,7 @@ function buildClientScript(optsJson: string): string {
     const spotlight = mkDiv({
       position: "fixed", left: "0", top: "0", width: "0", height: "0",
       border: "2px solid " + OPTS.accent, borderRadius: "6px",
-      boxShadow: "0 0 0 3px rgba(168,85,247,0.25)",
+      boxShadow: "0 0 0 3px " + accentRgba(0.25),
       transition: "left 300ms ease, top 300ms ease, width 300ms ease, height 300ms ease, opacity 200ms ease",
       display: "none",
     });
@@ -238,8 +260,36 @@ function buildClientScript(optsJson: string): string {
     const seen = mkDiv({ position: "fixed", left: "0", top: "0", width: "0", height: "0", display: "none" });
     root.appendChild(seen);
 
+    // --- Session frame (issue 4): four L-shaped blue corner brackets at the viewport edges,
+    // shown for the duration of an autopilot run so the user sees Laya is in control. The
+    // container and every corner child are pointer-events:none so they never intercept a
+    // click (the overlay invariant / test iterates ALL nodes under the root).
+    const sessionFrame = mkDiv({
+      position: "fixed", top: "0", left: "0", right: "0", bottom: "0",
+      display: "none", pointerEvents: "none",
+    });
+    const cornerLen = "34px";
+    const cornerThick = "3px";
+    const cornerInset = "10px";
+    const cornerGlow = "0 0 10px " + accentRgba(0.55);
+    const corners = [
+      { top: cornerInset, left: cornerInset, borderTop: cornerThick + " solid " + OPTS.accent, borderLeft: cornerThick + " solid " + OPTS.accent, borderTopLeftRadius: "8px" },
+      { top: cornerInset, right: cornerInset, borderTop: cornerThick + " solid " + OPTS.accent, borderRight: cornerThick + " solid " + OPTS.accent, borderTopRightRadius: "8px" },
+      { bottom: cornerInset, left: cornerInset, borderBottom: cornerThick + " solid " + OPTS.accent, borderLeft: cornerThick + " solid " + OPTS.accent, borderBottomLeftRadius: "8px" },
+      { bottom: cornerInset, right: cornerInset, borderBottom: cornerThick + " solid " + OPTS.accent, borderRight: cornerThick + " solid " + OPTS.accent, borderBottomRightRadius: "8px" },
+    ];
+    for (const c of corners) {
+      const corner = mkDiv(Object.assign({
+        position: "fixed", width: cornerLen, height: cornerLen,
+        boxShadow: cornerGlow, pointerEvents: "none",
+      }, c));
+      sessionFrame.appendChild(corner);
+    }
+    root.appendChild(sessionFrame);
+
     els = { banner, dot, title, stateLabel, status, progress, meter, barWrap, barFill,
-      hint, cursor, caption, spotlight, scroll, toasts, countdown, logPanel, logBody, seen };
+      hint, cursor, caption, spotlight, scroll, toasts, countdown, logPanel, logBody, seen,
+      sessionFrame };
   }
 
   const api = {
@@ -289,6 +339,19 @@ function buildClientScript(optsJson: string): string {
       els.meter.setAttribute("data-laya-meter", "1");
       els.meter.textContent = "\u{1F9EE} " + s + " steps \u00B7 " + e + " LLM \u00B7 ~" + tok + " tok";
     },
+    showCursor(x, y) {
+      if (!ensureRoot()) return;
+      const cx = x == null ? Math.round(window.innerWidth / 2) : Number(x);
+      const cy = y == null ? Math.round(window.innerHeight / 2) : Number(y);
+      api.__lastCursor = { x: cx, y: cy };
+      els.cursor.style.display = "block";
+      els.cursor.style.left = cx + "px";
+      els.cursor.style.top = cy + "px";
+    },
+    sessionFrame(on) {
+      if (!ensureRoot()) return;
+      els.sessionFrame.style.display = on ? "block" : "none";
+    },
     moveCursor(x, y, caption, trailLength) {
       if (!ensureRoot()) return;
       // (T3.4) Draw a fading breadcrumb trail from the previous cursor position to the new one
@@ -333,7 +396,7 @@ function buildClientScript(optsJson: string): string {
       const r = mkDiv({
         position: "fixed", left: x + "px", top: y + "px", width: "8px", height: "8px",
         marginLeft: "-4px", marginTop: "-4px", borderRadius: "50%",
-        background: "rgba(168,85,247,0.5)", border: "2px solid " + OPTS.accent,
+        background: accentRgba(0.5), border: "2px solid " + OPTS.accent,
         transition: "transform 500ms ease-out, opacity 500ms ease-out", transform: "scale(1)", opacity: "1",
       });
       root.appendChild(r);
@@ -572,6 +635,23 @@ export class BrowserOverlay {
     trailLength?: number,
   ): Promise<void> {
     await this.call(page, "moveCursor", x, y, caption ?? "", trailLength ?? null);
+  }
+
+  /**
+   * Make the synthetic cursor visible (default: viewport centre) so it is present from the
+   * start of a run rather than only appearing on the first {@link moveCursor}. A guarded
+   * best-effort no-op like every overlay call.
+   */
+  async showCursor(page: Page | undefined, x?: number, y?: number): Promise<void> {
+    await this.call(page, "showCursor", x ?? null, y ?? null);
+  }
+
+  /**
+   * Toggle the four-corner "Laya is controlling this browser" frame on/off. Shown for the
+   * duration of an autopilot run. A guarded best-effort no-op like every overlay call.
+   */
+  async sessionFrame(page: Page | undefined, on: boolean): Promise<void> {
+    await this.call(page, "sessionFrame", on);
   }
 
   /**
