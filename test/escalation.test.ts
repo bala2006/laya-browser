@@ -16,7 +16,7 @@ import {
   parseDecision,
   buildEscalationPrompt,
 } from "../src/autopilot/escalation.js";
-import type { LayaDecisionEngine, PageState } from "../src/types.js";
+import type { Decision, LayaDecisionEngine, PageState } from "../src/types.js";
 import { asRef } from "../src/types.js";
 import { startFixtureServer, type FixtureServer } from "./helpers/fixture-server.js";
 
@@ -173,6 +173,96 @@ describe("escalate() with an injected sampler", () => {
     expect(res.note).toContain("does not support MCP sampling");
   });
 
+  it("(T4) falls back to Laya's non-BLOCKED guess (escalated=false, warning note) when no sampler", async () => {
+    const state: PageState = {
+      goal: "g",
+      url: "http://x/",
+      title: "t",
+      visibleText: "",
+      controls: [
+        {
+          ref: asRef("e1"),
+          index: 1,
+          role: "button",
+          name: "Go",
+          tag: "button",
+          editable: false,
+        },
+      ],
+      recentActions: [],
+    };
+    const fallback: Decision = {
+      operation: "CLICK",
+      operationConfidence: 0.5,
+      target: asRef("e1"),
+      targetConfidence: 0.5,
+      source: "laya",
+    };
+    const res = await escalate(state, undefined, { fallback });
+    expect(res.escalated).toBe(false);
+    expect(res.decision).toMatchObject({ operation: "CLICK", target: "e1", source: "laya" });
+    expect(res.decision.operation).not.toBe("BLOCKED");
+    expect(res.note.toLowerCase()).toContain("laya");
+  });
+
+  it("(T4) falls back to Laya's guess when the sampler throws", async () => {
+    const state: PageState = {
+      goal: "g",
+      url: "http://x/",
+      title: "t",
+      visibleText: "",
+      controls: [
+        {
+          ref: asRef("e1"),
+          index: 1,
+          role: "button",
+          name: "Go",
+          tag: "button",
+          editable: false,
+        },
+      ],
+      recentActions: [],
+    };
+    const fallback: Decision = {
+      operation: "CLICK",
+      operationConfidence: 0.4,
+      target: asRef("e1"),
+      targetConfidence: 0.4,
+      source: "laya",
+    };
+    const res = await escalate(
+      state,
+      async () => {
+        throw new Error("network down");
+      },
+      { fallback },
+    );
+    expect(res.escalated).toBe(false);
+    expect(res.decision).toMatchObject({ operation: "CLICK", target: "e1", source: "laya" });
+    expect(res.note).toContain("unreachable");
+  });
+
+  it("(T4) still degrades to BLOCKED when the fallback is itself BLOCKED", async () => {
+    const state: PageState = {
+      goal: "g",
+      url: "http://x/",
+      title: "t",
+      visibleText: "",
+      controls: [],
+      recentActions: [],
+    };
+    const fallback: Decision = {
+      operation: "BLOCKED",
+      operationConfidence: 0,
+      targetConfidence: 0,
+      source: "laya",
+    };
+    const res = await escalate(state, undefined, { fallback });
+    expect(res.escalated).toBe(false);
+    expect(res.decision.operation).toBe("BLOCKED");
+    expect(res.note).toContain("does not support MCP sampling");
+  });
+
   it("consumes a canned LLM decision when the sampler returns JSON", async () => {
     const state: PageState = {
       goal: "g",
@@ -280,14 +370,56 @@ describe("Autopilot loop escalation (fake sampling callback, real chromium)", ()
     expect(result.verification.verified).toBe(true);
   });
 
-  it("degrades to BLOCKED when a low-confidence decision has no sampler", async () => {
+  it("(T4) a low-confidence Laya step with no sampler runs Laya's guess and keeps going", async () => {
+    // The client cannot answer an MCP sampling request (no sampler wired). Under T4 an
+    // unreachable LLM must NOT kill autonomy: the low-confidence, non-BLOCKED Laya decision
+    // executes as Laya's best guess and the run continues rather than ending BLOCKED.
     const result = await runGoal({
-      goal: "do something impossible here",
+      goal: "click around the page",
       session,
       engine: lowConfidenceEngine,
       url: fixtures.url("search-form.html"),
-      confidenceThreshold: 0.6,
-      // no sample callback -> escalation cannot help
+      confidenceThreshold: 0.85,
+      // no sample callback -> the LLM is unreachable
+      maxSteps: 3,
+    });
+    // The run did not end BLOCKED merely because the LLM was unreachable.
+    const acted = result.transcript.filter((s) => s.operation !== "BLOCKED");
+    expect(acted.length).toBeGreaterThan(0);
+    // Laya's best guess drove the executed step (source 'laya', not 'llm'), with a warning note.
+    const layaStep = acted.find((s) => s.source === "laya");
+    expect(layaStep).toBeDefined();
+    expect(layaStep?.note?.toLowerCase()).toContain("laya");
+    // No step ended the run with an unreachable-LLM BLOCKED.
+    const llmBlocked = result.transcript.find(
+      (s) => s.operation === "BLOCKED" && s.source === "llm",
+    );
+    expect(llmBlocked).toBeUndefined();
+  });
+
+  it("(T4) a run stops BLOCKED only when Laya itself chose BLOCKED (no sampler)", async () => {
+    // Engine that always returns BLOCKED: this is Laya itself declining, which IS allowed to
+    // stop a run even with no sampler. The R2 no-weights placeholder is BLOCKED too, so the
+    // graceful BLOCKED path must be preserved.
+    const blockingEngine: LayaDecisionEngine = {
+      available: true,
+      async decide() {
+        return {
+          operation: "BLOCKED",
+          operationConfidence: 1,
+          targetConfidence: 1,
+          source: "laya",
+        };
+      },
+      async close() {},
+    };
+    const result = await runGoal({
+      goal: "do something impossible here",
+      session,
+      engine: blockingEngine,
+      url: fixtures.url("search-form.html"),
+      confidenceThreshold: 0.85,
+      // no sample callback -> escalation cannot help, and there is no non-BLOCKED fallback
       maxSteps: 3,
     });
     expect(result.outcome).toBe("blocked");

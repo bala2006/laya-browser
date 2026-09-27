@@ -202,9 +202,31 @@ unit-testable without a live MCP client.
     checkpoint's reported figures; not reproduced offline.
   - The bundle size (~1.7 GB) and ~2 GB RAM footprint.
 - **GUESSED (reasonable defaults, tunable):**
-  - The default confidence threshold `0.6`, default `maxSteps` `15`, the destructive-keyword
-    set, and the goal-grammar surface. All are configurable / centralized so they can change
-    without touching the decision core.
+  - The default confidence threshold `0.85` (T2; raised from `0.6`), default `maxSteps` `15`,
+    the destructive-keyword set, and the goal-grammar surface. All are configurable /
+    centralized so they can change without touching the decision core.
+
+- **VERIFIED (ran it) — T1-T5 local-first autonomy:**
+  - **T2 gate = 0.85.** `loadConfig().confidenceThreshold` defaults to `0.85`;
+    `LAYA_CONFIDENCE_THRESHOLD` still overrides; the loop keeps the OR semantics (escalate when
+    `operationConfidence < 0.85 OR targetConfidence < 0.85`). Asserted in `test/config.test.ts`.
+  - **T4 escalation never kills autonomy.** `escalate()` now threads the pre-escalation Laya
+    decision as `EscalationOptions.fallback`; when the LLM is UNREACHABLE (no sampler, or the
+    sampler throws) and the fallback is non-BLOCKED, it returns that fallback with
+    `escalated:false` and a warning note so the run continues. A run stops for BLOCKED only when
+    Laya itself chose BLOCKED (or the loop detector / destructive guard fires). The R2
+    no-weights BLOCKED placeholder still degrades gracefully. Asserted in `test/escalation.test.ts`
+    (unit) and `test/autopilot-autonomy-t1-t5.test.ts` (loop, real chromium).
+  - **T1 regression + T3 per-step scope.** A rule-decided step carries confidence `0.97`
+    (`RULE_CONFIDENCE`) and consults no sampler; escalation is scoped to exactly one step (the
+    step after an escalation returns to rules/Laya, source not `llm`) and one escalation never
+    ends the run. Asserted in `test/autopilot-autonomy-t1-t5.test.ts`.
+  - **T5 auditability.** Each `StepRecord` carries a finite `inferenceMs` (decision wall-time),
+    and `RunResult.autonomy` carries `{ total, rule, laya, stub, llm, fullyAutonomous,
+    autonomousPct }` (fullyAutonomous = rule+laya+stub). `renderRunResult` surfaces a compact
+    `Autonomy: X/Y steps local (Z%); inference: median NN ms` line plus per-step `inf=NNms`.
+    Full offline suite green with the stub, no weights: 272 passed, 3 skipped; `pnpm run bench`
+    green (domwalk + aria, 4/4 fixtures, 100% ops coverage).
 
 ## Core data shapes (designed first — `src/types.ts`)
 

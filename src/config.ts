@@ -28,7 +28,7 @@
  *   LAYA_CACHE=/path                   download cache root
  *   LAYA_EXECUTION_PROVIDERS=cpu,cuda  onnxruntime execution providers (comma-separated)
  *   LAYA_ENGINE=stub|auto              force the stub engine or auto-detect (default: auto)
- *   LAYA_CONFIDENCE_THRESHOLD=0.6      escalate below this operation/target confidence
+ *   LAYA_CONFIDENCE_THRESHOLD=0.85     escalate below this operation/target confidence
  *   LAYA_MAX_STEPS=15                  Autopilot step budget
  *   LAYA_ALLOWED_DOMAINS=a.com,b.org   domain allow-list (empty = allow all)
  *   LAYA_DESTRUCTIVE_GUARD=false       disable the destructive-form auto-submit guard
@@ -366,8 +366,14 @@ export interface ConfigOverrides {
   clientRequestTimeoutMs?: number;
 }
 
-/** Built-in defaults, used when neither an override nor an env var is present. */
-export const DEFAULT_CONFIDENCE_THRESHOLD = 0.6;
+/**
+ * Built-in defaults, used when neither an override nor an env var is present.
+ *
+ * (T2) The escalation gate is 0.85: a Laya step executes locally at operation AND target
+ * confidence >= 0.85, and escalates to the client LLM only when EITHER head falls below it
+ * (the OR semantics live in the loop). Rule-seeded steps carry 0.97 and never escalate.
+ */
+export const DEFAULT_CONFIDENCE_THRESHOLD = 0.85;
 export const DEFAULT_MAX_STEPS = 15;
 export const DEFAULT_VIEWPORT: Viewport = { width: 1280, height: 800 };
 /** Default Autopilot WAIT duration (ms), lower than the loop's legacy 500. */
