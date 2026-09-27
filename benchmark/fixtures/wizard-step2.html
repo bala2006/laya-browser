@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Wizard step 2</title>
+  </head>
+  <body>
+    <h1>Step 2 of 2: confirm</h1>
+    <button id="finish" type="button" onclick="finish()">Finish</button>
+    <div id="status" aria-live="polite"></div>
+    <script>
+      function finish() {
+        var params = new URLSearchParams(location.search);
+        var city = params.get("city") || "";
+        document.getElementById("status").textContent = city
+          ? "Wizard complete for " + city
+          : "Wizard complete";
+        document.title = "Wizard complete";
+      }
+    </script>
+  </body>
+</html>

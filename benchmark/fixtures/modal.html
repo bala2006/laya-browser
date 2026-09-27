@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Modal</title>
+    <style>
+      #overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 5000;
+        background: rgba(15, 23, 42, 0.6);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      #overlay.hidden {
+        display: none;
+      }
+      #card {
+        background: #fff;
+        padding: 24px;
+        min-width: 320px;
+        min-height: 160px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Dashboard</h1>
+    <button id="report" type="button" onclick="runReport()">Run report</button>
+    <div id="status" aria-live="polite"></div>
+
+    <!-- Blocking modal: role=dialog + aria-modal + a full-viewport high-z overlay. -->
+    <div id="overlay" role="dialog" aria-modal="true" aria-label="Welcome">
+      <div id="card">
+        <h2>Welcome</h2>
+        <p>Take a quick tour of the dashboard.</p>
+        <button id="dismiss" type="button" onclick="closeModal()">Got it</button>
+      </div>
+    </div>
+
+    <script>
+      function closeModal() {
+        document.getElementById("overlay").classList.add("hidden");
+      }
+      function runReport() {
+        // The modal overlay intercepts pointer events, so this only fires once it is dismissed.
+        if (!document.getElementById("overlay").classList.contains("hidden")) {
+          return;
+        }
+        document.getElementById("status").textContent = "Report ready";
+        document.title = "Report ready";
+      }
+    </script>
+  </body>
+</html>

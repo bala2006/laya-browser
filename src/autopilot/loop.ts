@@ -108,6 +108,14 @@ export interface StepRecord {
    * observational: it never affects the outcome.
    */
   settled?: boolean;
+  /**
+   * (T5) Wall-clock milliseconds spent DECIDING this step: the policy seed + the local Laya
+   * inference + any escalation round-trip, measured just around the decision pipeline (NOT the
+   * IO of executing the action). Purely observational, so "% fully autonomous" and per-step
+   * decision latency are measurable from the transcript. Distinct from
+   * {@link RunStepArtifact.durationMs}, which spans decision + execution + settle probe.
+   */
+  inferenceMs?: number;
 }
 
 /**
@@ -157,6 +165,29 @@ export interface Verification {
   detail: string;
 }
 
+/**
+ * (T5) A run-level autonomy summary: how the run's steps were decided, so "% fully autonomous"
+ * is a first-class, measurable number rather than something a caller re-derives. A step is
+ * FULLY AUTONOMOUS when it was decided locally (`rule` / `laya` / `stub`); an `llm` step is
+ * the one place the run reached out to the client. ADDITIVE and OPTIONAL on {@link RunResult}.
+ */
+export interface AutonomySummary {
+  /** Total steps in the transcript. */
+  total: number;
+  /** Steps decided by a deterministic rule seed (confidence 0.97). */
+  rule: number;
+  /** Steps decided by the local Laya engine. */
+  laya: number;
+  /** Steps decided by the offline stub engine. */
+  stub: number;
+  /** Steps that escalated to (and were answered by) the client LLM. */
+  llm: number;
+  /** Steps decided locally (rule + laya + stub) - i.e. with no client LLM round-trip. */
+  fullyAutonomous: number;
+  /** fullyAutonomous / total, in [0, 1]; 0 when there were no steps. */
+  autonomousPct: number;
+}
+
 /** The structured result of a goal run. */
 export interface RunResult {
   goal: string;
@@ -177,6 +208,12 @@ export interface RunResult {
    * {@link RunGoalOptions.recordArtifacts} is true; absent (and behaviour unchanged) otherwise.
    */
   steps?: RunStepArtifact[];
+  /**
+   * (T5) The run-level autonomy summary (source counts + % fully autonomous). ADDITIVE and
+   * OPTIONAL: present on a normally-completed run, absent on the launch-free `degraded` return
+   * (no steps ran). Callers that inspect only the transcript are unaffected.
+   */
+  autonomy?: AutonomySummary;
   /**
    * (R3) Non-fatal conditions the relaxed hard stops let the run continue past, in the order
    * they happened (e.g. "navigating off the allow-list"). Empty/absent when nothing was
@@ -927,6 +964,28 @@ async function execute(
  * page. `redact` is the run-scoped redactor; when redaction is off the caller passes identity.
  */
 /**
+ * (T5) Summarise how a run's steps were decided into an {@link AutonomySummary}. A step is
+ * FULLY AUTONOMOUS when its source is `rule` / `laya` / `stub` (decided locally, no client
+ * LLM round-trip); an `llm` step is the one place the run reached out to the client. Pure and
+ * total-safe: an empty transcript yields all-zero counts with `autonomousPct` = 0.
+ */
+export function summariseAutonomy(transcript: StepRecord[]): AutonomySummary {
+  const counts = { rule: 0, laya: 0, stub: 0, llm: 0 };
+  for (const s of transcript) counts[s.source] += 1;
+  const total = transcript.length;
+  const fullyAutonomous = counts.rule + counts.laya + counts.stub;
+  return {
+    total,
+    rule: counts.rule,
+    laya: counts.laya,
+    stub: counts.stub,
+    llm: counts.llm,
+    fullyAutonomous,
+    autonomousPct: total === 0 ? 0 : fullyAutonomous / total,
+  };
+}
+
+/**
  * (D1) Build a per-step observability artifact from the step's recorded transcript entry,
  * the start-of-step snapshot text, the captured screenshot, and the elapsed step time. All
  * text on the {@link StepRecord} is already redacted per B1, and `snapshotText` is passed in
@@ -1212,6 +1271,11 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
       //   3. confidence CHECK — escalate to the client LLM (MCP sampling) when low/BLOCKED.
       let note: string | undefined;
 
+      // (T5) Measure the DECISION wall-time (policy seed + Laya inference + escalation), so the
+      // per-step inferenceMs and the run's autonomy latency are measurable. This spans only the
+      // decision pipeline; the action IO below is deliberately excluded.
+      const decisionStart = Date.now();
+
       const seed = policySeed(state);
       let decision: Decision;
       if (seed) {
@@ -1249,10 +1313,15 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
         // (C2) When delta prompting is enabled and a meaningful diff exists (and this is not
         // the first step), escalate with a delta-only prompt to cut tokens; otherwise the
         // full-snapshot prompt is used (the default).
+        // (T4) Thread Laya's ORIGINAL (pre-escalation) decision through as the fallback so an
+        // UNREACHABLE client LLM (no sampling, or the request throws/times out) degrades to
+        // Laya's best guess instead of hard-BLOCKING the run. escalate() only uses the fallback
+        // when the LLM is unreachable AND the fallback is not itself BLOCKED (so the R2
+        // no-weights placeholder still degrades gracefully to BLOCKED).
         const escalationOptions: EscalationOptions =
           deltaPrompt && !isFirstStep && hasChanges(diff)
-            ? { diff }
-            : {};
+            ? { diff, fallback: decision }
+            : { fallback: decision };
         const result = await escalate(state, sample, escalationOptions);
         decision = refineWithGoalValue(result.decision, state);
         note = result.note;
@@ -1264,6 +1333,9 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
           estimatedTokens += estimateTokens(renderState(state).length) + 64;
         }
       }
+
+      // (T5) The decision is now final for this step; record how long deciding it took.
+      const inferenceMs = Date.now() - decisionStart;
 
       // (T3.1) Refresh the HUD cost meter after the decision pipeline so the step count and
       // escalation/token spend stay current as the run progresses.
@@ -1277,6 +1349,7 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
           targetConfidence: decision.targetConfidence,
           source: decision.source,
           detail: decision.operation,
+          inferenceMs,
           ...(note ? { note } : {}),
         };
         transcript.push(terminalRecord);
@@ -1337,6 +1410,7 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
                 targetConfidence: 1,
                 source: decision.source,
                 detail: "BLOCKED (destructive-form guard)",
+                inferenceMs,
                 note: guard.reason ?? "Destructive-form guard refused the auto-submit.",
               };
               transcript.push(guardRecord);
@@ -1395,6 +1469,7 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
               targetConfidence: 1,
               source: decision.source,
               detail: "BLOCKED (navigation refused)",
+              inferenceMs,
               note: verdict.reason ?? "Navigation refused by the domain allow-list.",
             };
             transcript.push(navRecord);
@@ -1439,6 +1514,7 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
         source: decision.source,
         // B1: mask any captured secret value out of the human-readable detail string.
         detail: redact(executed.detail),
+        inferenceMs,
         ...(note ? { note: redact(note) } : {}),
       };
       if (decision.target !== undefined) record.target = decision.target;
@@ -1566,6 +1642,7 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
       },
       message: `Autopilot stopped on error: ${(err as Error).message}`,
       ...(recordArtifacts ? { steps: artifacts } : {}),
+      autonomy: summariseAutonomy(transcript),
       ...(warnings.length > 0 ? { warnings } : {}),
     };
   }
@@ -1618,6 +1695,7 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
     verification,
     message: `Autopilot finished (${summaryOutcome}) after ${transcript.length} step(s). ${verification.detail}`,
     ...(recordArtifacts ? { steps: artifacts } : {}),
+    autonomy: summariseAutonomy(transcript),
     ...(warnings.length > 0 ? { warnings } : {}),
   };
 }

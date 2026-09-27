@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Consent</title>
+    <style>
+      #banner {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 2000;
+        background: #1e293b;
+        color: #fff;
+        padding: 16px;
+      }
+      #banner.hidden {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Newsletter</h1>
+    <button id="subscribe" type="button" onclick="subscribe()">Subscribe</button>
+    <div id="status" aria-live="polite"></div>
+
+    <!-- Cookie/consent banner: matched by dismiss.ts (consent text + affirmative button). -->
+    <div id="banner" class="cookie-consent" role="region" aria-label="Cookie consent">
+      <span>We use cookies to improve your experience. Your privacy matters.</span>
+      <button id="accept" type="button" onclick="acceptCookies()">Accept all</button>
+    </div>
+
+    <script>
+      function acceptCookies() {
+        document.getElementById("banner").classList.add("hidden");
+      }
+      function subscribe() {
+        document.getElementById("status").textContent = "Subscribed";
+        document.title = "Subscribed";
+      }
+    </script>
+  </body>
+</html>

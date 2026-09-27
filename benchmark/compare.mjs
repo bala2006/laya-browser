@@ -194,7 +194,7 @@ function renderResults(model, chartFiles) {
   lines.push("# Benchmark: laya-browser-mcp vs Playwright MCP");
   lines.push("");
   lines.push(
-    `Generated ${model.generatedAt} — ${model.runs} runs per task (first discarded as warm-up), median reported. Baseline: the real Playwright MCP (\`@playwright/mcp\`). All tasks run against identical local loopback HTML fixtures (no live sites) for deterministic, fair results.`,
+    `Generated ${model.generatedAt}. ${model.runs} runs per task (first discarded as warm-up), median reported. Baseline: the real Playwright MCP (\`@playwright/mcp\`). All tasks run against identical local loopback HTML fixtures (no live sites) for deterministic, fair results.`,
   );
   lines.push("");
 
@@ -259,7 +259,7 @@ function renderResults(model, chartFiles) {
   lines.push("## Honesty and limitations");
   lines.push("");
   lines.push(
-    "- **Autopilot uses the REFERENCE stub engine (no model weights).** Its success reflects the deterministic rule layer (fill goal-stated fields, submit, verify the success marker), NOT a web-tuned model. On the multi-field login goal the reference stub batch-fills the text fields and submits without choosing the role option, so it does not satisfy the stricter Assist-mode verify — an honest reference-layer limitation, shown as FAIL.",
+    "- **Autopilot uses the REFERENCE stub engine (no model weights).** Its success reflects the deterministic rule layer (fill goal-stated fields, submit, verify the success marker), NOT a web-tuned model. Autopilot FAILs are honest reference-layer limitations, not defects of the loop: the stub batch-fills goal-stated text fields and submits, but it does not choose an unstated dropdown option (login-fill-form), it does not disambiguate one search result from a list (search-then-select), and clicking a marker button under a consent banner or blocking modal (consent-dismiss / modal-dismiss) needs the auto-dismiss pass plus a web-tuned target choice the stub does not make. The Assist column and the independent final-page verify are the trustworthy signals; a real model bundle (see the SETUP in the README) is what closes the Autopilot gap.",
   );
   lines.push(
     "- **Local fixtures, not live sites.** Every task runs against loopback HTML served from `benchmark/fixtures/`. This removes bot-detection and network-latency skew so the comparison is deterministic and fair; it is NOT a claim about live-web robustness.",
@@ -301,7 +301,15 @@ async function main() {
   const layaSpec = {
     command: process.execPath,
     args: [DIST],
-    env: { LAYA_ENGINE: "stub", LAYA_CAPS: CAPS, LAYA_ALLOW_UNSAFE_CODE: "true" },
+    // LAYA_AUTO_DISMISS lets the Autopilot loop clear cookie/consent banners and blocking
+    // modals before it acts (see the consent-dismiss / modal-dismiss tasks). It only affects
+    // the laya_run_goal loop; Assist tool calls are unaffected, so the comparison stays fair.
+    env: {
+      LAYA_ENGINE: "stub",
+      LAYA_CAPS: CAPS,
+      LAYA_ALLOW_UNSAFE_CODE: "true",
+      LAYA_AUTO_DISMISS: "true",
+    },
   };
   const pwSpec = {
     command: "npx",

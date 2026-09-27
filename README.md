@@ -43,22 +43,84 @@ deciding whether it fits your use case:
   sampling). It only degrades to an Assist-mode hint when there is no planner at all, i.e. the
   client does not support sampling either.
 
-## Quick start (easy setup)
+## Setup
 
-Requires **Node.js 22+** and `pnpm`.
+Requires **Node.js 22+** and **pnpm 10+**. The steps below are ordered; run them from the
+repository root.
 
 ```sh
 # 1. Install dependencies
 pnpm install
 
-# 2. Install the Chromium browser Playwright drives
-pnpm exec playwright install chromium
+# 2. Rebuild the native modules (onnxruntime-node + esbuild)
+#    Their build scripts are ignored on install by default; this approves them so the real
+#    ONNX engine can load. Safe to run even if you only ever use Assist mode.
+pnpm rebuild onnxruntime-node esbuild
 
-# 3. Build the server (emits dist/index.js)
+# 3. Install the browsers Playwright drives
+#    Chromium is enough for the default headless setup; the headless-shell and Firefox builds
+#    are used by the cross-browser tests and benchmark.
+pnpm exec playwright install chromium chromium-headless-shell firefox
+
+# 4. Build the server (emits dist/index.js)
 pnpm run build
 ```
 
-That is enough to run **Assist mode** with no model weights.
+Steps 1, 3, and 4 alone are enough to run **Assist mode** with no model weights. Step 2 and a
+model bundle (below) are only needed for the on-device **Autopilot** engine.
+
+### Get the model (optional, for on-device Autopilot)
+
+Autopilot runs without any model (it plans every step through the client LLM via MCP
+sampling, or uses the deterministic reference stub). To run **fully on-device**, point
+`LAYA_MODEL_DIR` at a local ONNX bundle. The repo ships a reproducible fetch/export script:
+
+```sh
+# Simplest: download a prebuilt reference ONNX bundle (no Python needed).
+bash scripts/prepare-model.sh --reference --out ./model
+
+# Then point the server at it:
+export LAYA_MODEL_DIR="$PWD/model"
+```
+
+Model weights (`*.onnx`, `*.onnx.data`, `model/`) are **gitignored and never committed**. See
+[Weights](#weights) for the web-agent export path and its honest accuracy numbers. When
+`LAYA_MODEL_DIR` is unset and no weights are found, the server uses the client-LLM planner or
+the reference stub, so setup stays optional.
+
+### Verify the setup
+
+```sh
+pnpm run typecheck   # tsc --noEmit
+pnpm test            # vitest run (WebKit self-skips if system libs are missing)
+pnpm run bench       # offline stub benchmark, prints a coverage table
+```
+
+### Environment variable reference
+
+The complete, authoritative list lives in the header comment of
+[`src/config.ts`](src/config.ts) (config is parsed there exactly once). The most commonly used
+variables:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `LAYA_CAPS` | (core-only) | Comma/space list of tool capability groups to enable: `network,storage,testing,devtools,pdf,vision,config`. |
+| `LAYA_BROWSER` | `chromium` | Browser engine: `chromium`, `firefox`, or `webkit`. |
+| `LAYA_BROWSER_HEADLESS` | headed | `true` forces headless (a headed launch with no display auto-falls-back to headless). |
+| `LAYA_ENGINE` | `auto` | Autopilot engine selection: `auto` (weights if present, else stub) or `stub`. |
+| `LAYA_MODEL_DIR` | (none) | Path to a local ONNX bundle; skips any download. |
+| `LAYA_CONFIDENCE_THRESHOLD` | `0.85` | Escalate to the client LLM when the operation OR target confidence is below this (see [Autopilot decision pipeline](#autopilot-decision-pipeline)). |
+| `LAYA_MAX_STEPS` | `15` | Autopilot step budget per goal. |
+| `LAYA_AUTO_DISMISS` | `false` | Auto-dismiss cookie/consent banners and blocking modals during Autopilot. |
+| `LAYA_ALLOWED_DOMAINS` | (allow all) | Comma list of domains the run may navigate to. |
+| `LAYA_DESTRUCTIVE_GUARD` | `true` | Guard that refuses a destructive auto-submit (delete/pay/...). |
+| `LAYA_SNAPSHOT_BACKEND` | `domwalk` | Perception backend: `domwalk` (DOM walk) or `aria` (accessibility tree). |
+| `LAYA_REDACT_SECRETS` | `true` | Mask secret values/patterns in logs, transcript details, and the overlay. |
+| `LAYA_ALLOW_UNSAFE_CODE` | `false` | Enable `browser_run_code_unsafe`. |
+| `LAYA_RECORD_ARTIFACTS` | `false` | Record per-step replay artifacts for `laya_export_run`. |
+
+For overlay, storage-state, iframe-depth, loop-detection, self-heal, and download options, see
+the full block at the top of [`src/config.ts`](src/config.ts).
 
 ### MCP client configuration (stdio)
 
@@ -268,39 +330,58 @@ shapes match, so one script is fair to both) against **identical local loopback 
 real DOM. N=5 runs per task, first discarded as warm-up, median reported. Full detail and the
 reproduce steps live in [`benchmark/RESULTS.md`](./benchmark/RESULTS.md).
 
+**Methodology and metric (read this).** The task suite is **broad** rather than narrow: it
+covers navigation, single- and multi-field forms with client-side validation, search-then-
+select, two-page navigation, a login-then-follow-up flow, list/table row selection, cookie/
+consent-banner dismissal, and blocking-modal dismissal, plus the capability tools
+(storage/verify). The reported success signal is each task's **independent final-page verify**
+(it re-probes the real DOM for a literal outcome, so a self-reported "done" cannot pass it).
+The Autopilot round-trip section additionally reports **coverage, not precision**: it counts
+whether the single-call `laya_run_goal` reaches the same verified outcome, and its FAILs are
+honest reference-stub limitations (see below), not defects of the loop.
+
 ### Headline
 
 | Metric | laya-browser-mcp (Assist) | Playwright MCP |
 | --- | --- | --- |
-| Tasks applicable | 16 | 13 |
-| Tasks passed | 16 | 13 |
+| Tasks applicable | 23 | 20 |
+| Tasks passed | 23 | 20 |
 | Success rate | 100% | 100% |
-| Median latency (applicable tasks) | 211 ms | 919 ms |
+| Median latency (applicable tasks) | 312 ms | 965 ms |
 | Tools exposed | 25 core / 72 all-caps | 24 core |
 
 ### Per-task results
 
 | Task | Category | laya | laya ms | laya calls | Playwright | PW ms | PW calls |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| nav-basic | navigation | PASS | 152 | 2 | PASS | 405 | 2 |
-| search-type-submit | forms | PASS | 198 | 4 | PASS | 976 | 4 |
-| login-fill-form | multi-field-form | PASS | 311 | 9 | PASS | 1102 | 9 |
-| select-option | selection | PASS | 196 | 4 | PASS | 482 | 4 |
-| click-button | click | PASS | 211 | 4 | PASS | 962 | 4 |
-| hover-reveal | hover | PASS | 218 | 4 | PASS | 484 | 4 |
-| wait-for-dynamic | wait-for | PASS | 966 | 3 | PASS | 1225 | 3 |
-| tabs-open | tabs | PASS | 235 | 5 | PASS | 1040 | 5 |
-| dialog-confirm | dialogs | PASS | 228 | 6 | PASS | 1001 | 6 |
-| console-capture | console | PASS | 149 | 3 | PASS | 450 | 3 |
-| network-capture | network | PASS | 157 | 3 | PASS | 415 | 3 |
-| screenshot | screenshot | PASS | 190 | 2 | PASS | 508 | 2 |
-| storage-cookies | storage | PASS | 218 | 5 | N/A | N/A | N/A |
-| storage-localstorage | storage | PASS | 225 | 5 | N/A | N/A | N/A |
-| evaluate | evaluate | PASS | 155 | 2 | PASS | 950 | 2 |
-| verify-text | verify | PASS | 208 | 5 | N/A | N/A | N/A |
+| nav-basic | navigation | PASS | 242 | 2 | PASS | 349 | 2 |
+| search-type-submit | forms | PASS | 286 | 4 | PASS | 908 | 4 |
+| login-fill-form | multi-field-form | PASS | 381 | 9 | PASS | 1081 | 9 |
+| select-option | selection | PASS | 285 | 4 | PASS | 450 | 4 |
+| click-button | click | PASS | 308 | 4 | PASS | 983 | 4 |
+| hover-reveal | hover | PASS | 312 | 4 | PASS | 455 | 4 |
+| wait-for-dynamic | wait-for | PASS | 1066 | 3 | PASS | 1171 | 3 |
+| tabs-open | tabs | PASS | 318 | 5 | PASS | 958 | 5 |
+| dialog-confirm | dialogs | PASS | 311 | 6 | PASS | 963 | 6 |
+| console-capture | console | PASS | 237 | 3 | PASS | 412 | 3 |
+| network-capture | network | PASS | 242 | 3 | PASS | 408 | 3 |
+| screenshot | screenshot | PASS | 276 | 2 | PASS | 466 | 2 |
+| storage-cookies | storage | PASS | 311 | 5 | N/A | N/A | N/A |
+| storage-localstorage | storage | PASS | 317 | 5 | N/A | N/A | N/A |
+| evaluate | evaluate | PASS | 239 | 2 | PASS | 921 | 2 |
+| verify-text | verify | PASS | 294 | 5 | N/A | N/A | N/A |
+| signup-validated-form | multi-field-form | PASS | 388 | 9 | PASS | 1089 | 9 |
+| search-then-select | search-select | PASS | 338 | 6 | PASS | 1493 | 6 |
+| wizard-two-step | multi-step-navigation | PASS | 394 | 8 | PASS | 1566 | 8 |
+| table-row-select | list-selection | PASS | 308 | 4 | PASS | 963 | 4 |
+| consent-dismiss | consent-dismiss | PASS | 359 | 6 | PASS | 1519 | 6 |
+| modal-dismiss | modal-dismiss | PASS | 352 | 6 | PASS | 1509 | 6 |
+| login-then-action | multi-step-navigation | PASS | 407 | 9 | PASS | 1609 | 9 |
 
 _(Absolute milliseconds are environment-specific; only the relative comparison is meaningful.
-Numbers above are one recorded run; re-running regenerates them.)_
+Numbers above are one recorded run; re-running regenerates them. The full table, per-category
+rates, and the Autopilot round-trip breakdown live in
+[`benchmark/RESULTS.md`](./benchmark/RESULTS.md).)_
 
 ### Charts
 
@@ -325,17 +406,26 @@ Numbers above are one recorded run; re-running regenerates them.)_
   Playwright MCP core because its core toolset has no such tools; laya offers them under its
   `storage` / `testing` capabilities. Neither side is penalised for a capability the other
   simply does not offer.
-- **Both pass all shared basics** (navigation, search, multi-field form, select, click, hover,
-  wait-for-dynamic, tabs, dialogs, console, network, screenshot, evaluate).
+- **Both pass all shared basics and the broader real-world-shaped flows** in Assist mode:
+  navigation, single- and multi-field forms (with client-side validation), select, click,
+  hover, wait-for-dynamic, tabs, dialogs, console, network, screenshot, evaluate, search-then-
+  select, two-page wizard navigation, login-then-follow-up, table row selection, and cookie/
+  consent and blocking-modal dismissal.
 
 ### Limitations of this benchmark
 
 - **Local fixtures, not live sites.** Removes bot-detection and network-latency skew for a
-  deterministic, fair comparison; it is NOT a live-web robustness claim.
+  deterministic, fair comparison; it is NOT a live-web robustness claim. For a live-web
+  reference point see the honest Mind2Web numbers under [Weights](#weights) and the
+  positioning note at the top of this README.
 - **Single machine, headless.** Latency includes per-task process spin-up, amortised by
   discarding the warm-up run. Absolute milliseconds are environment-specific.
 - **Autopilot uses the reference stub (no weights),** so its success reflects the deterministic
-  rule layer, not a web-tuned model (see the [Autopilot](#autopilot) section).
+  rule layer, not a web-tuned model (see the [Autopilot](#autopilot) section). The Autopilot
+  round-trip table in [`benchmark/RESULTS.md`](./benchmark/RESULTS.md) shows honest FAILs on
+  goals that need a choice the stub does not make (an unstated dropdown option, disambiguating
+  one search result, or a web-tuned target under a dismissed overlay); a real model bundle is
+  what closes that gap.
 
 ### Reproduce
 
@@ -483,26 +573,44 @@ private API.
 snapshot -> compact typed PageState -> DECISION -> execute (Playwright) -> repeat
 ```
 
-The **decision** stage follows the authoritative laya-ultrafast design lesson — *Laya answers
-narrow questions reliably but not the open "what next?"* — as a three-stage pipeline:
+The **decision** stage follows the authoritative laya-ultrafast design lesson (*Laya answers
+narrow questions reliably but not the open "what next?"*) as a **local-first** three-stage
+pipeline. The client LLM is never on the default path; it is only a per-step fallback.
 
-1. **Deterministic-rule seed** (`src/autopilot/policy.ts`). High-confidence, transparent
-   rules: (1) fill the values the goal states, mapping each to a field (when two or more fields
-   are unfilled, batch them into ONE `FILL_FORM` step rather than N separate type steps);
-   (2) after typing into or opening a control, prefer choosing from the options that just
-   appeared; (3) once every goal-stated field is filled, submit — then open/verify the named
-   item.
-2. **Narrow Laya decision** (`src/laya/engine.ts`). When no rule fires, the local model
-   answers two narrow `choice` questions in one pass: *which operation?* and *which control?*
-3. **Confidence check + escalation** (`src/autopilot/escalation.ts`). If the operation or
-   target confidence is below the configured threshold, or the model returns `BLOCKED`, the
-   step is escalated to the client's LLM through the MCP `sampling/createMessage` request; the
-   structured answer is parsed back into a decision (`source: "llm"`). If the client does not
-   support sampling, escalation degrades to a clear `BLOCKED` (it never throws).
+1. **Deterministic-rule seed** (`src/autopilot/policy.ts`, confidence `0.97`). High-confidence,
+   transparent rules: (1) fill the values the goal states, mapping each to a field (when two or
+   more fields are unfilled, batch them into ONE `FILL_FORM` step rather than N separate type
+   steps); (2) after typing into or opening a control, prefer choosing from the options that
+   just appeared; (3) once every goal-stated field is filled, submit, then open/verify the
+   named item. Rule seeds are trusted by construction and are **never** escalated.
+2. **Narrow Laya decision** (`src/laya/engine.ts`). When no rule fires and local weights are
+   loaded, the on-device model answers two narrow `choice` questions in one pass: *which
+   operation?* and *which control?*
+3. **The 0.85 escalation gate** (`src/autopilot/escalation.ts`). A non-rule step escalates when
+   **either** the operation confidence **OR** the target confidence is below
+   `LAYA_CONFIDENCE_THRESHOLD` (**default `0.85`**), **OR** the model returned `BLOCKED` (OR
+   semantics). Escalation is **per step**: a single low-confidence step is asked of the client
+   LLM through the MCP `sampling/createMessage` request, the structured answer is parsed back
+   into a decision (`source: "llm"`), and the run then **resumes autonomously** on the next
+   step. There is no latched "LLM mode".
 
-Every step in the returned transcript records its **source** (`rule` / `laya` / `llm` /
-`stub`) and confidences. After the loop, the **independent final-page verification** runs
-regardless of how the loop ended.
+**Escalation never kills autonomy (T4).** When the client LLM is unreachable (the client does
+not advertise `sampling`, or the sampling request throws or times out), escalation does **not**
+hard-block. It falls back to **Laya's own best-guess decision** (the pre-escalation choice) so
+the run continues, as long as that guess is not itself `BLOCKED`. Only three things actually
+stop a run: a genuine Laya **`BLOCKED`** (no local guess to fall back to), the **loop
+detector** (no-progress guard), or the **destructive-form guard** (a refused, unconfirmed
+destructive submit).
+
+**Auditability and the autonomy summary (T5).** Every step in the returned transcript records
+its `source` (`rule` / `laya` / `stub` / `llm`), **both** confidences
+(`operationConfidence`, `targetConfidence`), and the per-step decision time `inferenceMs`. The
+rendered run result (`src/tools/run_goal.ts` `renderRunResult`) adds a one-line **autonomy
+summary**: how many steps were decided **locally** (rule + laya + stub) out of the total, the
+**% fully autonomous**, and the median `inferenceMs`, for example
+`Autonomy: 4/4 steps local (100%); inference: median 2 ms`. After the loop, the **independent
+final-page verification** runs regardless of how the loop ended; `DONE` is never trusted on its
+own.
 
 ### Running with no local weights
 
@@ -512,9 +620,12 @@ deterministic rule layer still seeds the steps it can decide alone (a goal that 
 field value never spends an LLM round-trip on it). Only when there is no local engine **and**
 the client does not advertise `sampling` does `laya_run_goal` return the Assist-mode hint, and
 it does so without launching a browser. Every request the server sends to its client is bounded
-by `LAYA_CLIENT_REQUEST_TIMEOUT_MS` so a slow or stalled client model degrades to a clear
-`BLOCKED` instead of holding the tool call open until the client's own 60s request timeout
-fires as `-32001` RequestTimeout.
+by `LAYA_CLIENT_REQUEST_TIMEOUT_MS`. When a step needs the client LLM but the client is
+unreachable or slow (no `sampling`, or the request throws or times out), escalation degrades to
+**Laya's best-guess decision** and the run continues (see [the 0.85 gate and T4
+fallback](#autopilot-decision-pipeline)); it only surfaces `BLOCKED` when there is no local
+guess to fall back to, so a stalled client can never hold the tool call open until the client's
+own 60s `-32001` RequestTimeout fires.
 
 ### What a goal can do
 
@@ -758,10 +869,38 @@ of each fixture's expected operations that appear, in order, in the transcript �
 
 ## Weights
 
-The Laya ONNX bundle is **not bundled** with this package. It is roughly **1.7 GB** (needs
+The Laya ONNX bundle is **not bundled** with this package. It is roughly **1.3–1.7 GB** (needs
 ~2 GB RAM loaded) and is downloaded/exported at runtime, cached under
 `~/.cache/receptron-laya` (`LAYA_CACHE`) or pointed at via `LAYA_MODEL_DIR`. The bundle is
 loaded through `Laya.load({ modelDir, repo, subfolder, revision, cacheDir, executionProviders })`.
+
+### Prepare a bundle
+
+`scripts/prepare-model.sh` builds a loadable bundle reproducibly (into a gitignored scratch
+dir; it never commits weights):
+
+```sh
+# Reference model - simplest: downloads a prebuilt ONNX bundle, no Python needed.
+scripts/prepare-model.sh reference
+LAYA_MODEL_DIR=.cache/laya-work/cache/receptron--laya-onnx/main pnpm test
+
+# Web-agent model - exports abedinia/laya-web-agent (needs `uv`/Python 3.12) and applies the
+# tokenizer special-token rename below.
+scripts/prepare-model.sh web-agent
+LAYA_MODEL_DIR=.cache/laya-work/webagent-onnx pnpm test
+```
+
+**Measured on device (CPU, this repo).** Both bundles load through `@receptron/laya` and run
+real inference. The product's `LayaEngine.decide` asks two narrow `choice` questions per step:
+~810–870 ms/step for the reference model, ~440–490 ms/step for the web-agent (roughly 2× faster).
+On the structured-form benchmark, however, the deterministic rule layer (confidence `0.97`)
+clears the `0.85` gate and decides every step, so the source breakdown is `rule/laya/stub/llm =
+3/0/0/0` for **both** models (100% fully autonomous: all local, no LLM round-trip), driven by
+the rules, not the weights, with the independent final-page verification passing (4/4). Neither
+checkpoint reliably picks the correct web operation on ambiguous single steps on its own, so the
+local model is best used as a low-confidence signal behind the gate that escalates to the client
+LLM when unsure. The **reference model is the drop-in default** (prebuilt bundle, no export); the
+**web-agent** is available for ambiguous/real-site steps via the documented export.
 
 ### Web-agent export spike (VERIFIED)
 

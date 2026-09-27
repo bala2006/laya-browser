@@ -65,6 +65,18 @@ describe("loadConfig capability and engine parsing", () => {
     expect(config.overlay.activityLog).toBe(false);
   });
 
+  it("(T2) defaults the escalation gate to 0.85 and lets LAYA_CONFIDENCE_THRESHOLD override", () => {
+    expect(loadConfig({}, {}).confidenceThreshold).toBe(0.85);
+    expect(loadConfig({}, { LAYA_CONFIDENCE_THRESHOLD: "0.6" }).confidenceThreshold).toBe(0.6);
+    expect(loadConfig({}, { LAYA_CONFIDENCE_THRESHOLD: "0.9" }).confidenceThreshold).toBe(0.9);
+    // Out-of-range values fall back to the default; explicit override wins over env.
+    expect(loadConfig({}, { LAYA_CONFIDENCE_THRESHOLD: "1.5" }).confidenceThreshold).toBe(0.85);
+    expect(loadConfig({}, { LAYA_CONFIDENCE_THRESHOLD: "garbage" }).confidenceThreshold).toBe(
+      0.85,
+    );
+    expect(loadConfig({ confidenceThreshold: 0.5 }, {}).confidenceThreshold).toBe(0.5);
+  });
+
   it("parses and clamps the Autopilot WAIT ms with a lower default than the legacy 500", () => {
     expect(loadConfig({}, {}).autopilotWaitMs).toBe(300);
     expect(loadConfig({}, { LAYA_AUTOPILOT_WAIT_MS: "1000" }).autopilotWaitMs).toBe(1000);

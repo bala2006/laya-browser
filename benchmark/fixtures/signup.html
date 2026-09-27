@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Create account</title>
+  </head>
+  <body>
+    <h1>Create account</h1>
+    <form onsubmit="return false;">
+      <label for="name">Full name</label>
+      <input id="name" name="name" type="text" placeholder="Full name" />
+
+      <label for="email">Email</label>
+      <input id="email" name="email" type="email" placeholder="Email" />
+
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" placeholder="Password" />
+
+      <label for="plan">Plan</label>
+      <select id="plan" name="plan">
+        <option value="">Choose a plan</option>
+        <option value="free">free</option>
+        <option value="pro">pro</option>
+        <option value="team">team</option>
+      </select>
+
+      <label><input id="terms" name="terms" type="checkbox" /> I accept the terms</label>
+
+      <button id="create" type="submit" onclick="submitForm()">Create account</button>
+    </form>
+    <div id="status" aria-live="polite"></div>
+    <script>
+      // Client-side validation: every field is required and the password must be at least 8
+      // characters. Only a fully valid submission flips #status to the success marker.
+      function submitForm() {
+        var name = document.getElementById("name").value.trim();
+        var email = document.getElementById("email").value.trim();
+        var password = document.getElementById("password").value;
+        var plan = document.getElementById("plan").value;
+        var terms = document.getElementById("terms").checked;
+        var status = document.getElementById("status");
+        if (!name) {
+          status.textContent = "Name is required";
+          return;
+        }
+        if (!email || email.indexOf("@") === -1) {
+          status.textContent = "A valid email is required";
+          return;
+        }
+        if (password.length < 8) {
+          status.textContent = "Password must be at least 8 characters";
+          return;
+        }
+        if (!plan) {
+          status.textContent = "Choose a plan";
+          return;
+        }
+        if (!terms) {
+          status.textContent = "You must accept the terms";
+          return;
+        }
+        status.textContent = "Account created for " + email + " on the " + plan + " plan";
+        document.title = "Account created";
+      }
+    </script>
+  </body>
+</html>

@@ -155,6 +155,27 @@ export function renderRunResult(result: RunResult): string {
         : "not checked (no explicit success marker in goal)"
     } — ${result.verification.detail}`,
   );
+  // (T5) Surface the run-level autonomy summary as a compact one-liner: how many steps were
+  // decided locally (rule/laya/stub) vs. escalated to the client LLM, plus the median per-step
+  // decision time when timings are present. Only shown when the summary exists.
+  if (result.autonomy && result.autonomy.total > 0) {
+    const a = result.autonomy;
+    const pct = Math.round(a.autonomousPct * 100);
+    let line = `Autonomy: ${a.fullyAutonomous}/${a.total} steps local (${pct}%)`;
+    const infTimes = result.transcript
+      .map((s) => s.inferenceMs)
+      .filter((ms): ms is number => typeof ms === "number" && Number.isFinite(ms))
+      .sort((x, y) => x - y);
+    if (infTimes.length > 0) {
+      const mid = Math.floor(infTimes.length / 2);
+      const median =
+        infTimes.length % 2 === 0
+          ? Math.round((infTimes[mid - 1] + infTimes[mid]) / 2)
+          : Math.round(infTimes[mid]);
+      line += `; inference: median ${median} ms`;
+    }
+    lines.push(line);
+  }
   lines.push("");
   lines.push("Transcript:");
   if (result.transcript.length === 0) {
@@ -175,8 +196,12 @@ export function renderRunResult(result: RunResult): string {
       const verified =
         s.verified !== undefined ? ` verified=${s.verified ? "true" : "false"}` : "";
       const note = s.note ? ` (${s.note})` : "";
+      const inf =
+        typeof s.inferenceMs === "number" && Number.isFinite(s.inferenceMs)
+          ? ` inf=${Math.round(s.inferenceMs)}ms`
+          : "";
       lines.push(
-        `  ${s.step}. ${s.operation}${tgt}${key}${fields}${marker}${val}${verified} [${s.source}, ${conf}] - ${s.detail}${note}`,
+        `  ${s.step}. ${s.operation}${tgt}${key}${fields}${marker}${val}${verified} [${s.source}, ${conf}${inf}] - ${s.detail}${note}`,
       );
     }
   }

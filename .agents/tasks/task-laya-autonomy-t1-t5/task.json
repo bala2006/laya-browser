@@ -1,0 +1,14 @@
+{
+  "task_id": "task-laya-autonomy-t1-t5",
+  "task_description": "Implement the T1-T5 local-first autonomy spec for laya-browser-mcp (rules 0.97 -> Laya default path with LLM never default; raise the escalation gate to 0.85 with OR semantics; keep escalation per-step with autonomous resume; make an unreachable LLM fall back to Laya's best guess (op != BLOCKED) so the run continues, with only Laya-BLOCKED / loop detector / destructive guard stopping a run; record source + both confidences + inference ms per step and a % fully-autonomous summary). Also clear temporary files, download+load+test the real Laya model on-device (no fakes), pick the best model on measured evidence if the web-agent underperforms, broaden the benchmark to real-world-shaped tasks, and document everything with an easy organised README setup and an honest PLAN ledger. Verify with real command output; keep the offline stub suite green with no weights and gate real-weights work behind LAYA_MODEL_DIR.",
+  "status": "completed",
+  "feature_order": ["FEAT-001", "FEAT-002", "FEAT-003", "FEAT-004"],
+  "blocked_reason": null,
+  "verification": {
+    "build": "pass",
+    "tests": "pass",
+    "test_quality": "pass",
+    "docker_build": "skipped",
+    "summary": "Final pass on branch feat/laya-autonomy-t1-t5. `pnpm run typecheck` and `pnpm run build` exit 0. `pnpm test` (offline, no weights): 40 test files, 272 passed / 3 skipped (WebKit self-skip + 2 LAYA_MODEL_DIR-gated real-weights blocks), no failures. `pnpm run bench` (offline stub): 4/4 end-to-end success, 100% ops coverage. `pnpm run bench:compare` regenerated with the broadened 23-task set: laya 23/23 (median 312 ms) vs Playwright MCP 20/20 (median 965 ms). Real-weights work (FEAT-003) verified separately with LAYA_MODEL_DIR against both convaiinnovations/laya (reference, default) and abedinia/laya-web-agent, gated tests pass, scratch cleaned (no weights committed). Test quality reviewed: the T1/T3/T5 regression tests and the T4 fallback tests drive the real loop against a real fixture server + headless Chromium with behavioral assertions (real DOM verification, source scoping, autonomy math, unreachable-LLM continues on Laya's guess) that would fail if the corresponding behavior were reverted. No Dockerfile present so docker_build is not applicable. Newly-introduced em dashes in docs/PLAN.md were removed to honor the style rule (README had none introduced)."
+  }
+}

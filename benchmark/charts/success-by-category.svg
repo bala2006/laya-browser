@@ -1,91 +1,116 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1380" height="380" viewBox="0 0 1380 380" font-family="-apple-system,Segoe UI,Roboto,sans-serif">
-<rect width="1380" height="380" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="1810" height="380" viewBox="0 0 1810 380" font-family="-apple-system,Segoe UI,Roboto,sans-serif">
+<rect width="1810" height="380" fill="#ffffff"/>
 <text x="56" y="28" font-size="16" font-weight="700" fill="#1e293b">Success rate by category (%)</text>
-<line x1="56" y1="284" x2="1360" y2="284" stroke="#e2e8f0" stroke-width="1"/>
+<line x1="56" y1="284" x2="1790" y2="284" stroke="#e2e8f0" stroke-width="1"/>
 <text x="48" y="288" font-size="10" text-anchor="end" fill="#64748b">0%</text>
-<line x1="56" y1="237.6" x2="1360" y2="237.6" stroke="#e2e8f0" stroke-width="1"/>
+<line x1="56" y1="237.6" x2="1790" y2="237.6" stroke="#e2e8f0" stroke-width="1"/>
 <text x="48" y="241.6" font-size="10" text-anchor="end" fill="#64748b">20%</text>
-<line x1="56" y1="191.2" x2="1360" y2="191.2" stroke="#e2e8f0" stroke-width="1"/>
+<line x1="56" y1="191.2" x2="1790" y2="191.2" stroke="#e2e8f0" stroke-width="1"/>
 <text x="48" y="195.2" font-size="10" text-anchor="end" fill="#64748b">40%</text>
-<line x1="56" y1="144.8" x2="1360" y2="144.8" stroke="#e2e8f0" stroke-width="1"/>
+<line x1="56" y1="144.8" x2="1790" y2="144.8" stroke="#e2e8f0" stroke-width="1"/>
 <text x="48" y="148.8" font-size="10" text-anchor="end" fill="#64748b">60%</text>
-<line x1="56" y1="98.4" x2="1360" y2="98.4" stroke="#e2e8f0" stroke-width="1"/>
+<line x1="56" y1="98.4" x2="1790" y2="98.4" stroke="#e2e8f0" stroke-width="1"/>
 <text x="48" y="102.4" font-size="10" text-anchor="end" fill="#64748b">80%</text>
-<line x1="56" y1="52" x2="1360" y2="52" stroke="#e2e8f0" stroke-width="1"/>
+<line x1="56" y1="52" x2="1790" y2="52" stroke="#e2e8f0" stroke-width="1"/>
 <text x="48" y="56" font-size="10" text-anchor="end" fill="#64748b">100%</text>
-<rect x="65" y="52" width="32.46666666666667" height="232" fill="#0f766e" rx="2"/>
-<text x="81.23333333333333" y="49" font-size="9" text-anchor="middle" fill="#1e293b">100%</text>
-<rect x="101.46666666666667" y="52" width="32.46666666666667" height="232" fill="#4338ca" rx="2"/>
-<text x="117.7" y="49" font-size="9" text-anchor="middle" fill="#1e293b">100%</text>
-<text x="99.46666666666667" y="298" font-size="10" text-anchor="end" fill="#1e293b" transform="rotate(-35 99.46666666666667 298)">navigation</text>
-<rect x="151.93333333333334" y="52" width="32.46666666666667" height="232" fill="#0f766e" rx="2"/>
-<text x="168.16666666666669" y="49" font-size="9" text-anchor="middle" fill="#1e293b">100%</text>
-<rect x="188.4" y="52" width="32.46666666666667" height="232" fill="#4338ca" rx="2"/>
-<text x="204.63333333333333" y="49" font-size="9" text-anchor="middle" fill="#1e293b">100%</text>
-<text x="186.4" y="298" font-size="10" text-anchor="end" fill="#1e293b" transform="rotate(-35 186.4 298)">forms</text>
-<rect x="238.86666666666667" y="52" width="32.46666666666667" height="232" fill="#0f766e" rx="2"/>
-<text x="255.10000000000002" y="49" font-size="9" text-anchor="middle" fill="#1e293b">100%</text>
-<rect x="275.33333333333337" y="52" width="32.46666666666667" height="232" fill="#4338ca" rx="2"/>
-<text x="291.5666666666667" y="49" font-size="9" text-anchor="middle" fill="#1e293b">100%</text>
-<text x="273.33333333333337" y="298" font-size="10" text-anchor="end" fill="#1e293b" transform="rotate(-35 273.33333333333337 298)">multi-field-form</text>
-<rect x="325.8" y="52" width="32.46666666666667" height="232" fill="#0f766e" rx="2"/>
-<text x="342.03333333333336" y="49" font-size="9" text-anchor="middle" fill="#1e293b">100%</text>
-<rect x="362.26666666666665" y="52" width="32.46666666666667" height="232" fill="#4338ca" rx="2"/>
-<text x="378.5" y="49" font-size="9" text-anchor="middle" fill="#1e293b">100%</text>
-<text x="360.26666666666665" y="298" font-size="10" text-anchor="end" fill="#1e293b" transform="rotate(-35 360.26666666666665 298)">selection</text>
-<rect x="412.73333333333335" y="52" width="32.46666666666667" height="232" fill="#0f766e" rx="2"/>
-<text x="428.9666666666667" y="49" font-size="9" text-anchor="middle" fill="#1e293b">100%</text>
-<rect x="449.20000000000005" y="52" width="32.46666666666667" height="232" fill="#4338ca" rx="2"/>
-<text x="465.4333333333334" y="49" font-size="9" text-anchor="middle" fill="#1e293b">100%</text>
-<text x="447.20000000000005" y="298" font-size="10" text-anchor="end" fill="#1e293b" transform="rotate(-35 447.20000000000005 298)">click</text>
-<rect x="499.6666666666667" y="52" width="32.46666666666667" height="232" fill="#0f766e" rx="2"/>
-<text x="515.9" y="49" font-size="9" text-anchor="middle" fill="#1e293b">100%</text>
-<rect x="536.1333333333333" y="52" width="32.46666666666667" height="232" fill="#4338ca" rx="2"/>
-<text x="552.3666666666667" y="49" font-size="9" text-anchor="middle" fill="#1e293b">100%</text>
-<text x="534.1333333333333" y="298" font-size="10" text-anchor="end" fill="#1e293b" transform="rotate(-35 534.1333333333333 298)">hover</text>
-<rect x="586.6" y="52" width="32.46666666666667" height="232" fill="#0f766e" rx="2"/>
-<text x="602.8333333333334" y="49" font-size="9" text-anchor="middle" fill="#1e293b">100%</text>
-<rect x="623.0666666666667" y="52" width="32.46666666666667" height="232" fill="#4338ca" rx="2"/>
-<text x="639.3000000000001" y="49" font-size="9" text-anchor="middle" fill="#1e293b">100%</text>
-<text x="621.0666666666667" y="298" font-size="10" text-anchor="end" fill="#1e293b" transform="rotate(-35 621.0666666666667 298)">wait-for</text>
-<rect x="673.5333333333333" y="52" width="32.46666666666667" height="232" fill="#0f766e" rx="2"/>
-<text x="689.7666666666667" y="49" font-size="9" text-anchor="middle" fill="#1e293b">100%</text>
-<rect x="710" y="52" width="32.46666666666667" height="232" fill="#4338ca" rx="2"/>
-<text x="726.2333333333333" y="49" font-size="9" text-anchor="middle" fill="#1e293b">100%</text>
-<text x="708" y="298" font-size="10" text-anchor="end" fill="#1e293b" transform="rotate(-35 708 298)">tabs</text>
-<rect x="760.4666666666667" y="52" width="32.46666666666667" height="232" fill="#0f766e" rx="2"/>
-<text x="776.7" y="49" font-size="9" text-anchor="middle" fill="#1e293b">100%</text>
-<rect x="796.9333333333334" y="52" width="32.46666666666667" height="232" fill="#4338ca" rx="2"/>
-<text x="813.1666666666667" y="49" font-size="9" text-anchor="middle" fill="#1e293b">100%</text>
-<text x="794.9333333333334" y="298" font-size="10" text-anchor="end" fill="#1e293b" transform="rotate(-35 794.9333333333334 298)">dialogs</text>
-<rect x="847.4000000000001" y="52" width="32.46666666666667" height="232" fill="#0f766e" rx="2"/>
-<text x="863.6333333333334" y="49" font-size="9" text-anchor="middle" fill="#1e293b">100%</text>
-<rect x="883.8666666666668" y="52" width="32.46666666666667" height="232" fill="#4338ca" rx="2"/>
-<text x="900.1000000000001" y="49" font-size="9" text-anchor="middle" fill="#1e293b">100%</text>
-<text x="881.8666666666668" y="298" font-size="10" text-anchor="end" fill="#1e293b" transform="rotate(-35 881.8666666666668 298)">console</text>
-<rect x="934.3333333333334" y="52" width="32.46666666666667" height="232" fill="#0f766e" rx="2"/>
-<text x="950.5666666666667" y="49" font-size="9" text-anchor="middle" fill="#1e293b">100%</text>
-<rect x="970.8000000000001" y="52" width="32.46666666666667" height="232" fill="#4338ca" rx="2"/>
-<text x="987.0333333333334" y="49" font-size="9" text-anchor="middle" fill="#1e293b">100%</text>
-<text x="968.8000000000001" y="298" font-size="10" text-anchor="end" fill="#1e293b" transform="rotate(-35 968.8000000000001 298)">network</text>
-<rect x="1021.2666666666667" y="52" width="32.46666666666667" height="232" fill="#0f766e" rx="2"/>
-<text x="1037.5" y="49" font-size="9" text-anchor="middle" fill="#1e293b">100%</text>
-<rect x="1057.7333333333333" y="52" width="32.46666666666667" height="232" fill="#4338ca" rx="2"/>
-<text x="1073.9666666666667" y="49" font-size="9" text-anchor="middle" fill="#1e293b">100%</text>
-<text x="1055.7333333333333" y="298" font-size="10" text-anchor="end" fill="#1e293b" transform="rotate(-35 1055.7333333333333 298)">screenshot</text>
-<rect x="1108.2" y="52" width="32.46666666666667" height="232" fill="#0f766e" rx="2"/>
-<text x="1124.4333333333334" y="49" font-size="9" text-anchor="middle" fill="#1e293b">100%</text>
-<text x="1160.9" y="280" font-size="9" text-anchor="middle" fill="#64748b" transform="rotate(-90 1160.9 280)">N/A</text>
-<text x="1142.6666666666667" y="298" font-size="10" text-anchor="end" fill="#1e293b" transform="rotate(-35 1142.6666666666667 298)">storage</text>
-<rect x="1195.1333333333334" y="52" width="32.46666666666667" height="232" fill="#0f766e" rx="2"/>
-<text x="1211.3666666666668" y="49" font-size="9" text-anchor="middle" fill="#1e293b">100%</text>
-<rect x="1231.6000000000001" y="52" width="32.46666666666667" height="232" fill="#4338ca" rx="2"/>
-<text x="1247.8333333333335" y="49" font-size="9" text-anchor="middle" fill="#1e293b">100%</text>
-<text x="1229.6000000000001" y="298" font-size="10" text-anchor="end" fill="#1e293b" transform="rotate(-35 1229.6000000000001 298)">evaluate</text>
-<rect x="1282.0666666666666" y="52" width="32.46666666666667" height="232" fill="#0f766e" rx="2"/>
-<text x="1298.3" y="49" font-size="9" text-anchor="middle" fill="#1e293b">100%</text>
-<text x="1334.7666666666667" y="280" font-size="9" text-anchor="middle" fill="#64748b" transform="rotate(-90 1334.7666666666667 280)">N/A</text>
-<text x="1316.5333333333333" y="298" font-size="10" text-anchor="end" fill="#1e293b" transform="rotate(-35 1316.5333333333333 298)">verify</text>
+<rect x="65" y="52" width="32.35" height="232" fill="#0f766e" rx="2"/>
+<text x="81.175" y="49" font-size="9" text-anchor="middle" fill="#1e293b">100%</text>
+<rect x="101.35" y="52" width="32.35" height="232" fill="#4338ca" rx="2"/>
+<text x="117.52499999999999" y="49" font-size="9" text-anchor="middle" fill="#1e293b">100%</text>
+<text x="99.35" y="298" font-size="10" text-anchor="end" fill="#1e293b" transform="rotate(-35 99.35 298)">navigation</text>
+<rect x="151.7" y="52" width="32.35" height="232" fill="#0f766e" rx="2"/>
+<text x="167.875" y="49" font-size="9" text-anchor="middle" fill="#1e293b">100%</text>
+<rect x="188.04999999999998" y="52" width="32.35" height="232" fill="#4338ca" rx="2"/>
+<text x="204.225" y="49" font-size="9" text-anchor="middle" fill="#1e293b">100%</text>
+<text x="186.04999999999998" y="298" font-size="10" text-anchor="end" fill="#1e293b" transform="rotate(-35 186.04999999999998 298)">forms</text>
+<rect x="238.4" y="52" width="32.35" height="232" fill="#0f766e" rx="2"/>
+<text x="254.57500000000002" y="49" font-size="9" text-anchor="middle" fill="#1e293b">100%</text>
+<rect x="274.75" y="52" width="32.35" height="232" fill="#4338ca" rx="2"/>
+<text x="290.925" y="49" font-size="9" text-anchor="middle" fill="#1e293b">100%</text>
+<text x="272.75" y="298" font-size="10" text-anchor="end" fill="#1e293b" transform="rotate(-35 272.75 298)">multi-field-form</text>
+<rect x="325.1" y="52" width="32.35" height="232" fill="#0f766e" rx="2"/>
+<text x="341.27500000000003" y="49" font-size="9" text-anchor="middle" fill="#1e293b">100%</text>
+<rect x="361.45000000000005" y="52" width="32.35" height="232" fill="#4338ca" rx="2"/>
+<text x="377.62500000000006" y="49" font-size="9" text-anchor="middle" fill="#1e293b">100%</text>
+<text x="359.45000000000005" y="298" font-size="10" text-anchor="end" fill="#1e293b" transform="rotate(-35 359.45000000000005 298)">selection</text>
+<rect x="411.8" y="52" width="32.35" height="232" fill="#0f766e" rx="2"/>
+<text x="427.975" y="49" font-size="9" text-anchor="middle" fill="#1e293b">100%</text>
+<rect x="448.15000000000003" y="52" width="32.35" height="232" fill="#4338ca" rx="2"/>
+<text x="464.32500000000005" y="49" font-size="9" text-anchor="middle" fill="#1e293b">100%</text>
+<text x="446.15000000000003" y="298" font-size="10" text-anchor="end" fill="#1e293b" transform="rotate(-35 446.15000000000003 298)">click</text>
+<rect x="498.5" y="52" width="32.35" height="232" fill="#0f766e" rx="2"/>
+<text x="514.675" y="49" font-size="9" text-anchor="middle" fill="#1e293b">100%</text>
+<rect x="534.85" y="52" width="32.35" height="232" fill="#4338ca" rx="2"/>
+<text x="551.025" y="49" font-size="9" text-anchor="middle" fill="#1e293b">100%</text>
+<text x="532.85" y="298" font-size="10" text-anchor="end" fill="#1e293b" transform="rotate(-35 532.85 298)">hover</text>
+<rect x="585.2" y="52" width="32.35" height="232" fill="#0f766e" rx="2"/>
+<text x="601.375" y="49" font-size="9" text-anchor="middle" fill="#1e293b">100%</text>
+<rect x="621.5500000000001" y="52" width="32.35" height="232" fill="#4338ca" rx="2"/>
+<text x="637.725" y="49" font-size="9" text-anchor="middle" fill="#1e293b">100%</text>
+<text x="619.5500000000001" y="298" font-size="10" text-anchor="end" fill="#1e293b" transform="rotate(-35 619.5500000000001 298)">wait-for</text>
+<rect x="671.9" y="52" width="32.35" height="232" fill="#0f766e" rx="2"/>
+<text x="688.0749999999999" y="49" font-size="9" text-anchor="middle" fill="#1e293b">100%</text>
+<rect x="708.25" y="52" width="32.35" height="232" fill="#4338ca" rx="2"/>
+<text x="724.425" y="49" font-size="9" text-anchor="middle" fill="#1e293b">100%</text>
+<text x="706.25" y="298" font-size="10" text-anchor="end" fill="#1e293b" transform="rotate(-35 706.25 298)">tabs</text>
+<rect x="758.6" y="52" width="32.35" height="232" fill="#0f766e" rx="2"/>
+<text x="774.775" y="49" font-size="9" text-anchor="middle" fill="#1e293b">100%</text>
+<rect x="794.95" y="52" width="32.35" height="232" fill="#4338ca" rx="2"/>
+<text x="811.125" y="49" font-size="9" text-anchor="middle" fill="#1e293b">100%</text>
+<text x="792.95" y="298" font-size="10" text-anchor="end" fill="#1e293b" transform="rotate(-35 792.95 298)">dialogs</text>
+<rect x="845.3000000000001" y="52" width="32.35" height="232" fill="#0f766e" rx="2"/>
+<text x="861.475" y="49" font-size="9" text-anchor="middle" fill="#1e293b">100%</text>
+<rect x="881.6500000000001" y="52" width="32.35" height="232" fill="#4338ca" rx="2"/>
+<text x="897.825" y="49" font-size="9" text-anchor="middle" fill="#1e293b">100%</text>
+<text x="879.6500000000001" y="298" font-size="10" text-anchor="end" fill="#1e293b" transform="rotate(-35 879.6500000000001 298)">console</text>
+<rect x="932" y="52" width="32.35" height="232" fill="#0f766e" rx="2"/>
+<text x="948.175" y="49" font-size="9" text-anchor="middle" fill="#1e293b">100%</text>
+<rect x="968.35" y="52" width="32.35" height="232" fill="#4338ca" rx="2"/>
+<text x="984.525" y="49" font-size="9" text-anchor="middle" fill="#1e293b">100%</text>
+<text x="966.35" y="298" font-size="10" text-anchor="end" fill="#1e293b" transform="rotate(-35 966.35 298)">network</text>
+<rect x="1018.7" y="52" width="32.35" height="232" fill="#0f766e" rx="2"/>
+<text x="1034.875" y="49" font-size="9" text-anchor="middle" fill="#1e293b">100%</text>
+<rect x="1055.05" y="52" width="32.35" height="232" fill="#4338ca" rx="2"/>
+<text x="1071.225" y="49" font-size="9" text-anchor="middle" fill="#1e293b">100%</text>
+<text x="1053.05" y="298" font-size="10" text-anchor="end" fill="#1e293b" transform="rotate(-35 1053.05 298)">screenshot</text>
+<rect x="1105.4" y="52" width="32.35" height="232" fill="#0f766e" rx="2"/>
+<text x="1121.575" y="49" font-size="9" text-anchor="middle" fill="#1e293b">100%</text>
+<text x="1157.925" y="280" font-size="9" text-anchor="middle" fill="#64748b" transform="rotate(-90 1157.925 280)">N/A</text>
+<text x="1139.75" y="298" font-size="10" text-anchor="end" fill="#1e293b" transform="rotate(-35 1139.75 298)">storage</text>
+<rect x="1192.1000000000001" y="52" width="32.35" height="232" fill="#0f766e" rx="2"/>
+<text x="1208.275" y="49" font-size="9" text-anchor="middle" fill="#1e293b">100%</text>
+<rect x="1228.45" y="52" width="32.35" height="232" fill="#4338ca" rx="2"/>
+<text x="1244.625" y="49" font-size="9" text-anchor="middle" fill="#1e293b">100%</text>
+<text x="1226.45" y="298" font-size="10" text-anchor="end" fill="#1e293b" transform="rotate(-35 1226.45 298)">evaluate</text>
+<rect x="1278.8" y="52" width="32.35" height="232" fill="#0f766e" rx="2"/>
+<text x="1294.975" y="49" font-size="9" text-anchor="middle" fill="#1e293b">100%</text>
+<text x="1331.3249999999998" y="280" font-size="9" text-anchor="middle" fill="#64748b" transform="rotate(-90 1331.3249999999998 280)">N/A</text>
+<text x="1313.1499999999999" y="298" font-size="10" text-anchor="end" fill="#1e293b" transform="rotate(-35 1313.1499999999999 298)">verify</text>
+<rect x="1365.5" y="52" width="32.35" height="232" fill="#0f766e" rx="2"/>
+<text x="1381.675" y="49" font-size="9" text-anchor="middle" fill="#1e293b">100%</text>
+<rect x="1401.85" y="52" width="32.35" height="232" fill="#4338ca" rx="2"/>
+<text x="1418.0249999999999" y="49" font-size="9" text-anchor="middle" fill="#1e293b">100%</text>
+<text x="1399.85" y="298" font-size="10" text-anchor="end" fill="#1e293b" transform="rotate(-35 1399.85 298)">search-select</text>
+<rect x="1452.2" y="52" width="32.35" height="232" fill="#0f766e" rx="2"/>
+<text x="1468.375" y="49" font-size="9" text-anchor="middle" fill="#1e293b">100%</text>
+<rect x="1488.55" y="52" width="32.35" height="232" fill="#4338ca" rx="2"/>
+<text x="1504.725" y="49" font-size="9" text-anchor="middle" fill="#1e293b">100%</text>
+<text x="1486.55" y="298" font-size="10" text-anchor="end" fill="#1e293b" transform="rotate(-35 1486.55 298)">multi-step-navigation</text>
+<rect x="1538.9" y="52" width="32.35" height="232" fill="#0f766e" rx="2"/>
+<text x="1555.075" y="49" font-size="9" text-anchor="middle" fill="#1e293b">100%</text>
+<rect x="1575.25" y="52" width="32.35" height="232" fill="#4338ca" rx="2"/>
+<text x="1591.425" y="49" font-size="9" text-anchor="middle" fill="#1e293b">100%</text>
+<text x="1573.25" y="298" font-size="10" text-anchor="end" fill="#1e293b" transform="rotate(-35 1573.25 298)">list-selection</text>
+<rect x="1625.6000000000001" y="52" width="32.35" height="232" fill="#0f766e" rx="2"/>
+<text x="1641.775" y="49" font-size="9" text-anchor="middle" fill="#1e293b">100%</text>
+<rect x="1661.95" y="52" width="32.35" height="232" fill="#4338ca" rx="2"/>
+<text x="1678.125" y="49" font-size="9" text-anchor="middle" fill="#1e293b">100%</text>
+<text x="1659.95" y="298" font-size="10" text-anchor="end" fill="#1e293b" transform="rotate(-35 1659.95 298)">consent-dismiss</text>
+<rect x="1712.3" y="52" width="32.35" height="232" fill="#0f766e" rx="2"/>
+<text x="1728.475" y="49" font-size="9" text-anchor="middle" fill="#1e293b">100%</text>
+<rect x="1748.6499999999999" y="52" width="32.35" height="232" fill="#4338ca" rx="2"/>
+<text x="1764.8249999999998" y="49" font-size="9" text-anchor="middle" fill="#1e293b">100%</text>
+<text x="1746.6499999999999" y="298" font-size="10" text-anchor="end" fill="#1e293b" transform="rotate(-35 1746.6499999999999 298)">modal-dismiss</text>
 <rect x="56" y="351" width="11" height="11" fill="#0f766e" rx="2"/>
 <text x="72" y="360" font-size="11" fill="#1e293b">laya (Assist)</text>
 <rect x="177" y="351" width="11" height="11" fill="#4338ca" rx="2"/>

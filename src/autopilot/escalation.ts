@@ -286,6 +286,16 @@ export function parseDecision(raw: string, knownRefs: ReadonlySet<string>): Deci
 export interface EscalationOptions {
   /** The snapshot diff to build a delta-only prompt from, when meaningful. */
   diff?: SnapshotDiff;
+  /**
+   * (T4) The local engine's ORIGINAL (pre-escalation) decision, threaded through so that when
+   * the client LLM is UNREACHABLE (no sampling capability, or the sampling request throws /
+   * times out) escalation can fall back to Laya's best guess instead of hard-BLOCKING the run.
+   * When present AND its operation is not BLOCKED, an unreachable-LLM escalation returns THIS
+   * decision with `escalated: false` and a warning note, so a single unreachable step degrades
+   * to Laya's guess and the run continues autonomously. When absent (or itself BLOCKED, e.g.
+   * the R2 no-weights placeholder) the existing graceful BLOCKED is preserved.
+   */
+  fallback?: Decision;
 }
 
 /** The outcome of an escalation attempt. */
@@ -301,16 +311,33 @@ export interface EscalationResult {
 /**
  * Escalate a decision to the client LLM via the injected sampler.
  *
- * When `sample` is `undefined` (client lacks sampling support), returns a clear BLOCKED
- * result WITHOUT throwing. Otherwise it prompts the client, parses the answer, and returns
- * the resulting Decision (or BLOCKED if the answer was unusable / the request threw).
+ * When `sample` is `undefined` (client lacks sampling support) or the sampling request throws
+ * / times out, the LLM is UNREACHABLE. In that case, if a non-BLOCKED Laya fallback was
+ * supplied (T4), escalation returns THAT decision with `escalated: false` and a warning note
+ * so the run continues on Laya's best guess; otherwise it degrades to a clear BLOCKED result
+ * WITHOUT throwing. When the sampler IS reachable it prompts the client, parses the answer,
+ * and returns the resulting Decision (or BLOCKED if the answer was unusable).
  */
 export async function escalate(
   state: PageState,
   sample: SampleFn | undefined,
   options: EscalationOptions = {},
 ): Promise<EscalationResult> {
+  // (T4) A usable Laya fallback: the pre-escalation decision, but only when it is not itself
+  // BLOCKED (the R2 no-weights placeholder is BLOCKED, so it never counts as a real guess).
+  const fallback =
+    options.fallback && options.fallback.operation !== "BLOCKED"
+      ? options.fallback
+      : undefined;
+
   if (!sample) {
+    if (fallback) {
+      return {
+        decision: fallback,
+        escalated: false,
+        note: "Low confidence but the client does not support MCP sampling; the LLM is unreachable, so continuing with Laya's best guess.",
+      };
+    }
     return {
       decision: {
         operation: "BLOCKED",
@@ -338,6 +365,15 @@ export async function escalate(
   try {
     raw = await sample(prompt);
   } catch (err) {
+    // (T4) The sampling request threw / timed out: the LLM is unreachable. Prefer Laya's best
+    // guess (when one exists) so a single unreachable step does not kill autonomy.
+    if (fallback) {
+      return {
+        decision: fallback,
+        escalated: false,
+        note: `MCP sampling request failed (${(err as Error).message}); the LLM is unreachable, so continuing with Laya's best guess.`,
+      };
+    }
     return {
       decision: {
         operation: "BLOCKED",

@@ -1,0 +1,31 @@
+{
+  "id": "FEAT-001",
+  "type": "chore",
+  "description": "Establish and confirm a green baseline on the host: install pnpm deps, approve the ignored native build scripts (onnxruntime-node, esbuild), install Playwright browsers, and run the existing typecheck + build + full test suite + offline benchmark so later changes have a trustworthy reference. The orchestrator already verified this passes; this feature makes the setup reproducible and confirms the coder's environment matches (all dependencies present, 263 tests green, WebKit self-skipping is expected).",
+  "status": "completed",
+  "steps": [
+    "Run `pnpm install` at the repo root (/projects/sandbox/laya-browser-mcp).",
+    "Run `pnpm rebuild onnxruntime-node esbuild` to build the native binaries whose build scripts pnpm ignores by default (required later so the real ONNX engine can load).",
+    "Run `pnpm exec playwright install chromium chromium-headless-shell firefox` to install the browser binaries the tests launch. WebKit is not launchable in this sandbox (missing system shared libs) and its smoke test self-skips, which is expected.",
+    "Run `pnpm run typecheck` and confirm it exits 0 with no errors.",
+    "Run `pnpm run build` and confirm it exits 0.",
+    "Run `pnpm test` and confirm the suite is green (expected: ~263 passed, ~2 skipped; the only acceptable skips are the WebKit cross-browser block and the LAYA_MODEL_DIR-gated real-weights tests).",
+    "Run `pnpm run bench` and confirm the offline stub benchmark prints its coverage table without error.",
+    "Record the exact command outputs (counts of passed/skipped tests, bench table) in the feature findings for later comparison."
+  ],
+  "acceptance_criteria": [
+    "`pnpm run typecheck` exits 0.",
+    "`pnpm run build` exits 0.",
+    "`pnpm test` reports all tests passing except the expected WebKit self-skip and any LAYA_MODEL_DIR-gated skips (no failures).",
+    "`pnpm run bench` completes and prints the coverage table.",
+    "node_modules, onnxruntime-node native binaries, and Playwright Chromium + Firefox are all present."
+  ],
+  "verification": [
+    "pnpm run typecheck",
+    "pnpm run build",
+    "pnpm test",
+    "pnpm run bench"
+  ],
+  "blocked_reason": null,
+  "findings": "Green baseline confirmed on host (pnpm v10.28.1, network OPEN_INTERNET). No source code changed; verification/setup only.\n\nSETUP:\n- `pnpm install`: exit 0, 'Lockfile is up to date ... Already up to date'. Warned that build scripts for esbuild@0.28.2 and onnxruntime-node@1.30.0 are ignored by default.\n- `pnpm rebuild onnxruntime-node esbuild`: exit 0. Native binaries built: node_modules/.pnpm/onnxruntime-node@1.30.0/.../bin/napi-v*/linux/x64/ contains libonnxruntime.so.1 and onnxruntime_binding.node; esbuild native bin reports 0.28.2 (@esbuild/linux-x64 present). NOTE: esbuild is a transitive dep and is NOT symlinked into node_modules/.bin, so `pnpm exec esbuild` fails with ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL; this is expected and not a problem (the native binary at node_modules/.pnpm/esbuild@0.28.2/node_modules/esbuild/bin/esbuild runs and prints 0.28.2).\n- `pnpm exec playwright install chromium chromium-headless-shell firefox`: exit 0 (printed 'BEWARE: your OS is not officially supported by Playwright; downloading fallback build for ubuntu24.04-x64.'). Installed under /opt/playwright: chromium-1243, chromium_headless_shell-1243, firefox-1543 (plus ffmpeg-1011 and older -1232 builds). WebKit intentionally NOT installed / not launchable in sandbox.\n\nVERIFICATION:\n- `pnpm run typecheck` (tsc -p tsconfig.json --noEmit): exit 0, no errors.\n- `pnpm run build` (tsc -p tsconfig.json): exit 0.\n- `pnpm test` (vitest run): exit 0. Test Files 39 passed (39). Tests 263 passed | 3 skipped (266). Duration ~13.9s. The 3 skips are all EXPECTED, none are failures: test/cross-browser.test.ts (1 skipped = WebKit self-skip, binary cannot launch in sandbox), test/autopilot.test.ts (1 skipped = LAYA_MODEL_DIR-gated real-weights block, line ~338), test/benchmark/report.test.ts (1 skipped = LAYA_MODEL_DIR-gated real-model benchmark). Firefox and Chromium really launch (real-headless-chromium tests pass). NOTE: briefing estimated ~2 skips; the actual count is 3 because there are two LAYA_MODEL_DIR gates (autopilot + benchmark) plus the WebKit skip. All accounted for and expected.\n- `pnpm run bench` (vitest run test/benchmark/report.test.ts): exit 0. Test Files 1 passed (1). Tests 2 passed | 1 skipped (3, the LAYA_MODEL_DIR gate). Offline StubEngine coverage table printed:\n\n    laya-browser-mcp offline benchmark (engine: StubEngine)\n    case         outcome  success  ops-cov  steps  rule/laya/stub/llm  ms\n    -----------  -------  -------  -------  -----  ------------------  ---\n    search       done     yes      100%     3      3/0/0/0             460\n    filters      done     yes      100%     3      3/0/0/0             314\n    login        done     yes      100%     3      3/0/0/0             322\n    login-multi  done     yes      100%     3      3/0/0/0             316\n    End-to-end success: 4/4. Mean expected-ops coverage: 100%.\n\n  Snapshot-backend comparison also printed:\n    backend  success  mean-ops-cov  total-ms  mean-ms/case\n    -------  -------  ------------  --------  ------------\n    domwalk  4/4      100%          1433      358\n    aria     4/4      100%          1636      409\n\nARTIFACTS PRESENT: node_modules installed; onnxruntime-node native binaries (libonnxruntime.so.1 + onnxruntime_binding.node) built; Playwright Chromium + chromium-headless-shell + Firefox installed under /opt/playwright. All acceptance criteria satisfied."
+}

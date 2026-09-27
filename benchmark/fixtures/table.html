@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Invoices</title>
+  </head>
+  <body>
+    <h1>Invoices</h1>
+    <table aria-label="Invoices">
+      <thead>
+        <tr><th>Invoice</th><th>Customer</th><th>Amount</th><th></th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>INV-1001</td><td>Acme</td><td>$120</td>
+          <td><button type="button" class="select" data-id="INV-1001" aria-label="Select INV-1001" onclick="select(this)">Select INV-1001</button></td>
+        </tr>
+        <tr>
+          <td>INV-1002</td><td>Globex</td><td>$340</td>
+          <td><button type="button" class="select" data-id="INV-1002" aria-label="Select INV-1002" onclick="select(this)">Select INV-1002</button></td>
+        </tr>
+        <tr>
+          <td>INV-1003</td><td>Initech</td><td>$90</td>
+          <td><button type="button" class="select" data-id="INV-1003" aria-label="Select INV-1003" onclick="select(this)">Select INV-1003</button></td>
+        </tr>
+      </tbody>
+    </table>
+    <div id="chosen" aria-live="polite"></div>
+    <script>
+      // List/table row selection: clicking a row's Select button records the row's literal id.
+      function select(btn) {
+        var id = btn.getAttribute("data-id");
+        document.getElementById("chosen").textContent = "Chosen invoice " + id;
+        document.title = "Chosen " + id;
+      }
+    </script>
+  </body>
+</html>
