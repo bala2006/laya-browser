@@ -1,7 +1,20 @@
 {
   "task_id": "task-laya-overlay-tiers",
   "task_description": "Implement a live on-page overlay/visual-narration layer (Tiers 1-4: banner, animated cursor, click ripple, target spotlight, action popover/caption, status HUD with thinking/acting + step N/max progress, optional typing effect, scroll indicator, toasts, success/error/uncertainty coloring, optional WAIT countdown, collapsible activity-log panel, Esc-to-release hint, idle heartbeat, and a debug 'what the agent sees' mode) for laya-browser-mcp. Injected via context.addInitScript so it survives navigations, owned by BrowserSession, with pointer-events:none so it never intercepts clicks. Make HEADED the default with graceful headless auto-fallback, gate the overlay on-by-default-in-headed via LAYA_BROWSER_OVERLAY (+ sub-knobs; typing effect and WAIT countdown default off), narrate each autopilot loop step through the overlay, address the domWalk double-reflow / post-action snapshot cost, and add REAL headless Playwright tests (screenshots + DOM assertions) covering injection, visibility, pointer-events, navigation re-injection, click non-interception, and headed-default/headless-fallback — fixing any bugs found. Commit locally; do not push or open a PR (orchestrator publishes).",
-  "status": "in_progress",
+  "status": "completed",
   "feature_order": ["FEAT-001", "FEAT-002", "FEAT-003", "FEAT-004"],
-  "blocked_reason": null
+  "blocked_reason": null,
+  "review": {
+    "verdict": "APPROVED",
+    "iterations": 1,
+    "artifacts": ["2026-09-27-063354-review.md (v1, APPROVED, 2 findings)"],
+    "notes": "v1 APPROVED. Finding 1 (run_goal eagerly launched a browser on the no-weights degraded path) FIXED in commit b67f6a7 (page acquired only when engine.available). Finding 2 (benchmark/compare.mjs relies on the headed->headless fallback after the default flip) left open as a low-impact CI-only note; the fallback is correct and harmless, adding one failed-launch retry + one stderr line per benchmark session. Also handled two live-steering requests during the pass: added .github/workflows/ci.yml (typecheck+build+full test on Node 20/22, chromium+firefox --with-deps) and verified fast/lazy startup."
+  },
+  "verification": {
+    "build": "pass",
+    "tests": "pass",
+    "test_quality": "pass",
+    "docker_build": "skipped",
+    "summary": "typecheck clean; npm run build emits dist/ (incl. dist/overlay.js); vitest 154 passed / 3 skipped across 22 files (the 3 skips are pre-existing gates: real-weights Autopilot on LAYA_MODEL_DIR, WebKit launch, pnpm bench report). New test/overlay.test.ts (9 real headless-chromium tests) asserts meaningful behavior that would fail if reverted: banner injected+visible with exact text, every overlay node pointer-events:none + z-index>1e6, addInitScript re-injection after navigation, real click-through under the banner (elementFromPoint returns non-overlay + login submit works), each overlay API node rendered with exact positions (spotlightLeft 36px=rect.x-4, cursorLeft 120px, progress 'step 3/7') and exact state colors (#22c55e/#ef4444/#f59e0b), debug see-elements outlining existing [data-laya-ref] refs, autopilot activity-log matching the transcript while RunResult outcome/verification/operations/typed-value are IDENTICAL with vs without overlay, and headed-default -> headless auto-fallback yielding a working page. No Dockerfile in repo so docker build not applicable. No bugs found in FEAT-001..003 implementation during real testing (one test-side matcher fix only)."
+  }
 }
