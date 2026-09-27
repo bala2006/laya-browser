@@ -13,7 +13,9 @@ import { describe, it, expect } from "vitest";
 import { StubEngine, createEngine } from "../../src/laya/index.js";
 import {
   runBenchmark,
+  runBackendComparison,
   formatSummaryTable,
+  formatBackendComparison,
   type BenchResult,
 } from "./harness.js";
 
@@ -25,6 +27,18 @@ describe("benchmark report (pnpm run bench)", () => {
     // A minimal sanity check so the report itself cannot silently produce nothing.
     expect(results.length).toBeGreaterThan(0);
   });
+
+  it("(C1) compares the domwalk vs aria snapshot backends and prints wall-ms numbers", async () => {
+    const comparison = await runBackendComparison({
+      makeEngine: () => new StubEngine(),
+    });
+    // eslint-disable-next-line no-console
+    console.log("\n" + formatBackendComparison(comparison) + "\n");
+    // Both backends must drive the fixtures to the same end-to-end success count (the aria
+    // backend is a faithful drop-in for the DOM walk on these fixtures).
+    expect(comparison.aria.passed).toBe(comparison.domwalk.passed);
+    expect(comparison.domwalk.results.length).toBeGreaterThan(0);
+  }, 60_000);
 
   const RUN_REAL = process.env.LAYA_MODEL_DIR !== undefined;
   it.skipIf(!RUN_REAL)(

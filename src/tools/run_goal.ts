@@ -13,6 +13,7 @@ import { z } from "zod";
 import { textResult, type ToolContext, type ToolResult } from "./shared.js";
 import { runGoal, type ConfirmFn, type RunResult } from "../autopilot/loop.js";
 import type { SampleFn } from "../autopilot/escalation.js";
+import type { SnapshotBackend } from "../config.js";
 import type { LayaDecisionEngine } from "../types.js";
 
 /** Extra context the Autopilot tool needs beyond the shared browser session. */
@@ -50,6 +51,12 @@ export interface RunGoalContext extends ToolContext {
    * preserved. Wired to MCP elicitation in src/server.ts.
    */
   confirm?: ConfirmFn;
+  /** (C1) Which snapshot backend the loop captures with: `domwalk` (default) or `aria`. */
+  snapshotBackend?: SnapshotBackend;
+  /** (C3) Whether per-step captures order controls by viewport proximity first. */
+  viewportPriority?: boolean;
+  /** (C2) Whether the escalation path may send a delta-only prompt when a diff exists. */
+  deltaPrompt?: boolean;
 }
 
 export const inputSchema = {
@@ -167,6 +174,13 @@ export function makeHandler(ctx: RunGoalContext) {
           ? { confirmDestructive: ctx.confirmDestructive }
           : {}),
         ...(ctx.confirm !== undefined ? { confirm: ctx.confirm } : {}),
+        ...(ctx.snapshotBackend !== undefined
+          ? { snapshotBackend: ctx.snapshotBackend }
+          : {}),
+        ...(ctx.viewportPriority !== undefined
+          ? { viewportPriority: ctx.viewportPriority }
+          : {}),
+        ...(ctx.deltaPrompt !== undefined ? { deltaPrompt: ctx.deltaPrompt } : {}),
       });
       const isError = result.outcome === "error";
       return textResult(renderRunResult(result), isError);

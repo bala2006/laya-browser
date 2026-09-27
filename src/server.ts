@@ -161,6 +161,12 @@ export function createServer(options: CreateServerOptions = {}): CreatedServer {
       redactSecrets: config.redactSecrets,
       // (B2) Require inline confirmation before a destructive auto-submit CLICK.
       confirmDestructive: config.confirmDestructive,
+      // (C1) Which snapshot backend the loop captures with (domwalk default vs aria).
+      snapshotBackend: config.snapshotBackend,
+      // (C3) Order/cap controls by viewport visibility first.
+      viewportPriority: config.viewportPriority,
+      // (C2) Send only the snapshot delta to the LLM on escalation when a diff exists.
+      deltaPrompt: true,
       // (B2) Wire the real confirmation via MCP elicitation, resolved lazily at call time
       // (the client's `elicitation` capability is only known after it connects/initializes,
       // which happens after createServer). Mirrors how `sample` is wired for sampling. When

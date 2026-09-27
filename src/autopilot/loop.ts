@@ -30,12 +30,13 @@ import type {
   ScrollDirection,
   ToastKind,
 } from "../overlay.js";
-import { capture, type Snapshot } from "../snapshot.js";
+import { capture, type CaptureOptions, type Snapshot } from "../snapshot.js";
+import { diffSnapshots, hasChanges } from "../snapshot-diff.js";
 import { buildState, type BuildStateOptions } from "../state-builder.js";
 import { fieldValueFromGoal, goalSuccessMarkers } from "../laya/goal.js";
 import { applyFieldValue, type FieldKind } from "../tools/fill.js";
 import { policySeed, refineWithGoalValue } from "./policy.js";
-import { escalate, type SampleFn } from "./escalation.js";
+import { escalate, type EscalationOptions, type SampleFn } from "./escalation.js";
 import { checkDestructiveSubmit, checkDomainAllowed } from "../safety.js";
 import { isSecretField, redactText } from "../redact.js";
 import {
@@ -43,6 +44,8 @@ import {
   DEFAULT_LOOP_WINDOW,
   DEFAULT_MAX_STEPS,
   DEFAULT_SELF_HEAL_RETRIES,
+  DEFAULT_SNAPSHOT_BACKEND,
+  type SnapshotBackend,
 } from "../config.js";
 import type { Control, Decision, LayaDecisionEngine, PageState } from "../types.js";
 
@@ -212,6 +215,26 @@ export interface RunGoalOptions {
    */
   confirm?: ConfirmFn;
   /**
+   * (C1) Which snapshot backend the loop captures with: `domwalk` (default) or `aria`.
+   * Threaded from config so the whole loop (per-step capture, self-heal re-capture, final
+   * verification) uses the same backend. Defaults to {@link DEFAULT_SNAPSHOT_BACKEND}.
+   */
+  snapshotBackend?: SnapshotBackend;
+  /**
+   * (C3) Whether per-step captures order controls by viewport proximity first (in/near-view
+   * controls surfaced ahead of far-offscreen ones, so the ~20-control cap keeps the most
+   * relevant). Defaults to false here, preserving the existing DOM order for autopilot tests.
+   */
+  viewportPriority?: boolean;
+  /**
+   * (C2) Whether the escalation path may send a DELTA-ONLY prompt (added/removed/changed
+   * controls plus goal/url/title) to the client LLM when a meaningful snapshot diff exists
+   * and it is not the first step, instead of the full control list. Cuts tokens. Defaults to
+   * false, so the full-snapshot prompt is always used unless opted in. The full prompt is
+   * always used on the first step or when there is no meaningful diff.
+   */
+  deltaPrompt?: boolean;
+  /**
    * Optional visual-overlay (agentLens HUD) controller, threaded in from the session so the
    * loop can narrate each step on-page. When omitted, EVERY narration call is a guarded
    * no-op and the loop behaves exactly as before (the pure decision/transition logic and all
@@ -344,8 +367,9 @@ export async function resolveByNameRole(
   page: Page,
   name: string,
   role: string,
+  captureOptions: CaptureOptions = {},
 ): Promise<string | undefined> {
-  const fresh = await capture(page);
+  const fresh = await capture(page, captureOptions);
   const wantName = name.trim();
   const match = fresh.controls.find(
     (c) => c.role === role && String(c.name).trim() === wantName,
@@ -376,6 +400,7 @@ async function runWithSelfHeal(
   target: { ref: string; name: string; role: string },
   maxRetries: number,
   action: (ref: string) => Promise<void>,
+  captureOptions: CaptureOptions = {},
 ): Promise<number> {
   let ref = target.ref;
   let attempt = 0;
@@ -387,7 +412,13 @@ async function runWithSelfHeal(
     } catch (err) {
       if (attempt >= maxRetries || !looksLikeStaleRef(err)) throw err;
       const page = await session.getPage();
-      const fresh = await resolveByNameRole(session, page, target.name, target.role);
+      const fresh = await resolveByNameRole(
+        session,
+        page,
+        target.name,
+        target.role,
+        captureOptions,
+      );
       if (fresh === undefined) throw err;
       attempt += 1;
       ref = fresh;
@@ -516,6 +547,8 @@ async function execute(
     redactSecrets: boolean;
     /** (B1) The run-scoped set the ACTUAL typed secret values are recorded into. */
     secrets: Set<string>;
+    /** (C1/C3) The backend/ordering used for any re-capture inside execute (self-heal/VERIFY). */
+    captureOptions: CaptureOptions;
   },
   session: BrowserSession,
   narrator: Narrator,
@@ -539,6 +572,7 @@ async function execute(
         async (ref) => {
           await session.resolveRef(ref).click();
         },
+        options.captureOptions,
       );
       return {
         detail: `CLICK ${decision.target}${c ? ` (${c.role} ${JSON.stringify(c.name)})` : ""}`,
@@ -564,6 +598,7 @@ async function execute(
         async (ref) => {
           await session.resolveRef(ref).fill(value);
         },
+        options.captureOptions,
       );
       return {
         detail: `TYPE_TEXT ${decision.target} = ${JSON.stringify(value)}`,
@@ -586,6 +621,7 @@ async function execute(
             await locator.selectOption(value);
           });
         },
+        options.captureOptions,
       );
       return {
         detail: `SELECT ${decision.target} = ${JSON.stringify(value)}`,
@@ -604,6 +640,7 @@ async function execute(
         async (ref) => {
           await session.resolveRef(ref).hover();
         },
+        options.captureOptions,
       );
       return {
         detail: `HOVER ${decision.target}${c ? ` (${c.role} ${JSON.stringify(c.name)})` : ""}`,
@@ -678,7 +715,7 @@ async function execute(
     }
     case "VERIFY": {
       // Terminal verification: check the expected marker against the LIVE page text/title.
-      const snapshot = await capture(await session.getPage());
+      const snapshot = await capture(await session.getPage(), options.captureOptions);
       const haystack = `${snapshot.title} ${snapshot.visibleText}`.toLowerCase();
       const verified = haystack.includes(decision.marker.toLowerCase());
       return {
@@ -739,9 +776,20 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
     redactSecrets = true,
     confirmDestructive = false,
     confirm,
+    snapshotBackend = DEFAULT_SNAPSHOT_BACKEND,
+    viewportPriority = false,
+    deltaPrompt = false,
     overlay,
     overlayPage,
   } = options;
+
+  // (C1/C3) The capture options used for EVERY snapshot this run takes, so the per-step
+  // capture, the self-healing re-capture, and the final verification all agree on backend and
+  // ordering.
+  const captureOptions: CaptureOptions = {
+    backend: snapshotBackend,
+    viewportPriority,
+  };
 
   // (B1) The run-scoped set of ACTUAL secret values the loop typed into secret-looking
   // fields. A redactor bound to this set masks those values (and common secret patterns) out
@@ -799,6 +847,9 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
   const transcript: StepRecord[] = [];
   let outcome: RunOutcome = "max_steps";
   let lastSnapshot: Snapshot | undefined;
+  // (C2) The snapshot captured on the PREVIOUS step, kept so each step can diff against it
+  // (surface "N new controls appeared") and the escalation path can send only the delta.
+  let prevSnapshot: Snapshot | undefined;
   // (A3) Rolling window of per-step signatures for loop detection. A signature is the URL +
   // the sorted set of control name+role pairs + the decision (operation/target/value). When
   // the last `loopWindow` signatures are all identical the run has made no progress.
@@ -811,9 +862,22 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
       await narrator.progress(step, maxSteps);
       await narrator.setState("thinking", "Deciding\u2026");
 
-      const snapshot = await capture(page);
+      const snapshot = await capture(page, captureOptions);
       lastSnapshot = snapshot;
       const state = buildState(goal, snapshot, recentActions, stateOptions);
+
+      // (C2) Diff this snapshot against the previous step's snapshot. When new controls
+      // appeared, surface it as a first-class overlay toast / activity-log event. The diff is
+      // also handed to the escalation path so it can send a delta-only prompt.
+      const diff = diffSnapshots(prevSnapshot, snapshot);
+      const isFirstStep = prevSnapshot === undefined;
+      if (!isFirstStep && diff.added.length > 0) {
+        const plural = diff.added.length === 1 ? "control" : "controls";
+        await narrator.toast(`${diff.added.length} new ${plural} appeared`, "info");
+        await narrator.log(`${diff.added.length} new ${plural} appeared`);
+      }
+      // Advance the previous-snapshot pointer AFTER computing the diff for this step.
+      prevSnapshot = snapshot;
 
       // Decision pipeline (order matters):
       //   1. deterministic-rule SEED — high-confidence rules per the laya-ultrafast lesson;
@@ -840,7 +904,14 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
         // Tier 3: colour the HUD amber to signal low-confidence escalation to the LLM.
         await narrator.setState("uncertain", "Low confidence \u2014 asking the LLM\u2026");
         await narrator.toast("Escalating to the LLM for the next step", "uncertain");
-        const result = await escalate(state, sample);
+        // (C2) When delta prompting is enabled and a meaningful diff exists (and this is not
+        // the first step), escalate with a delta-only prompt to cut tokens; otherwise the
+        // full-snapshot prompt is used (the default).
+        const escalationOptions: EscalationOptions =
+          deltaPrompt && !isFirstStep && hasChanges(diff)
+            ? { diff }
+            : {};
+        const result = await escalate(state, sample, escalationOptions);
         decision = refineWithGoalValue(result.decision, state);
         note = result.note;
       }
@@ -922,7 +993,7 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
       const executed = await execute(
         decision,
         state,
-        { waitMs, scrollBy, selfHealRetries, redactSecrets, secrets },
+        { waitMs, scrollBy, selfHealRetries, redactSecrets, secrets, captureOptions },
         session,
         narrator,
       );
@@ -1042,7 +1113,7 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
 
   // Always capture the true final page for independent verification (the loop may have
   // ended on DONE, BLOCKED, or the step budget; DONE is not trusted as success).
-  const rawFinalSnapshot = await capture(page);
+  const rawFinalSnapshot = await capture(page, captureOptions);
   // Verify against the REAL page text so verification is never weakened by redaction.
   const verification = verifyFinalPage(goal, rawFinalSnapshot);
   // B1: surface a redacted copy of the final snapshot so no secret reaches the client output.

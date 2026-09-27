@@ -130,6 +130,12 @@ export interface RunBenchmarkOptions {
   cases?: BenchCase[];
   /** Step budget per case. Defaults to 8. */
   maxSteps?: number;
+  /**
+   * (C1) Which snapshot backend the loop captures with for this run: `domwalk` (default) or
+   * `aria`. Threaded straight into {@link runGoal} so the same cases can be benchmarked with
+   * either perception backend and compared.
+   */
+  snapshotBackend?: "domwalk" | "aria";
 }
 
 /** Run the benchmark and return one {@link BenchResult} per case. */
@@ -138,6 +144,7 @@ export async function runBenchmark(
 ): Promise<BenchResult[]> {
   const cases = options.cases ?? BENCH_CASES;
   const maxSteps = options.maxSteps ?? 8;
+  const snapshotBackend = options.snapshotBackend ?? "domwalk";
 
   const fixtures: FixtureServer = await startFixtureServer();
   const session = new BrowserSession({ headless: true });
@@ -153,6 +160,7 @@ export async function runBenchmark(
         engine,
         url: fixtures.url(c.fixture),
         maxSteps,
+        snapshotBackend,
       });
       const wallMs = Date.now() - startedAt;
       await engine.close().catch(() => {});
@@ -228,5 +236,96 @@ export function formatSummaryTable(results: BenchResult[], engineName: string): 
   lines.push(
     "local steps and a single FILL_FORM batch (see the login-multi case) mean faster runs.",
   );
+  return lines.join("\n");
+}
+
+/** (C1) The per-backend aggregate of a benchmark run, used by the comparison table. */
+export interface BackendBenchSummary {
+  /** Which snapshot backend produced these numbers. */
+  backend: "domwalk" | "aria";
+  /** The per-case results for this backend. */
+  results: BenchResult[];
+  /** Total wall-clock milliseconds across all cases. */
+  totalMs: number;
+  /** Mean wall-clock milliseconds per case. */
+  meanMs: number;
+  /** How many cases reached end-to-end success (independent verification). */
+  passed: number;
+  /** Mean expected-ops coverage across cases, in [0, 1]. */
+  meanCoverage: number;
+}
+
+/** Aggregate a backend's per-case results into a {@link BackendBenchSummary}. */
+function summarize(
+  backend: "domwalk" | "aria",
+  results: BenchResult[],
+): BackendBenchSummary {
+  const totalMs = results.reduce((s, r) => s + r.wallMs, 0);
+  const passed = results.filter((r) => r.success).length;
+  const meanCoverage =
+    results.length === 0
+      ? 0
+      : results.reduce((s, r) => s + r.opsCoverage, 0) / results.length;
+  return {
+    backend,
+    results,
+    totalMs,
+    meanMs: results.length === 0 ? 0 : Math.round(totalMs / results.length),
+    passed,
+    meanCoverage,
+  };
+}
+
+/**
+ * (C1) Run the SAME benchmark cases with the `domwalk` and `aria` snapshot backends and
+ * return a summary for each, so the two perception backends can be compared on wall-ms and
+ * success/coverage. The engine factory is reused per backend; a fresh engine is built per
+ * case internally by {@link runBenchmark}.
+ */
+export async function runBackendComparison(
+  options: RunBenchmarkOptions,
+): Promise<{ domwalk: BackendBenchSummary; aria: BackendBenchSummary }> {
+  const domwalk = await runBenchmark({ ...options, snapshotBackend: "domwalk" });
+  const aria = await runBenchmark({ ...options, snapshotBackend: "aria" });
+  return {
+    domwalk: summarize("domwalk", domwalk),
+    aria: summarize("aria", aria),
+  };
+}
+
+/** (C1) Render a compact ASCII comparison of the domwalk vs aria snapshot backends. */
+export function formatBackendComparison(comparison: {
+  domwalk: BackendBenchSummary;
+  aria: BackendBenchSummary;
+}): string {
+  const { domwalk, aria } = comparison;
+  const lines: string[] = [];
+  lines.push("laya-browser-mcp snapshot-backend comparison (domwalk vs aria)");
+  lines.push("");
+  const header = ["backend", "success", "mean-ops-cov", "total-ms", "mean-ms/case"];
+  const row = (s: BackendBenchSummary): string[] => [
+    s.backend,
+    `${s.passed}/${s.results.length}`,
+    `${Math.round(s.meanCoverage * 100)}%`,
+    String(s.totalMs),
+    String(s.meanMs),
+  ];
+  const rows = [row(domwalk), row(aria)];
+  const widths = header.map((h, i) =>
+    Math.max(h.length, ...rows.map((r) => r[i]!.length)),
+  );
+  const fmt = (cols: string[]): string =>
+    cols.map((c, i) => c.padEnd(widths[i]!)).join("  ");
+  lines.push(fmt(header));
+  lines.push(widths.map((w) => "-".repeat(w)).join("  "));
+  for (const r of rows) lines.push(fmt(r));
+  lines.push("");
+  lines.push(
+    "Both backends drive the same fixtures to the same end-to-end result; the wall-ms columns",
+  );
+  lines.push(
+    "show the perception cost of each. domwalk is the default; aria uses Playwright's",
+  );
+  lines.push("accessibility tree (Playwright 1.63 ariaSnapshot).");
   return lines.join("\n");
 }
