@@ -109,6 +109,10 @@ export function createServer(options: CreateServerOptions = {}): CreatedServer {
     viewport: config.viewport,
     overlay: config.overlay,
     ...(config.channel !== undefined ? { channel: config.channel } : {}),
+    // (T2.1) Auto session persistence: load on launch (if file exists), save on close().
+    ...(config.storageStatePath !== undefined
+      ? { storageStatePath: config.storageStatePath }
+      : {}),
     ...options.browser,
   };
   const session = options.session ?? new BrowserSession(browserOptions);
@@ -145,6 +149,17 @@ export function createServer(options: CreateServerOptions = {}): CreatedServer {
       config,
       // (D1) Share the last-run artifacts holder so laya_export_run can write a replay.
       artifacts,
+      // (T1.2) Lazily-resolved sampler for the `browser_extract`/ask_page tool. The client's
+      // `sampling` capability is only known after connect/initialize (post-createServer), so
+      // resolve it at call time; when the client lacks sampling this returns undefined and the
+      // extract tool degrades to returning the most relevant text span (never throws).
+      sample: async (prompt) => {
+        const sampler = samplerFromServer(server);
+        if (!sampler) throw new Error("client does not support MCP sampling");
+        return sampler(prompt);
+      },
+      // (T2.4) Default directory for browser_download_file when no explicit path is given.
+      ...(config.downloadDir !== undefined ? { downloadDir: config.downloadDir } : {}),
     },
     config.capabilities,
   );
@@ -180,6 +195,14 @@ export function createServer(options: CreateServerOptions = {}): CreatedServer {
       // OFF) so a normal run captures no screenshots. When off the shared holder simply never
       // receives a run and laya_export_run reports none recorded.
       recordArtifacts: config.recordArtifacts,
+      // (T1.4) Per-step screenshots stay off unless explicitly enabled (text-first pipeline).
+      loopScreenshots: config.loopScreenshots,
+      // (T1.3) Bound the visible text carried into state / escalation prompts.
+      stateTextLimit: config.stateTextLimit,
+      // (T2.2) Auto-dismiss cookie/consent/modal overlays before each step (opt-in).
+      autoDismiss: config.autoDismiss,
+      // (T2.3) Descend into same-origin iframes / open shadow roots up to this depth.
+      frameDepth: config.frameDepth,
       // (D1) Share the artifacts holder so a run records per-step artifacts for the
       // laya_export_run replay tool WHEN recording is enabled above. The holder alone does
       // NOT enable recording.

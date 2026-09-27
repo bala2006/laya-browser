@@ -8,6 +8,17 @@
  *
  * When the engine has no weights loaded, it returns a clear "weights not present, use
  * Assist tools" message rather than crashing (graceful degradation).
+ *
+ * (T4.2) Stateless-handle readiness. MCP 2025+ moves toward a stateless model (the
+ * 2026-07-28 revision dropped protocol-level sessions), so a tool call must be fully
+ * addressable from its own arguments plus server-scoped resources, NOT from any per-connection
+ * protocol session. This tool complies: every run is parameterised by explicit args
+ * (`goal` / `url` / `maxSteps`); the decision engine is a lazily-built, server-scoped resource
+ * (weights load on first use, and an absent engine degrades gracefully); and the only shared
+ * state is the single {@link ../browser.BrowserSession} + the last-run artifacts holder, both
+ * server-scoped and reachable without a protocol session. There is therefore no hidden
+ * protocol-session state the caller must first establish — a run is self-describing from its
+ * arguments. The audit is asserted in test/stateless-handle.test.ts.
  */
 import { z } from "zod";
 import { textResult, type ToolContext, type ToolResult } from "./shared.js";
@@ -66,6 +77,14 @@ export interface RunGoalContext extends ToolContext {
    * holder merely receives the artifacts when recording is on.
    */
   recordArtifacts?: boolean;
+  /** (T1.4) Whether the loop captures a per-step screenshot even without artifact recording. */
+  loopScreenshots?: boolean;
+  /** (T1.3) Max chars of visible text carried into the Autopilot state / escalation prompt. */
+  stateTextLimit?: number;
+  /** (T2.2) Whether to auto-dismiss cookie/consent/modal overlays before each step. */
+  autoDismiss?: boolean;
+  /** (T2.3) Same-origin iframe / open shadow-root descent depth for per-step capture. */
+  frameDepth?: number;
   /**
    * (D1) Shared holder for the most recent run's artifacts. When recording is enabled (see
    * {@link recordArtifacts}), the run stores its artifacts here for the laya_export_run tool
@@ -245,6 +264,14 @@ export function makeHandler(ctx: RunGoalContext) {
           : {}),
         ...(ctx.deltaPrompt !== undefined ? { deltaPrompt: ctx.deltaPrompt } : {}),
         ...(recordArtifacts ? { recordArtifacts: true } : {}),
+        ...(ctx.loopScreenshots !== undefined
+          ? { loopScreenshots: ctx.loopScreenshots }
+          : {}),
+        ...(ctx.stateTextLimit !== undefined
+          ? { stateOptions: { maxVisibleText: ctx.stateTextLimit } }
+          : {}),
+        ...(ctx.autoDismiss !== undefined ? { autoDismiss: ctx.autoDismiss } : {}),
+        ...(ctx.frameDepth !== undefined ? { frameDepth: ctx.frameDepth } : {}),
         ...(onProgress !== undefined ? { onProgress } : {}),
       });
       // (D1) Persist the most recent run's artifacts into the shared holder so the
