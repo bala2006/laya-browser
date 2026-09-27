@@ -11,7 +11,7 @@
  */
 import { z } from "zod";
 import { textResult, type ToolContext, type ToolResult } from "./shared.js";
-import { runGoal, type RunResult } from "../autopilot/loop.js";
+import { runGoal, type ConfirmFn, type RunResult } from "../autopilot/loop.js";
 import type { SampleFn } from "../autopilot/escalation.js";
 import type { LayaDecisionEngine } from "../types.js";
 
@@ -40,6 +40,16 @@ export interface RunGoalContext extends ToolContext {
   loopDetection?: boolean;
   /** (A3) How many recent steps the loop detector compares. */
   loopWindow?: number;
+  /** (B1) Whether secret values/patterns are masked in details/logs/overlay. Defaults true. */
+  redactSecrets?: boolean;
+  /** (B2) Whether a destructive submit requires inline confirmation. Defaults false. */
+  confirmDestructive?: boolean;
+  /**
+   * (B2) Human-in-the-loop confirmation callback used when {@link confirmDestructive} is on
+   * and the destructive guard would refuse. When omitted, the refuse-by-default fail-safe is
+   * preserved. Wired to MCP elicitation in src/server.ts.
+   */
+  confirm?: ConfirmFn;
 }
 
 export const inputSchema = {
@@ -150,6 +160,13 @@ export function makeHandler(ctx: RunGoalContext) {
           ? { loopDetection: ctx.loopDetection }
           : {}),
         ...(ctx.loopWindow !== undefined ? { loopWindow: ctx.loopWindow } : {}),
+        ...(ctx.redactSecrets !== undefined
+          ? { redactSecrets: ctx.redactSecrets }
+          : {}),
+        ...(ctx.confirmDestructive !== undefined
+          ? { confirmDestructive: ctx.confirmDestructive }
+          : {}),
+        ...(ctx.confirm !== undefined ? { confirm: ctx.confirm } : {}),
       });
       const isError = result.outcome === "error";
       return textResult(renderRunResult(result), isError);

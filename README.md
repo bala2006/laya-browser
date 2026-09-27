@@ -473,6 +473,30 @@ Three always-on (by default) reliability behaviours keep a run robust and bounde
   it. When a signal is present the auto-submit is refused and the reason is surfaced, so a human
   can confirm explicitly. The check errs toward refusing (fail-safe). Disable with
   `LAYA_DESTRUCTIVE_GUARD=false`.
+- **Secret redaction (`LAYA_REDACT_SECRETS`, default `true`).** Values the Autopilot types
+  into secret-looking fields (a `password` input, or a field whose name/type matches
+  `password`/`secret`/`token`/`apikey`/`cvv`/`ssn`/`pin`), plus common secret patterns
+  (JWTs, `Bearer` tokens, `sk-` API keys, AWS `AKIA…` ids, long hex/base64 blobs), are masked
+  with a bullet token wherever they would otherwise be **displayed or logged**: the transcript
+  `detail`/`value`/`fields[].value`, the final snapshot text, the rendered `laya_run_goal`
+  output, and the on-page overlay log/toast/caption/status. The **real** value is still typed
+  into the page and the independent final-page verification still runs against the real text, so
+  automation is never weakened. Set `LAYA_REDACT_SECRETS=false` to disable masking.
+- **Confirmation hook for destructive submits (`LAYA_CONFIRM_DESTRUCTIVE`, default `false`).**
+  When on **and** the connected client supports MCP **elicitation**, a destructive auto-submit
+  `CLICK` that the guard would refuse instead triggers an inline human approval request (an
+  amber "awaiting confirmation" overlay state plus an `About to click "…" - approve?` prompt).
+  Approval proceeds with the click and records `approved via confirmation` on the step; a
+  decline, cancel, or a client that lacks elicitation resolves to a refusal. When
+  `LAYA_CONFIRM_DESTRUCTIVE` is off, or no confirmation callback is wired, the original
+  **refuse-by-default** fail-safe is preserved exactly.
+- **Assist-tool destructive guard (`LAYA_ASSIST_DESTRUCTIVE_GUARD`, default `false`).** Opt-in
+  extension of the destructive guard to the human-driven `browser_click` Assist tool. When on,
+  `browser_click` captures a snapshot, resolves the target control, runs the same pure
+  destructive-submit guard, and refuses the click (returning an error with the reason, and
+  **not** clicking) when it fires. When off (the default) `browser_click` behaves exactly as
+  before (no snapshot, no guard). This is scoped to `browser_click` as the required example;
+  other Assist tools remain unguarded by design.
 
 ## Configuration reference
 
@@ -507,6 +531,9 @@ constructor options, then handed inward as typed config.
 | `LAYA_SETTLE_PROBE` | `true` | `false` disables the purely-observational post-action settle probe (readyState + URL + a short bounded MutationObserver window; never `networkidle`). |
 | `LAYA_LOOP_DETECTION` | `true` | `false` disables loop detection; when on, an Autopilot run that repeats the identical step stops early with the `stuck` outcome. |
 | `LAYA_LOOP_WINDOW` | `3` | How many recent steps the loop detector compares before declaring a run `stuck` (clamped `2..6`). |
+| `LAYA_REDACT_SECRETS` | `true` | `false` disables masking of secret values/patterns in the transcript, overlay, and rendered output. The real value is always typed into the page regardless. |
+| `LAYA_CONFIRM_DESTRUCTIVE` | `false` | `true` requests inline human approval (via MCP elicitation) before a destructive Autopilot auto-submit `CLICK`, instead of refusing outright. Falls back to refuse-by-default when the client lacks elicitation. |
+| `LAYA_ASSIST_DESTRUCTIVE_GUARD` | `false` | `true` applies the destructive guard to the Assist `browser_click` tool (refuses a destructive click); default `false` leaves Assist-tool behaviour unchanged. |
 
 ### Cross-browser (`LAYA_BROWSER`)
 

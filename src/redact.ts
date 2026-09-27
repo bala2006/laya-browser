@@ -58,6 +58,27 @@ function escapeRegExp(value: string): string {
 }
 
 /**
+ * Decide whether a form field is "secret" based on its name or input type.
+ *
+ * A field is treated as secret when `fieldNameOrType` is exactly `"password"` (an input
+ * type) or contains any of: password, secret, token, apikey/api_key, cvv, ssn, pin. This is
+ * the single shared field-secret test reused by {@link redactValueForField} (which masks the
+ * value) and by the Autopilot loop (which captures the ACTUAL typed value into a run-scoped
+ * secret set so it can be masked wherever it later appears in logs/details).
+ *
+ * Pure and never throws: non-string input is coerced and yields `false`.
+ */
+export function isSecretField(fieldNameOrType: string): boolean {
+  try {
+    const hint = (typeof fieldNameOrType === "string" ? fieldNameOrType : "").toLowerCase();
+    if (!hint) return false;
+    return SECRET_FIELD_HINTS.some((h) => hint.includes(h));
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Mask secrets in `text` for logging/display.
  *
  * Masks, in order:
@@ -108,11 +129,7 @@ export function redactText(text: string, extraSecrets: string[] = []): string {
 export function redactValueForField(fieldNameOrType: string, value: string): string {
   try {
     const safeValue = typeof value === "string" ? value : String(value ?? "");
-    const hint = (typeof fieldNameOrType === "string" ? fieldNameOrType : "")
-      .toLowerCase();
-    if (!hint) return safeValue;
-    const isSecret = SECRET_FIELD_HINTS.some((h) => hint.includes(h));
-    return isSecret ? REDACTION_MASK : safeValue;
+    return isSecretField(fieldNameOrType) ? REDACTION_MASK : safeValue;
   } catch {
     try {
       return typeof value === "string" ? value : String(value ?? "");

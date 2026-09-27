@@ -58,6 +58,44 @@ const INSTRUCTIONS = [
   "MCP sampling, so clients intending to use Autopilot should support the 'sampling' capability.",
 ].join(" ");
 
+/**
+ * (B2) Ask the connected client for inline human approval of a destructive action via MCP
+ * elicitation, returning `true` only on an explicit accept.
+ *
+ * Resolved lazily at call time behind a check of the client's `elicitation` capability
+ * (mirroring how {@link samplerFromServer} gates sampling). When the client did not advertise
+ * elicitation, or the request fails, or the human declines/cancels, this resolves to `false`
+ * so the loop preserves its refuse-by-default fail-safe. Never throws.
+ */
+async function confirmViaElicitation(
+  server: McpServer,
+  prompt: string,
+): Promise<boolean> {
+  try {
+    const capabilities = server.server.getClientCapabilities();
+    if (!capabilities?.elicitation) return false;
+    const result = await server.server.elicitInput({
+      message: prompt,
+      requestedSchema: {
+        type: "object",
+        properties: {
+          approve: {
+            type: "boolean",
+            title: "Approve",
+            description: "Approve this destructive action.",
+          },
+        },
+        required: ["approve"],
+      },
+    });
+    // Only an explicit accept with approve === true authorises the action; a decline, a
+    // cancel, or a missing/false field is treated as a refusal (fail-safe).
+    return result.action === "accept" && result.content?.approve === true;
+  } catch {
+    return false;
+  }
+}
+
 /** Construct the MCP server, register Assist + Autopilot tools, and wire the session. */
 export function createServer(options: CreateServerOptions = {}): CreatedServer {
   const config = options.config ?? loadConfig();
@@ -94,6 +132,9 @@ export function createServer(options: CreateServerOptions = {}): CreatedServer {
       session,
       allowedDomains: config.allowedDomains,
       allowUnsafeCode: config.allowUnsafeCode,
+      // (B3) Opt-in destructive guard for Assist tools (default off). When off, Assist tools
+      // behave exactly as before; when on, browser_click refuses a destructive click.
+      assistDestructiveGuard: config.assistDestructiveGuard,
       config,
     },
     config.capabilities,
@@ -116,6 +157,16 @@ export function createServer(options: CreateServerOptions = {}): CreatedServer {
       settleProbe: config.settleProbe,
       loopDetection: config.loopDetection,
       loopWindow: config.loopWindow,
+      // (B1) Mask secret values/patterns out of the transcript/overlay/logs.
+      redactSecrets: config.redactSecrets,
+      // (B2) Require inline confirmation before a destructive auto-submit CLICK.
+      confirmDestructive: config.confirmDestructive,
+      // (B2) Wire the real confirmation via MCP elicitation, resolved lazily at call time
+      // (the client's `elicitation` capability is only known after it connects/initializes,
+      // which happens after createServer). Mirrors how `sample` is wired for sampling. When
+      // the client lacks elicitation, confirm resolves to false (refuse), preserving the
+      // refuse-by-default fail-safe. Never throws.
+      confirm: async (prompt) => confirmViaElicitation(server, prompt),
       // Resolve the sampler lazily at call time: the client's `sampling` capability is only
       // known after it has connected and initialized, which happens after createServer.
       sample: async (prompt) => {
