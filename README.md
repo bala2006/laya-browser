@@ -436,6 +436,26 @@ Every step in the returned transcript records its **source** (`rule` / `laya` / 
 `stub`) and confidences. After the loop, the **independent final-page verification** runs
 regardless of how the loop ended.
 
+### Reliability and self-healing
+
+Three always-on (by default) reliability behaviours keep a run robust and bounded:
+
+- **Self-healing refs (`LAYA_SELF_HEAL_RETRIES`, default `1`).** When a targeted action
+  (`CLICK`/`TYPE_TEXT`/`SELECT`/`HOVER`) fails because its captured ref went stale (the DOM
+  re-rendered between snapshot and execution), Autopilot re-captures the page, re-resolves the
+  **same** element by its accessible **name + role**, and retries against the fresh ref. When
+  no matching element is found the original error is rethrown. Steps that needed a retry record
+  `retries` in the transcript and surface a "Re-resolving stale element" hint on the overlay.
+- **Settle detection (`LAYA_SETTLE_PROBE`, default on).** After each action the loop runs a
+  short, bounded probe (`document.readyState` + URL change + a brief `MutationObserver` window,
+  capped at ~400ms). It uses **no** `networkidle` and **no** `slowMo`. The probe is purely
+  observational: it records `settled` on the step (and toasts "No change detected" when nothing
+  moved) but never changes the decision path or the run outcome.
+- **Loop detection / stuck guard (`LAYA_LOOP_DETECTION`, default on; `LAYA_LOOP_WINDOW`,
+  default `3`).** The loop signs each step by URL + control set + decision. When the last
+  `LAYA_LOOP_WINDOW` steps are identical (no progress) it stops early with the additive
+  **`stuck`** outcome instead of burning the whole step budget.
+
 ### Safety guards (`src/safety.ts`)
 
 - **Domain allow-list.** When `LAYA_ALLOWED_DOMAINS` is set, `browser_navigate` and every
@@ -483,6 +503,10 @@ constructor options, then handed inward as typed config.
 | `LAYA_CAPS` | (core-only) | Comma/space-separated tool capability groups to enable. |
 | `LAYA_BROWSER` | `chromium` | Browser engine: `chromium`, `firefox`, or `webkit`. |
 | `LAYA_ALLOW_UNSAFE_CODE` | `false` | `true` lets `browser_run_code_unsafe` actually run raw Playwright snippets. |
+| `LAYA_SELF_HEAL_RETRIES` | `1` | Autopilot self-healing retries for a failed targeted action, re-resolving the same element by name+role (clamped `0..3`; `0` disables). |
+| `LAYA_SETTLE_PROBE` | `true` | `false` disables the purely-observational post-action settle probe (readyState + URL + a short bounded MutationObserver window; never `networkidle`). |
+| `LAYA_LOOP_DETECTION` | `true` | `false` disables loop detection; when on, an Autopilot run that repeats the identical step stops early with the `stuck` outcome. |
+| `LAYA_LOOP_WINDOW` | `3` | How many recent steps the loop detector compares before declaring a run `stuck` (clamped `2..6`). |
 
 ### Cross-browser (`LAYA_BROWSER`)
 
