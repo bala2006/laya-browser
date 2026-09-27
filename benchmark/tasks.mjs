@@ -371,4 +371,206 @@ export const TASKS = [
       return text === "Showing results for cameras" && !/not visible|fail/i.test(res);
     },
   },
+
+  // --- Multi-field signup with client-side validation ---
+  {
+    id: "signup-validated-form",
+    category: "multi-field-form",
+    description: "Fill a validated signup form (name/email/password/plan/terms) and submit",
+    fixture: "/signup.html",
+    applies: "both",
+    async assist(h) {
+      await h.call("browser_navigate", { url: h.base + "/signup.html" });
+      const snap = await h.snapshot();
+      const name = refFrom(snap, 'textbox "Full name"') ?? refFrom(snap, "Full name") ?? "#name";
+      const email = refFrom(snap, 'textbox "Email"') ?? refFrom(snap, "Email") ?? "#email";
+      const password = refFrom(snap, "Password") ?? "#password";
+      const terms = refFrom(snap, "checkbox") ?? "#terms";
+      await h.call("browser_fill_form", {
+        fields: [
+          { target: name, element: "Name field", name: "Full name", type: "textbox", value: "Ada Lovelace" },
+          { target: email, element: "Email field", name: "Email", type: "textbox", value: "ada@example.com" },
+          { target: password, element: "Password field", name: "Password", type: "textbox", value: "hunter2!" },
+          { target: terms, element: "Terms checkbox", name: "I accept the terms", type: "checkbox", value: "true" },
+        ],
+      });
+      const snap2 = await h.snapshot();
+      const plan = refFrom(snap2, "combobox") ?? refFrom(snap2, "Plan") ?? "#plan";
+      await h.call("browser_select_option", { target: plan, values: ["pro"], element: "Plan select" });
+      const snap3 = await h.snapshot();
+      const create = refFrom(snap3, 'button "Create account"') ?? "#create";
+      await h.call("browser_click", { target: create, element: "Create account button" });
+    },
+    async verify(h) {
+      const status = await h.evalText("#status");
+      const plan = await h.evalValue("#plan");
+      return status === "Account created for ada@example.com on the pro plan" && plan === "pro";
+    },
+  },
+
+  // --- Search then select a result from a filtered list ---
+  {
+    id: "search-then-select",
+    category: "search-select",
+    description: "Filter a product list by keyword then pick a matching result",
+    fixture: "/catalog.html",
+    applies: "both",
+    async assist(h) {
+      await h.call("browser_navigate", { url: h.base + "/catalog.html" });
+      const snap = await h.snapshot();
+      const q = refFrom(snap, 'searchbox "Filter products"') ?? refFrom(snap, "searchbox") ?? "#q";
+      await h.call("browser_type", { target: q, text: "keyboard", element: "Filter box", submit: true });
+      const snap2 = await h.snapshot();
+      const pick = refFrom(snap2, "Wireless keyboard") ?? ".pick[data-name='Wireless keyboard']";
+      await h.call("browser_click", { target: pick, element: "Wireless keyboard result" });
+    },
+    async autopilot(h) {
+      await h.call("laya_run_goal", {
+        goal: 'Filter products by "keyboard" then select the Wireless keyboard and expect "Selected Wireless keyboard"',
+        url: h.base + "/catalog.html",
+      });
+    },
+    async verify(h) {
+      const selected = await h.evalText("#selected");
+      return selected === "Selected Wireless keyboard";
+    },
+  },
+
+  // --- Two-page navigation wizard ---
+  {
+    id: "wizard-two-step",
+    category: "multi-step-navigation",
+    description: "Complete a two-page wizard: enter a value on step 1, finish on step 2",
+    fixture: "/wizard-step1.html",
+    applies: "both",
+    async assist(h) {
+      await h.call("browser_navigate", { url: h.base + "/wizard-step1.html" });
+      const snap = await h.snapshot();
+      const city = refFrom(snap, 'textbox "City"') ?? refFrom(snap, "City") ?? "#city";
+      await h.call("browser_type", { target: city, text: "Lisbon", element: "City field" });
+      const next = refFrom(snap, 'link "Next"') ?? refFrom(snap, "Next") ?? "#next";
+      await h.call("browser_click", { target: next, element: "Next link" });
+      // The Next link navigates to step 2; re-snapshot the new page and finish.
+      const snap2 = await h.snapshot();
+      const finish = refFrom(snap2, 'button "Finish"') ?? "#finish";
+      await h.call("browser_click", { target: finish, element: "Finish button" });
+    },
+    async verify(h) {
+      const title = await h.evalTitle();
+      const status = await h.evalText("#status");
+      return title === "Wizard complete" && status === "Wizard complete for Lisbon";
+    },
+  },
+
+  // --- Table row selection ---
+  {
+    id: "table-row-select",
+    category: "list-selection",
+    description: "Select a specific row from a table of invoices",
+    fixture: "/table.html",
+    applies: "both",
+    async assist(h) {
+      await h.call("browser_navigate", { url: h.base + "/table.html" });
+      const snap = await h.snapshot();
+      // The second row's Select button (invoice INV-1002); each button carries a distinct
+      // accessible label so both servers can resolve a stable ref for it.
+      const ref = refFrom(snap, "Select INV-1002") ?? ".select[data-id='INV-1002']";
+      await h.call("browser_click", { target: ref, element: "Select INV-1002 button" });
+    },
+    async verify(h) {
+      const chosen = await h.evalText("#chosen");
+      return chosen === "Chosen invoice INV-1002";
+    },
+  },
+
+  // --- Cookie/consent banner dismissal (exercises LAYA_AUTO_DISMISS in Autopilot) ---
+  {
+    id: "consent-dismiss",
+    category: "consent-dismiss",
+    description: "Dismiss a cookie/consent banner, then subscribe",
+    fixture: "/consent.html",
+    applies: "both",
+    async assist(h) {
+      await h.call("browser_navigate", { url: h.base + "/consent.html" });
+      const snap = await h.snapshot();
+      const accept = refFrom(snap, 'button "Accept all"') ?? "#accept";
+      await h.call("browser_click", { target: accept, element: "Accept cookies button" });
+      const snap2 = await h.snapshot();
+      const subscribe = refFrom(snap2, 'button "Subscribe"') ?? "#subscribe";
+      await h.call("browser_click", { target: subscribe, element: "Subscribe button" });
+    },
+    async autopilot(h) {
+      // With LAYA_AUTO_DISMISS enabled on the laya spec the consent banner is cleared by the
+      // loop's conservative auto-dismiss pass before the goal's Subscribe click.
+      await h.call("laya_run_goal", {
+        goal: 'Subscribe to the newsletter and expect "Subscribed"',
+        url: h.base + "/consent.html",
+      });
+    },
+    async verify(h) {
+      const status = await h.evalText("#status");
+      return status === "Subscribed";
+    },
+  },
+
+  // --- Blocking modal dismissal (exercises LAYA_AUTO_DISMISS in Autopilot) ---
+  {
+    id: "modal-dismiss",
+    category: "modal-dismiss",
+    description: "Dismiss a blocking welcome modal, then run the report",
+    fixture: "/modal.html",
+    applies: "both",
+    async assist(h) {
+      await h.call("browser_navigate", { url: h.base + "/modal.html" });
+      const snap = await h.snapshot();
+      const dismiss = refFrom(snap, 'button "Got it"') ?? "#dismiss";
+      await h.call("browser_click", { target: dismiss, element: "Dismiss modal button" });
+      const snap2 = await h.snapshot();
+      const report = refFrom(snap2, 'button "Run report"') ?? "#report";
+      await h.call("browser_click", { target: report, element: "Run report button" });
+    },
+    async autopilot(h) {
+      await h.call("laya_run_goal", {
+        goal: 'Run the report and expect "Report ready"',
+        url: h.base + "/modal.html",
+      });
+    },
+    async verify(h) {
+      const status = await h.evalText("#status");
+      return status === "Report ready";
+    },
+  },
+
+  // --- Login then perform a follow-up action ---
+  {
+    id: "login-then-action",
+    category: "multi-step-navigation",
+    description: "Sign in with credentials, then seed storage as a follow-up action",
+    fixture: "/login.html",
+    applies: "both",
+    async assist(h) {
+      await h.call("browser_navigate", { url: h.base + "/login.html" });
+      const snap = await h.snapshot();
+      const email = refFrom(snap, 'textbox "Email"') ?? "#email";
+      const password = refFrom(snap, "Password") ?? "#password";
+      await h.call("browser_fill_form", {
+        fields: [
+          { target: email, element: "Email field", name: "Email", type: "textbox", value: "grace@example.com" },
+          { target: password, element: "Password field", name: "Password", type: "textbox", value: "s3cret" },
+        ],
+      });
+      const snap2 = await h.snapshot();
+      const submit = refFrom(snap2, 'button "Sign in"') ?? "#submit";
+      await h.call("browser_click", { target: submit, element: "Sign in button" });
+      // Follow-up action after login: navigate to storage and seed it.
+      await h.call("browser_navigate", { url: h.base + "/storage.html" });
+      const snap3 = await h.snapshot();
+      const seed = refFrom(snap3, "Seed storage") ?? "#seed";
+      await h.call("browser_click", { target: seed, element: "Seed button" });
+    },
+    async verify(h) {
+      const status = await h.evalText("#status");
+      return status === "Storage seeded";
+    },
+  },
 ];

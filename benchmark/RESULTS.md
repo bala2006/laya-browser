@@ -1,37 +1,44 @@
 # Benchmark: laya-browser-mcp vs Playwright MCP
 
-Generated 2026-09-26T20:50:25.015Z — 5 runs per task (first discarded as warm-up), median reported. Baseline: the real Playwright MCP (`@playwright/mcp`). All tasks run against identical local loopback HTML fixtures (no live sites) for deterministic, fair results.
+Generated 2026-09-27T17:38:32.103Z. 5 runs per task (first discarded as warm-up), median reported. Baseline: the real Playwright MCP (`@playwright/mcp`). All tasks run against identical local loopback HTML fixtures (no live sites) for deterministic, fair results.
 
 ## Headline
 
 | Metric | laya-browser-mcp (Assist) | Playwright MCP |
 | --- | --- | --- |
-| Tasks applicable | 16 | 13 |
-| Tasks passed | 16 | 13 |
+| Tasks applicable | 23 | 20 |
+| Tasks passed | 23 | 20 |
 | Success rate | 100% | 100% |
-| Median latency (applicable tasks) | 212 ms | 922 ms |
+| Median latency (applicable tasks) | 312 ms | 965 ms |
 | Tools exposed | 25 core / 72 all-caps | 24 core |
 
 ## Per-task results
 
 | Task | Category | laya | laya ms | laya calls | Playwright | PW ms | PW calls |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| nav-basic | navigation | PASS | 152 | 2 | PASS | 435 | 2 |
-| search-type-submit | forms | PASS | 203 | 4 | PASS | 997 | 4 |
-| login-fill-form | multi-field-form | PASS | 312 | 9 | PASS | 1134 | 9 |
-| select-option | selection | PASS | 195 | 4 | PASS | 481 | 4 |
-| click-button | click | PASS | 225 | 4 | PASS | 993 | 4 |
-| hover-reveal | hover | PASS | 235 | 4 | PASS | 523 | 4 |
-| wait-for-dynamic | wait-for | PASS | 962 | 3 | PASS | 1206 | 3 |
-| tabs-open | tabs | PASS | 241 | 5 | PASS | 1021 | 5 |
-| dialog-confirm | dialogs | PASS | 224 | 6 | PASS | 991 | 6 |
-| console-capture | console | PASS | 150 | 3 | PASS | 410 | 3 |
-| network-capture | network | PASS | 154 | 3 | PASS | 456 | 3 |
-| screenshot | screenshot | PASS | 188 | 2 | PASS | 514 | 2 |
-| storage-cookies | storage | PASS | 215 | 5 | N/A | N/A | N/A |
-| storage-localstorage | storage | PASS | 224 | 5 | N/A | N/A | N/A |
-| evaluate | evaluate | PASS | 158 | 2 | PASS | 922 | 2 |
-| verify-text | verify | PASS | 209 | 5 | N/A | N/A | N/A |
+| nav-basic | navigation | PASS | 242 | 2 | PASS | 410 | 2 |
+| search-type-submit | forms | PASS | 293 | 4 | PASS | 939 | 4 |
+| login-fill-form | multi-field-form | PASS | 388 | 9 | PASS | 1094 | 9 |
+| select-option | selection | PASS | 282 | 4 | PASS | 479 | 4 |
+| click-button | click | PASS | 312 | 4 | PASS | 942 | 4 |
+| hover-reveal | hover | PASS | 302 | 4 | PASS | 475 | 4 |
+| wait-for-dynamic | wait-for | PASS | 1053 | 3 | PASS | 1202 | 3 |
+| tabs-open | tabs | PASS | 312 | 5 | PASS | 982 | 5 |
+| dialog-confirm | dialogs | PASS | 320 | 6 | PASS | 960 | 6 |
+| console-capture | console | PASS | 243 | 3 | PASS | 386 | 3 |
+| network-capture | network | PASS | 242 | 3 | PASS | 423 | 3 |
+| screenshot | screenshot | PASS | 274 | 2 | PASS | 452 | 2 |
+| storage-cookies | storage | PASS | 321 | 5 | N/A | N/A | N/A |
+| storage-localstorage | storage | PASS | 317 | 5 | N/A | N/A | N/A |
+| evaluate | evaluate | PASS | 245 | 2 | PASS | 913 | 2 |
+| verify-text | verify | PASS | 295 | 5 | N/A | N/A | N/A |
+| signup-validated-form | multi-field-form | PASS | 385 | 9 | PASS | 1090 | 9 |
+| search-then-select | search-select | PASS | 336 | 6 | PASS | 1502 | 6 |
+| wizard-two-step | multi-step-navigation | PASS | 391 | 8 | PASS | 1583 | 8 |
+| table-row-select | list-selection | PASS | 307 | 4 | PASS | 969 | 4 |
+| consent-dismiss | consent-dismiss | PASS | 366 | 6 | PASS | 1505 | 6 |
+| modal-dismiss | modal-dismiss | PASS | 357 | 6 | PASS | 1521 | 6 |
+| login-then-action | multi-step-navigation | PASS | 409 | 9 | PASS | 1631 | 9 |
 
 ## Success rate by category
 
@@ -52,6 +59,11 @@ Generated 2026-09-26T20:50:25.015Z — 5 runs per task (first discarded as warm-
 | storage | 100% | N/A |
 | evaluate | 100% | 100% |
 | verify | 100% | N/A |
+| search-select | 100% | 100% |
+| multi-step-navigation | 100% | 100% |
+| list-selection | 100% | 100% |
+| consent-dismiss | 100% | 100% |
+| modal-dismiss | 100% | 100% |
 
 ## Autopilot round-trips (laya single-call goal runner)
 
@@ -61,6 +73,9 @@ laya-browser-mcp offers `laya_run_goal`, a single MCP call that runs the whole g
 | --- | --- | --- | --- | --- |
 | search-type-submit | 4 | 4 | 2 | PASS |
 | login-fill-form | 9 | 9 | 3 | FAIL |
+| search-then-select | 6 | 6 | 2 | FAIL |
+| consent-dismiss | 6 | 6 | 2 | FAIL |
+| modal-dismiss | 6 | 6 | 2 | FAIL |
 
 ## Charts
 
@@ -74,7 +89,7 @@ laya-browser-mcp offers `laya_run_goal`, a single MCP call that runs the whole g
 
 ## Honesty and limitations
 
-- **Autopilot uses the REFERENCE stub engine (no model weights).** Its success reflects the deterministic rule layer (fill goal-stated fields, submit, verify the success marker), NOT a web-tuned model. On the multi-field login goal the reference stub batch-fills the text fields and submits without choosing the role option, so it does not satisfy the stricter Assist-mode verify — an honest reference-layer limitation, shown as FAIL.
+- **Autopilot uses the REFERENCE stub engine (no model weights).** Its success reflects the deterministic rule layer (fill goal-stated fields, submit, verify the success marker), NOT a web-tuned model. Autopilot FAILs are honest reference-layer limitations, not defects of the loop: the stub batch-fills goal-stated text fields and submits, but it does not choose an unstated dropdown option (login-fill-form), it does not disambiguate one search result from a list (search-then-select), and clicking a marker button under a consent banner or blocking modal (consent-dismiss / modal-dismiss) needs the auto-dismiss pass plus a web-tuned target choice the stub does not make. The Assist column and the independent final-page verify are the trustworthy signals; a real model bundle (see the SETUP in the README) is what closes the Autopilot gap.
 - **Local fixtures, not live sites.** Every task runs against loopback HTML served from `benchmark/fixtures/`. This removes bot-detection and network-latency skew so the comparison is deterministic and fair; it is NOT a claim about live-web robustness.
 - **Single machine, headless.** Latency figures include per-task process spin-up amortised by the warm-up run being discarded; absolute milliseconds are environment-specific and only the relative comparison is meaningful.
 - **Both track `window.open` popups.** Like Playwright MCP, laya-browser-mcp subscribes to the browser context's `page` event, so a popup the page opens itself (via `window.open`, `target="_blank"`, or ctrl/cmd+click) becomes a listable, selectable tab; focus stays on the opener until you select it. Both pass the `tabs-open` popup task.

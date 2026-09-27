@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Wizard step 1</title>
+  </head>
+  <body>
+    <h1>Step 1 of 2: your details</h1>
+    <form onsubmit="return false;">
+      <label for="city">City</label>
+      <input id="city" name="city" type="text" placeholder="City" />
+    </form>
+    <!-- A real anchor so a click triggers a genuine page navigation both servers handle. The
+         chosen city is carried on the query string, so step 2 can confirm it after the load. -->
+    <a id="next" href="/wizard-step2.html" onclick="return carry(this)">Next</a>
+    <script>
+      function carry(link) {
+        var city = document.getElementById("city").value.trim();
+        if (city) {
+          link.href = "/wizard-step2.html?city=" + encodeURIComponent(city);
+        }
+        return true;
+      }
+    </script>
+  </body>
+</html>

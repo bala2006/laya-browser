@@ -205,9 +205,12 @@ unit-testable without a live MCP client.
   - The ~2 GB RAM footprint. (Bundle SIZE is now VERIFIED: reference ~1.69 GB of external weights;
     web-agent `laya.onnx` 1291 MB inline — see the FEAT-003 VERIFIED block.)
 - **GUESSED (reasonable defaults, tunable):**
-  - The default confidence threshold `0.85` (T2; raised from `0.6`), default `maxSteps` `15`,
-    the destructive-keyword set, and the goal-grammar surface. All are configurable /
-    centralized so they can change without touching the decision core.
+  - Default `maxSteps` `15`, the destructive-keyword set, and the goal-grammar surface. All are
+    configurable / centralized so they can change without touching the decision core.
+  - The confidence threshold is **no longer GUESSED**: `0.85` is now the **decided, VERIFIED
+    default** (raised from the original GUESSED `0.6`). It is enforced with OR semantics and
+    asserted in `test/config.test.ts`; see the T1-T5 VERIFIED block below. It stays tunable via
+    `LAYA_CONFIDENCE_THRESHOLD`.
 
 - **VERIFIED (ran it) — T1-T5 local-first autonomy:**
   - **T2 gate = 0.85.** `loadConfig().confidenceThreshold` defaults to `0.85`;
@@ -279,6 +282,45 @@ unit-testable without a live MCP client.
     build pass; `pnpm test` = 272 passed / 3 skipped (WebKit self-skip + the two `LAYA_MODEL_DIR`
     gated blocks). Scratch dir, venv, and all weights were deleted after capturing the numbers;
     `git status --porcelain --ignored` is clean of `*.onnx`/`*.onnx.data`/`model/`/`.venv`.
+
+- **VERIFIED (ran it), FEAT-004 broadened benchmark (this session, stub engine, headless
+  Chromium + real `@playwright/mcp`, no weights):** the `benchmark/` compare suite was widened
+  from 16 to **23 tasks** covering real-world-shaped flows: a multi-field signup form with
+  client-side validation (`signup-validated-form`), search-then-select from a filtered list
+  (`search-then-select`), a two-page wizard navigation (`wizard-two-step`), table row selection
+  (`table-row-select`), cookie/consent-banner dismissal (`consent-dismiss`), blocking-modal
+  dismissal (`modal-dismiss`), and a login-then-follow-up flow (`login-then-action`). Each task
+  adds a tiny deterministic local fixture under `benchmark/fixtures/` (served on loopback by
+  `benchmark/server.mjs`), an `assist(h)` script using the SAME arg shapes for both servers, and
+  a `verify(h)` that RE-PROBES the real DOM for a literal outcome. `consent-dismiss` and
+  `modal-dismiss` also exercise the `LAYA_AUTO_DISMISS` path through an `autopilot(h)` variant
+  (the laya spec runs with `LAYA_AUTO_DISMISS=true`; it affects only the `laya_run_goal` loop,
+  so the Assist comparison stays fair).
+  - **Measured (one recorded run; `pnpm run bench:compare` regenerates `RESULTS.md` +
+    `results.json` + `charts/`):** Assist mode is **23/23 (100%)** for laya (median 312 ms) and
+    **20/20 (100%)** for Playwright MCP (median 965 ms); the 3-task gap is the storage/verify
+    tools Playwright MCP core does not expose (N/A, not a loss). The independent final-page
+    verify is the trust signal for every row.
+  - **HONEST: Autopilot round-trips are COVERAGE, not precision.** With the reference stub the
+    single-call `laya_run_goal` PASSes `search-type-submit` (2 calls vs 4 Assist) but FAILs
+    `login-fill-form`, `search-then-select`, `consent-dismiss`, and `modal-dismiss`: the stub
+    batch-fills goal-stated fields and submits, but it does not choose an unstated dropdown
+    option, disambiguate one result from a list, or pick a web-tuned target under a dismissed
+    overlay. These FAILs are reference-layer limitations, shown honestly, not defects of the
+    loop; a real model bundle is what closes the Autopilot gap.
+  - **Offline `pnpm run bench` stays green.** The separate offline vitest report harness
+    (`test/benchmark/`) uses its own `BENCH_CASES` over `test/fixtures/` and is unaffected by the
+    `benchmark/` compare tasks; it remains 4/4 end-to-end success, 100% ops COVERAGE (domwalk +
+    aria). Full offline suite still green: `pnpm run typecheck` + `pnpm run build` pass,
+    `pnpm test` = 272 passed / 3 skipped.
+- **INFERRED (not run in FEAT-004): a public live-web dataset would measure generalization, not
+  this suite.** The `benchmark/` suite is deliberately local fixtures for determinism and
+  fairness, so it is a coverage/latency comparison, NOT a live-web robustness claim. A public
+  dataset such as Mind2Web ([Deng et al., NeurIPS 2023](https://arxiv.org/abs/2306.06070), CC BY
+  4.0) is the right instrument for the "~1 step in 5 on real pages" side of the honest
+  positioning; it was NOT fetched or committed in this session, and its test set must not be
+  redistributed. The live-web accuracy figures quoted in this repo remain **INFERRED** from the
+  checkpoint's reported numbers (see the INFERRED bullet above), not reproduced here.
 
 ## Core data shapes (designed first — `src/types.ts`)
 

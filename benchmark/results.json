@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-26T20:50:25.015Z",
+  "generatedAt": "2026-09-27T17:38:32.103Z",
   "runs": 5,
   "warmupDiscarded": 1,
   "tasks": [
@@ -10,15 +10,15 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 152,
-        "p90Ms": 152,
+        "medianMs": 242,
+        "p90Ms": 246,
         "rt": 2
       },
       "playwright": {
         "rate": 1,
         "passed": true,
-        "medianMs": 435,
-        "p90Ms": 483,
+        "medianMs": 410,
+        "p90Ms": 422,
         "rt": 2
       },
       "autopilot": {
@@ -32,21 +32,21 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 203,
-        "p90Ms": 209,
+        "medianMs": 293,
+        "p90Ms": 297,
         "rt": 4
       },
       "playwright": {
         "rate": 1,
         "passed": true,
-        "medianMs": 997,
-        "p90Ms": 1010,
+        "medianMs": 939,
+        "p90Ms": 974,
         "rt": 4
       },
       "autopilot": {
         "rate": 1,
         "passed": true,
-        "medianMs": 234,
+        "medianMs": 571,
         "rt": 2
       }
     },
@@ -57,21 +57,21 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 312,
-        "p90Ms": 315,
+        "medianMs": 388,
+        "p90Ms": 397,
         "rt": 9
       },
       "playwright": {
         "rate": 1,
         "passed": true,
-        "medianMs": 1134,
-        "p90Ms": 1173,
+        "medianMs": 1094,
+        "p90Ms": 1103,
         "rt": 9
       },
       "autopilot": {
         "rate": 0,
         "passed": false,
-        "medianMs": 248,
+        "medianMs": 577,
         "rt": 3
       }
     },
@@ -82,15 +82,15 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 195,
-        "p90Ms": 198,
+        "medianMs": 282,
+        "p90Ms": 290,
         "rt": 4
       },
       "playwright": {
         "rate": 1,
         "passed": true,
-        "medianMs": 481,
-        "p90Ms": 502,
+        "medianMs": 479,
+        "p90Ms": 508,
         "rt": 4
       },
       "autopilot": {
@@ -104,15 +104,15 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 225,
-        "p90Ms": 232,
+        "medianMs": 312,
+        "p90Ms": 320,
         "rt": 4
       },
       "playwright": {
         "rate": 1,
         "passed": true,
-        "medianMs": 993,
-        "p90Ms": 1020,
+        "medianMs": 942,
+        "p90Ms": 958,
         "rt": 4
       },
       "autopilot": {
@@ -126,15 +126,15 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 235,
-        "p90Ms": 243,
+        "medianMs": 302,
+        "p90Ms": 318,
         "rt": 4
       },
       "playwright": {
         "rate": 1,
         "passed": true,
-        "medianMs": 523,
-        "p90Ms": 568,
+        "medianMs": 475,
+        "p90Ms": 520,
         "rt": 4
       },
       "autopilot": {
@@ -148,15 +148,15 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 962,
-        "p90Ms": 967,
+        "medianMs": 1053,
+        "p90Ms": 1056,
         "rt": 3
       },
       "playwright": {
         "rate": 1,
         "passed": true,
-        "medianMs": 1206,
-        "p90Ms": 1251,
+        "medianMs": 1202,
+        "p90Ms": 1221,
         "rt": 3
       },
       "autopilot": {
@@ -170,15 +170,15 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 241,
-        "p90Ms": 250,
+        "medianMs": 312,
+        "p90Ms": 330,
         "rt": 5
       },
       "playwright": {
         "rate": 1,
         "passed": true,
-        "medianMs": 1021,
-        "p90Ms": 1044,
+        "medianMs": 982,
+        "p90Ms": 1011,
         "rt": 5
       },
       "autopilot": {
@@ -192,15 +192,15 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 224,
-        "p90Ms": 233,
+        "medianMs": 320,
+        "p90Ms": 327,
         "rt": 6
       },
       "playwright": {
         "rate": 1,
         "passed": true,
-        "medianMs": 991,
-        "p90Ms": 1022,
+        "medianMs": 960,
+        "p90Ms": 988,
         "rt": 6
       },
       "autopilot": {
@@ -214,15 +214,15 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 150,
-        "p90Ms": 152,
+        "medianMs": 243,
+        "p90Ms": 256,
         "rt": 3
       },
       "playwright": {
         "rate": 1,
         "passed": true,
-        "medianMs": 410,
-        "p90Ms": 480,
+        "medianMs": 386,
+        "p90Ms": 437,
         "rt": 3
       },
       "autopilot": {
@@ -236,15 +236,15 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 154,
-        "p90Ms": 154,
+        "medianMs": 242,
+        "p90Ms": 246,
         "rt": 3
       },
       "playwright": {
         "rate": 1,
         "passed": true,
-        "medianMs": 456,
-        "p90Ms": 461,
+        "medianMs": 423,
+        "p90Ms": 434,
         "rt": 3
       },
       "autopilot": {
@@ -258,15 +258,15 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 188,
-        "p90Ms": 196,
+        "medianMs": 274,
+        "p90Ms": 277,
         "rt": 2
       },
       "playwright": {
         "rate": 1,
         "passed": true,
-        "medianMs": 514,
-        "p90Ms": 599,
+        "medianMs": 452,
+        "p90Ms": 463,
         "rt": 2
       },
       "autopilot": {
@@ -280,8 +280,8 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 215,
-        "p90Ms": 233,
+        "medianMs": 321,
+        "p90Ms": 326,
         "rt": 5
       },
       "playwright": {
@@ -299,8 +299,8 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 224,
-        "p90Ms": 232,
+        "medianMs": 317,
+        "p90Ms": 321,
         "rt": 5
       },
       "playwright": {
@@ -318,15 +318,15 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 158,
-        "p90Ms": 160,
+        "medianMs": 245,
+        "p90Ms": 304,
         "rt": 2
       },
       "playwright": {
         "rate": 1,
         "passed": true,
-        "medianMs": 922,
-        "p90Ms": 1024,
+        "medianMs": 913,
+        "p90Ms": 932,
         "rt": 2
       },
       "autopilot": {
@@ -340,13 +340,176 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 209,
-        "p90Ms": 211,
+        "medianMs": 295,
+        "p90Ms": 299,
         "rt": 5
       },
       "playwright": {
         "na": true,
         "note": "N/A: server lacks this capability"
+      },
+      "autopilot": {
+        "na": true
+      }
+    },
+    {
+      "id": "signup-validated-form",
+      "category": "multi-field-form",
+      "description": "Fill a validated signup form (name/email/password/plan/terms) and submit",
+      "laya": {
+        "rate": 1,
+        "passed": true,
+        "medianMs": 385,
+        "p90Ms": 419,
+        "rt": 9
+      },
+      "playwright": {
+        "rate": 1,
+        "passed": true,
+        "medianMs": 1090,
+        "p90Ms": 1110,
+        "rt": 9
+      },
+      "autopilot": {
+        "na": true
+      }
+    },
+    {
+      "id": "search-then-select",
+      "category": "search-select",
+      "description": "Filter a product list by keyword then pick a matching result",
+      "laya": {
+        "rate": 1,
+        "passed": true,
+        "medianMs": 336,
+        "p90Ms": 340,
+        "rt": 6
+      },
+      "playwright": {
+        "rate": 1,
+        "passed": true,
+        "medianMs": 1502,
+        "p90Ms": 1527,
+        "rt": 6
+      },
+      "autopilot": {
+        "rate": 0,
+        "passed": false,
+        "medianMs": 1012,
+        "rt": 2
+      }
+    },
+    {
+      "id": "wizard-two-step",
+      "category": "multi-step-navigation",
+      "description": "Complete a two-page wizard: enter a value on step 1, finish on step 2",
+      "laya": {
+        "rate": 1,
+        "passed": true,
+        "medianMs": 391,
+        "p90Ms": 392,
+        "rt": 8
+      },
+      "playwright": {
+        "rate": 1,
+        "passed": true,
+        "medianMs": 1583,
+        "p90Ms": 1596,
+        "rt": 8
+      },
+      "autopilot": {
+        "na": true
+      }
+    },
+    {
+      "id": "table-row-select",
+      "category": "list-selection",
+      "description": "Select a specific row from a table of invoices",
+      "laya": {
+        "rate": 1,
+        "passed": true,
+        "medianMs": 307,
+        "p90Ms": 317,
+        "rt": 4
+      },
+      "playwright": {
+        "rate": 1,
+        "passed": true,
+        "medianMs": 969,
+        "p90Ms": 1016,
+        "rt": 4
+      },
+      "autopilot": {
+        "na": true
+      }
+    },
+    {
+      "id": "consent-dismiss",
+      "category": "consent-dismiss",
+      "description": "Dismiss a cookie/consent banner, then subscribe",
+      "laya": {
+        "rate": 1,
+        "passed": true,
+        "medianMs": 366,
+        "p90Ms": 378,
+        "rt": 6
+      },
+      "playwright": {
+        "rate": 1,
+        "passed": true,
+        "medianMs": 1505,
+        "p90Ms": 1519,
+        "rt": 6
+      },
+      "autopilot": {
+        "rate": 0,
+        "passed": false,
+        "medianMs": 259,
+        "rt": 2
+      }
+    },
+    {
+      "id": "modal-dismiss",
+      "category": "modal-dismiss",
+      "description": "Dismiss a blocking welcome modal, then run the report",
+      "laya": {
+        "rate": 1,
+        "passed": true,
+        "medianMs": 357,
+        "p90Ms": 360,
+        "rt": 6
+      },
+      "playwright": {
+        "rate": 1,
+        "passed": true,
+        "medianMs": 1521,
+        "p90Ms": 1543,
+        "rt": 6
+      },
+      "autopilot": {
+        "rate": 0,
+        "passed": false,
+        "medianMs": 256,
+        "rt": 2
+      }
+    },
+    {
+      "id": "login-then-action",
+      "category": "multi-step-navigation",
+      "description": "Sign in with credentials, then seed storage as a follow-up action",
+      "laya": {
+        "rate": 1,
+        "passed": true,
+        "medianMs": 409,
+        "p90Ms": 424,
+        "rt": 9
+      },
+      "playwright": {
+        "rate": 1,
+        "passed": true,
+        "medianMs": 1631,
+        "p90Ms": 1635,
+        "rt": 9
       },
       "autopilot": {
         "na": true
@@ -372,8 +535,8 @@
       "category": "multi-field-form",
       "layaRate": 1,
       "pwRate": 1,
-      "layaN": 1,
-      "pwN": 1
+      "layaN": 2,
+      "pwN": 2
     },
     {
       "category": "selection",
@@ -458,73 +621,143 @@
       "pwRate": null,
       "layaN": 1,
       "pwN": 0
+    },
+    {
+      "category": "search-select",
+      "layaRate": 1,
+      "pwRate": 1,
+      "layaN": 1,
+      "pwN": 1
+    },
+    {
+      "category": "multi-step-navigation",
+      "layaRate": 1,
+      "pwRate": 1,
+      "layaN": 2,
+      "pwN": 2
+    },
+    {
+      "category": "list-selection",
+      "layaRate": 1,
+      "pwRate": 1,
+      "layaN": 1,
+      "pwN": 1
+    },
+    {
+      "category": "consent-dismiss",
+      "layaRate": 1,
+      "pwRate": 1,
+      "layaN": 1,
+      "pwN": 1
+    },
+    {
+      "category": "modal-dismiss",
+      "layaRate": 1,
+      "pwRate": 1,
+      "layaN": 1,
+      "pwN": 1
     }
   ],
   "tasksBoth": [
     {
       "id": "nav-basic",
-      "layaMs": 152,
-      "pwMs": 435
-    },
-    {
-      "id": "search-type-submit",
-      "layaMs": 203,
-      "pwMs": 997
-    },
-    {
-      "id": "login-fill-form",
-      "layaMs": 312,
-      "pwMs": 1134
-    },
-    {
-      "id": "select-option",
-      "layaMs": 195,
-      "pwMs": 481
-    },
-    {
-      "id": "click-button",
-      "layaMs": 225,
-      "pwMs": 993
-    },
-    {
-      "id": "hover-reveal",
-      "layaMs": 235,
-      "pwMs": 523
-    },
-    {
-      "id": "wait-for-dynamic",
-      "layaMs": 962,
-      "pwMs": 1206
-    },
-    {
-      "id": "tabs-open",
-      "layaMs": 241,
-      "pwMs": 1021
-    },
-    {
-      "id": "dialog-confirm",
-      "layaMs": 224,
-      "pwMs": 991
-    },
-    {
-      "id": "console-capture",
-      "layaMs": 150,
+      "layaMs": 242,
       "pwMs": 410
     },
     {
+      "id": "search-type-submit",
+      "layaMs": 293,
+      "pwMs": 939
+    },
+    {
+      "id": "login-fill-form",
+      "layaMs": 388,
+      "pwMs": 1094
+    },
+    {
+      "id": "select-option",
+      "layaMs": 282,
+      "pwMs": 479
+    },
+    {
+      "id": "click-button",
+      "layaMs": 312,
+      "pwMs": 942
+    },
+    {
+      "id": "hover-reveal",
+      "layaMs": 302,
+      "pwMs": 475
+    },
+    {
+      "id": "wait-for-dynamic",
+      "layaMs": 1053,
+      "pwMs": 1202
+    },
+    {
+      "id": "tabs-open",
+      "layaMs": 312,
+      "pwMs": 982
+    },
+    {
+      "id": "dialog-confirm",
+      "layaMs": 320,
+      "pwMs": 960
+    },
+    {
+      "id": "console-capture",
+      "layaMs": 243,
+      "pwMs": 386
+    },
+    {
       "id": "network-capture",
-      "layaMs": 154,
-      "pwMs": 456
+      "layaMs": 242,
+      "pwMs": 423
     },
     {
       "id": "screenshot",
-      "layaMs": 188,
-      "pwMs": 514
+      "layaMs": 274,
+      "pwMs": 452
     },
     {
       "id": "evaluate",
-      "layaMs": 158,
-      "pwMs": 922
+      "layaMs": 245,
+      "pwMs": 913
+    },
+    {
+      "id": "signup-validated-form",
+      "layaMs": 385,
+      "pwMs": 1090
+    },
+    {
+      "id": "search-then-select",
+      "layaMs": 336,
+      "pwMs": 1502
+    },
+    {
+      "id": "wizard-two-step",
+      "layaMs": 391,
+      "pwMs": 1583
+    },
+    {
+      "id": "table-row-select",
+      "layaMs": 307,
+      "pwMs": 969
+    },
+    {
+      "id": "consent-dismiss",
+      "layaMs": 366,
+      "pwMs": 1505
+    },
+    {
+      "id": "modal-dismiss",
+      "layaMs": 357,
+      "pwMs": 1521
+    },
+    {
+      "id": "login-then-action",
+      "layaMs": 409,
+      "pwMs": 1631
     }
   ],
   "roundTripTasks": [
@@ -539,34 +772,52 @@
       "layaRt": 9,
       "pwRt": 9,
       "autoRt": 3
+    },
+    {
+      "id": "search-then-select",
+      "layaRt": 6,
+      "pwRt": 6,
+      "autoRt": 2
+    },
+    {
+      "id": "consent-dismiss",
+      "layaRt": 6,
+      "pwRt": 6,
+      "autoRt": 2
+    },
+    {
+      "id": "modal-dismiss",
+      "layaRt": 6,
+      "pwRt": 6,
+      "autoRt": 2
     }
   ],
   "coverage": {
     "layaTools": 72,
     "pwTools": 24,
-    "layaCategories": 15,
-    "pwCategories": 13,
-    "layaPassed": 16,
-    "pwPassed": 13
+    "layaCategories": 20,
+    "pwCategories": 18,
+    "layaPassed": 23,
+    "pwPassed": 20
   },
   "summary": {
     "laya": {
-      "applicable": 16,
-      "passed": 16,
+      "applicable": 23,
+      "passed": 23,
       "rate": 1,
-      "medianMs": 212
+      "medianMs": 312
     },
     "playwright": {
-      "applicable": 13,
-      "passed": 13,
+      "applicable": 20,
+      "passed": 20,
       "rate": 1,
-      "medianMs": 922
+      "medianMs": 965
     },
     "layaAutopilot": {
-      "applicable": 2,
+      "applicable": 5,
       "passed": 1,
-      "rate": 0.5,
-      "medianMs": 241
+      "rate": 0.2,
+      "medianMs": 571
     }
   },
   "toolCounts": {

@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Catalog</title>
+  </head>
+  <body>
+    <h1>Product catalog</h1>
+    <form onsubmit="filter(); return false;">
+      <input id="q" name="q" type="search" placeholder="Filter products" aria-label="Filter products" />
+      <button id="go" type="submit">Filter</button>
+    </form>
+    <ul id="list" aria-label="Products">
+      <li><button type="button" class="pick" data-name="Wireless keyboard" onclick="pick(this)">Wireless keyboard</button></li>
+      <li><button type="button" class="pick" data-name="USB-C hub" onclick="pick(this)">USB-C hub</button></li>
+      <li><button type="button" class="pick" data-name="Laptop stand" onclick="pick(this)">Laptop stand</button></li>
+      <li><button type="button" class="pick" data-name="Noise-cancelling headphones" onclick="pick(this)">Noise-cancelling headphones</button></li>
+    </ul>
+    <div id="selected" aria-live="polite"></div>
+    <script>
+      // Search-then-select: filtering narrows the visible list, then clicking a result records
+      // the selection into #selected. A correct run must both filter and pick a literal result.
+      function filter() {
+        var q = document.getElementById("q").value.trim().toLowerCase();
+        var items = document.querySelectorAll("#list li");
+        items.forEach(function (li) {
+          var name = li.querySelector(".pick").getAttribute("data-name").toLowerCase();
+          li.style.display = !q || name.indexOf(q) !== -1 ? "" : "none";
+        });
+      }
+      function pick(btn) {
+        var name = btn.getAttribute("data-name");
+        document.getElementById("selected").textContent = "Selected " + name;
+        document.title = "Selected " + name;
+      }
+    </script>
+  </body>
+</html>
