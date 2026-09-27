@@ -441,13 +441,18 @@ export async function resolveByNameRole(
   return match?.ref;
 }
 
-/** Whether an error thrown by a targeted Playwright action looks like a stale/missing ref. */
+/**
+ * Whether an error thrown by a targeted Playwright action looks like a stale/missing ref.
+ *
+ * Matches ONLY the known Playwright stale/detached/timeout phrasings. A message-less throw is
+ * deliberately NOT treated as stale: retrying an empty-message error would re-resolve and
+ * retry genuinely-failed actions, masking real failures behind the self-heal loop.
+ */
 function looksLikeStaleRef(err: unknown): boolean {
   const msg = (err as Error)?.message ?? "";
-  return (
-    /Timeout|not (?:visible|attached|found|stable)|no element|detached|zero elements|resolve to no elements|element is not/i.test(
-      msg,
-    ) || msg === ""
+  if (msg === "") return false;
+  return /Timeout|not (?:visible|attached|found|stable)|no element|detached|zero elements|resolve to no elements|element is not/i.test(
+    msg,
   );
 }
 
@@ -868,6 +873,9 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
     confirmDestructive = false,
     confirm,
     snapshotBackend = DEFAULT_SNAPSHOT_BACKEND,
+    // Deliberate default asymmetry: this loop option defaults to false to preserve DOM order
+    // for the existing autopilot unit tests, while the shipped config default
+    // (LAYA_VIEWPORT_PRIORITY) is true and src/server.ts threads that in for production runs.
     viewportPriority = false,
     deltaPrompt = false,
     overlay,

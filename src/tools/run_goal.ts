@@ -61,14 +61,16 @@ export interface RunGoalContext extends ToolContext {
   /**
    * (D1) Whether the loop records per-step observability artifacts (screenshot + snapshot +
    * decision + confidence + timing) for the replay export. Defaults false so normal runs are
-   * not slowed. When a holder is supplied via {@link artifacts}, recording is enabled so the
-   * laya_export_run tool has something to write.
+   * not slowed. This is an EXPLICIT opt-in (env LAYA_RECORD_ARTIFACTS): recording is enabled
+   * ONLY when this is true. The presence of {@link artifacts} does NOT enable recording; the
+   * holder merely receives the artifacts when recording is on.
    */
   recordArtifacts?: boolean;
   /**
-   * (D1) Shared holder for the most recent run's artifacts. When present, the run records
-   * artifacts and stores them here for the laya_export_run tool to read. Shared by reference
-   * with the export tool's context in src/server.ts.
+   * (D1) Shared holder for the most recent run's artifacts. When recording is enabled (see
+   * {@link recordArtifacts}), the run stores its artifacts here for the laya_export_run tool
+   * to read. Shared by reference with the export tool's context in src/server.ts. The holder
+   * alone does NOT enable recording.
    */
   artifacts?: RunArtifactsHolder;
 }
@@ -185,9 +187,11 @@ export function makeHandler(ctx: RunGoalContext) {
             }
           : undefined;
 
-      // (D1) Record per-step artifacts only when a shared holder was wired in (the export
-      // tool needs them). Off by default so normal runs are not slowed.
-      const recordArtifacts = ctx.recordArtifacts === true || ctx.artifacts !== undefined;
+      // (D1) Record per-step artifacts ONLY when explicitly opted in (LAYA_RECORD_ARTIFACTS,
+      // threaded here as ctx.recordArtifacts). Off by default so normal runs are not slowed:
+      // the mere presence of the shared holder does NOT enable recording. When recording is
+      // off the holder simply never receives a run and laya_export_run reports none recorded.
+      const recordArtifacts = ctx.recordArtifacts === true;
       // Thread the session's visual overlay (agentLens HUD) and the active page into the loop
       // so each step is narrated on-page. Both are optional: the overlay is a guarded no-op
       // when disabled, and the loop treats a missing overlay as no narration at all.
@@ -244,9 +248,9 @@ export function makeHandler(ctx: RunGoalContext) {
         ...(onProgress !== undefined ? { onProgress } : {}),
       });
       // (D1) Persist the most recent run's artifacts into the shared holder so the
-      // laya_export_run tool can write a replay. Only when recording was enabled and the run
-      // actually produced steps.
-      if (ctx.artifacts !== undefined && result.steps !== undefined) {
+      // laya_export_run tool can write a replay. Only when recording was enabled (result.steps
+      // is populated by the loop solely when recordArtifacts is true) and a holder was wired.
+      if (recordArtifacts && ctx.artifacts !== undefined && result.steps !== undefined) {
         ctx.artifacts.last = {
           goal: result.goal,
           outcome: result.outcome,

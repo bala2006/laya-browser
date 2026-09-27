@@ -223,7 +223,7 @@ nor callable.
 | --- | --- |
 | `browser_start_tracing` | Start Playwright context tracing (screenshots + snapshots + sources). |
 | `browser_stop_tracing` | Stop tracing and write the trace zip (open with `npx playwright show-trace`). |
-| `laya_export_run` | Export a replay of the most recent `laya_run_goal` run to a path: a JSON file (per-step decision, confidence, timing, snapshot + embedded base64 screenshots) and/or a self-contained HTML replay page. `format`: `html` \| `json` \| `both` (default `both`). Complements the tracing tools; captures the Laya decision trail rather than the raw Playwright action trace. |
+| `laya_export_run` | Export a replay of the most recent `laya_run_goal` run to a path: a JSON file (per-step decision, confidence, timing, snapshot + embedded base64 screenshots) and/or a self-contained HTML replay page. `format`: `html` \| `json` \| `both` (default `both`). Complements the tracing tools; captures the Laya decision trail rather than the raw Playwright action trace. Per-step recording is opt-in via `LAYA_RECORD_ARTIFACTS=true`. |
 | `browser_highlight` | Draw a visible outline around an element via an injected style. |
 | `browser_hide_highlight` | Remove any outlines added by `browser_highlight`. |
 | `browser_start_video` | Honest no-op: video capture needs `recordVideo` set at context creation (see divergence notes). |
@@ -410,8 +410,10 @@ B1 redaction applied to the transcript also applies to everything exported or st
   screenshots + a per-step list) to a path you choose, returning the written path(s) and byte
   sizes. It **complements** `browser_start_tracing` / `browser_stop_tracing`: those write a raw
   Playwright trace zip, while this captures the Laya *decision* trail. Artifact recording is
-  **off by default** so normal runs are not slowed; the export tool enables it, so run
-  `laya_run_goal` first, then `laya_export_run`.
+  **off by default** so normal runs are not slowed; it is an explicit opt-in via
+  `LAYA_RECORD_ARTIFACTS=true`. With recording enabled, run `laya_run_goal` first, then
+  `laya_export_run`. With recording off (the default) no per-step screenshots are captured and
+  `laya_export_run` reports that no run was recorded.
 - **Structured MCP progress notifications (step N/max).** When a client sends a
   `progressToken` on the `laya_run_goal` request, the loop emits an MCP `notifications/progress`
   for each step (`progress` = step, `total` = maxSteps, `message` like
@@ -584,6 +586,7 @@ constructor options, then handed inward as typed config.
 | `LAYA_ASSIST_DESTRUCTIVE_GUARD` | `false` | `true` applies the destructive guard to the Assist `browser_click` tool (refuses a destructive click); default `false` leaves Assist-tool behaviour unchanged. |
 | `LAYA_SNAPSHOT_BACKEND` | `domwalk` | Which backend enumerates page controls: `domwalk` (the in-house DOM walk) or `aria` (Playwright's accessibility tree). Both produce the same `Control[]` contract and stamp `data-laya-ref="eN"`, so ref resolution is identical either way. |
 | `LAYA_VIEWPORT_PRIORITY` | `true` | `true` orders captured controls so those in/near the viewport come first, so the ~20-control cap keeps the most relevant. `eN` refs stay in DOM order (ref resolution is unaffected); only the offered order changes. |
+| `LAYA_RECORD_ARTIFACTS` | `false` | `true` records per-step replay artifacts (screenshot + snapshot + decision + confidence + timing) so `laya_export_run` can write a replay. Off by default so normal runs capture no per-step screenshots and are not slowed. |
 
 ### Cross-browser (`LAYA_BROWSER`)
 

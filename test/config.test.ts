@@ -124,6 +124,7 @@ describe("loadConfig reliability/trust/perf knobs (A1/A2/A3/B1/B2/B3/C1/C3)", ()
     expect(config.assistDestructiveGuard).toBe(false);
     expect(config.snapshotBackend).toBe("domwalk");
     expect(config.viewportPriority).toBe(true);
+    expect(config.recordArtifacts).toBe(false);
   });
 
   it("(A1) parses and clamps LAYA_SELF_HEAL_RETRIES to [0, 3]", () => {
@@ -189,5 +190,13 @@ describe("loadConfig reliability/trust/perf knobs (A1/A2/A3/B1/B2/B3/C1/C3)", ()
     expect(loadConfig({}, { LAYA_VIEWPORT_PRIORITY: "false" }).viewportPriority).toBe(false);
     expect(loadConfig({}, { LAYA_VIEWPORT_PRIORITY: "true" }).viewportPriority).toBe(true);
     expect(loadConfig({ viewportPriority: false }, {}).viewportPriority).toBe(false);
+  });
+
+  it("(D1) parses LAYA_RECORD_ARTIFACTS as default-false (only 'true' enables)", () => {
+    expect(loadConfig({}, {}).recordArtifacts).toBe(false);
+    expect(loadConfig({}, { LAYA_RECORD_ARTIFACTS: "true" }).recordArtifacts).toBe(true);
+    expect(loadConfig({}, { LAYA_RECORD_ARTIFACTS: "false" }).recordArtifacts).toBe(false);
+    expect(loadConfig({}, { LAYA_RECORD_ARTIFACTS: "garbage" }).recordArtifacts).toBe(false);
+    expect(loadConfig({ recordArtifacts: true }, {}).recordArtifacts).toBe(true);
   });
 });

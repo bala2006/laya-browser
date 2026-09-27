@@ -43,6 +43,7 @@
  *   LAYA_ASSIST_DESTRUCTIVE_GUARD=false   apply the destructive guard to Assist click/type (default: false)
  *   LAYA_SNAPSHOT_BACKEND=domwalk|aria    snapshot capture backend (default: domwalk)
  *   LAYA_VIEWPORT_PRIORITY=true        order/cap controls by viewport visibility first (default: true)
+ *   LAYA_RECORD_ARTIFACTS=false        record per-step replay artifacts for laya_export_run (default: false)
  */
 
 /** How the Autopilot engine is selected. `auto` decides from the presence of weights. */
@@ -243,6 +244,14 @@ export interface LayaBrowserConfig {
    * controls prioritised) when building the page state. Default on.
    */
   viewportPriority: boolean;
+  /**
+   * (D1) Whether the Autopilot records per-step observability artifacts (screenshot +
+   * snapshot + decision + confidence + timing) so the `laya_export_run` tool can write a
+   * replay. Default OFF so normal runs are not slowed by the extra screenshot capture; this
+   * is an explicit operator opt-in via `LAYA_RECORD_ARTIFACTS`. The shared holder can be
+   * present without this being on; recording is gated on THIS flag, not on holder presence.
+   */
+  recordArtifacts: boolean;
 }
 
 /** Overrides supplied programmatically (constructor options / tool arguments). */
@@ -275,6 +284,7 @@ export interface ConfigOverrides {
   assistDestructiveGuard?: boolean;
   snapshotBackend?: SnapshotBackend;
   viewportPriority?: boolean;
+  recordArtifacts?: boolean;
 }
 
 /** Built-in defaults, used when neither an override nor an env var is present. */
@@ -496,6 +506,11 @@ export function loadConfig(
   const viewportPriority =
     overrides.viewportPriority ?? envBoolDefaultTrue(env.LAYA_VIEWPORT_PRIORITY);
 
+  // (D1) Per-step replay artifact recording is an explicit opt-in (default OFF): only the
+  // literal string "true" turns it on. The shared holder being present does NOT enable it.
+  const recordArtifacts =
+    overrides.recordArtifacts ?? envBoolDefaultFalse(env.LAYA_RECORD_ARTIFACTS);
+
   // Overlay: parse each knob once. `auto` resolves to enabled = !headless (on when headed);
   // `on`/`off` force it regardless. Overrides win per-field over the env-derived values.
   const overlayMode = overrides.overlay?.mode ?? parseOverlayMode(env.LAYA_BROWSER_OVERLAY);
@@ -557,6 +572,7 @@ export function loadConfig(
     assistDestructiveGuard,
     snapshotBackend,
     viewportPriority,
+    recordArtifacts,
   };
   if (channel !== undefined) config.channel = channel;
   if (modelDir !== undefined) config.modelDir = modelDir;

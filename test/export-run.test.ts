@@ -73,10 +73,13 @@ describe("D1 laya_export_run replay export (real chromium)", () => {
     // The shared holder wired into BOTH tool contexts (mirrors src/server.ts).
     const artifacts = createRunArtifactsHolder();
 
-    // Run the goal via the run_goal handler with the holder present, which enables recording.
+    // Run the goal via the run_goal handler with recording explicitly enabled and the holder
+    // present. Recording is gated on recordArtifacts (LAYA_RECORD_ARTIFACTS), NOT on the mere
+    // presence of the holder.
     const runHandler = runGoalTool.makeHandler({
       session,
       engine: typePasswordEngine(),
+      recordArtifacts: true,
       artifacts,
     });
     await runHandler({ goal: "sign in", url: fixtures.url("login.html"), maxSteps: 4 });
@@ -136,6 +139,47 @@ describe("D1 laya_export_run replay export (real chromium)", () => {
     expect(jsonRaw).not.toContain(SECRET);
     expect(htmlRaw).not.toContain(SECRET);
     expect(htmlRaw).toContain(REDACTION_MASK);
+  });
+
+  it("records NO per-step artifacts when recording is not opted in, even with a holder present", async () => {
+    // Regression guard for the always-on production bug: the shared holder is wired in exactly
+    // as src/server.ts does, but recordArtifacts is NOT set. A normal run must therefore
+    // capture no per-step screenshots and leave the holder empty.
+    const artifacts = createRunArtifactsHolder();
+    const runHandler = runGoalTool.makeHandler({
+      session,
+      engine: typePasswordEngine(),
+      artifacts,
+    });
+    await runHandler({ goal: "sign in", url: fixtures.url("login.html"), maxSteps: 4 });
+
+    // The holder never received a run: recording was off, so nothing was recorded.
+    expect(artifacts.last).toBeUndefined();
+
+    // The export tool consequently reports that no run has been recorded.
+    const exportHandler = exportRun.makeHandler({ session, artifacts });
+    const result = await exportHandler({ path: tmp, format: "both" });
+    const text = textOf(result);
+    expect(text.toLowerCase()).toContain("no autopilot run");
+    expect(text).toContain("LAYA_RECORD_ARTIFACTS");
+  });
+
+  it("records per-step artifacts ONLY when recordArtifacts is explicitly enabled", async () => {
+    // Opt-in path: with recordArtifacts true, the same run DOES record per-step artifacts.
+    const artifacts = createRunArtifactsHolder();
+    const runHandler = runGoalTool.makeHandler({
+      session,
+      engine: typePasswordEngine(),
+      recordArtifacts: true,
+      artifacts,
+    });
+    await runHandler({ goal: "sign in", url: fixtures.url("login.html"), maxSteps: 4 });
+    expect(artifacts.last).toBeDefined();
+    expect(artifacts.last!.steps.length).toBeGreaterThan(0);
+    // Recording captured per-step PNG screenshots (the exact cost a normal run must avoid).
+    expect(
+      artifacts.last!.steps.some((s) => typeof s.screenshotPng === "string"),
+    ).toBe(true);
   });
 
   it("returns a clear text result (not an error file) when no run has been recorded", async () => {
