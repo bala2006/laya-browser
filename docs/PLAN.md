@@ -203,7 +203,7 @@ unit-testable without a live MCP client.
     consistent with the "not reliable step-by-step on its own" side of this (see the VERIFIED
     FEAT-003 block), but were not a full accuracy benchmark.
   - The ~2 GB RAM footprint. (Bundle SIZE is now VERIFIED: reference ~1.69 GB of external weights;
-    web-agent `laya.onnx` 1291 MB inline — see the FEAT-003 VERIFIED block.)
+    web-agent `laya.onnx` 1291 MB inline (see the FEAT-003 VERIFIED block).)
 - **GUESSED (reasonable defaults, tunable):**
   - Default `maxSteps` `15`, the destructive-keyword set, and the goal-grammar surface. All are
     configurable / centralized so they can change without touching the decision core.
@@ -212,7 +212,7 @@ unit-testable without a live MCP client.
     asserted in `test/config.test.ts`; see the T1-T5 VERIFIED block below. It stays tunable via
     `LAYA_CONFIDENCE_THRESHOLD`.
 
-- **VERIFIED (ran it) — T1-T5 local-first autonomy:**
+- **VERIFIED (ran it), T1-T5 local-first autonomy:**
   - **T2 gate = 0.85.** `loadConfig().confidenceThreshold` defaults to `0.85`;
     `LAYA_CONFIDENCE_THRESHOLD` still overrides; the loop keeps the OR semantics (escalate when
     `operationConfidence < 0.85 OR targetConfidence < 0.85`). Asserted in `test/config.test.ts`.
@@ -234,18 +234,18 @@ unit-testable without a live MCP client.
     Full offline suite green with the stub, no weights: 272 passed, 3 skipped; `pnpm run bench`
     green (domwalk + aria, 4/4 fixtures, 100% ops coverage).
 
-- **VERIFIED (ran it) — FEAT-003 real weights on device (this session, CPU, Node 22, no fakes):**
+- **VERIFIED (ran it), FEAT-003 real weights on device (this session, CPU, Node 22, no fakes):**
   Both real bundles were downloaded/exported, loaded through `@receptron/laya`'s
   `Laya.load({ modelDir })` in Node, and run REAL inference. Reproduce with
   `scripts/prepare-model.sh reference|web-agent`, then `LAYA_MODEL_DIR=<dir> pnpm test` +
   `LAYA_MODEL_DIR=<dir> pnpm run bench`.
-  - **Path A — reference `convaiinnovations/laya`.** `@receptron/laya` downloaded the ready-made
+  - **Path A, reference `convaiinnovations/laya`.** `@receptron/laya` downloaded the ready-made
     ONNX bundle (repo `receptron/laya-onnx`): `laya.onnx` 3.8 MB graph + `laya.onnx.data`
     1.69 GB external weights + `laya_config.json` (`max_len 512`, `head_max_len 192`) + tokenizer.
     Loaded directly (no rename). `Laya.load` ~12.8 s cold (download) / ~1.5 s warm; one
     `systemOne` narrow-choice call ~280 ms; the product's `LayaEngine.decide` (TWO narrow choice
     questions per step) ~810-870 ms median.
-  - **Path B — web-agent `abedinia/laya-web-agent`.** `snapshot_download` the checkpoint
+  - **Path B, web-agent `abedinia/laya-web-agent`.** `snapshot_download` the checkpoint
     (`model.safetensors` 1.29 GB) + pulled `rl_common.py`/`rl_agent_api.py`/`email_utils.py` from
     `convaiinnovations/laya`; ran the reference `export_onnx.py` UNMODIFIED (parity
     `max |dlogits| = 4.20e-05`, `max |dact| = 0.0`; `laya.onnx` 1291 MB, weights inline). Applied
@@ -257,7 +257,7 @@ unit-testable without a live MCP client.
     autopilot test drives the search form to a real INDEPENDENT final-page verification (success,
     not just a DONE decision), and the real-engine benchmark reports 4/4 end-to-end success,
     100% ops coverage.
-  - **HONEST finding — the deterministic rule layer does the structured work; the model is not
+  - **HONEST finding: the deterministic rule layer does the structured work; the model is not
     consulted on these fixtures.** On all four benchmark fixtures the per-step source breakdown is
     `rule/laya/stub/llm = 3/0/0/0` for BOTH real models: the rule seed's confidence `0.97` clears
     the `0.85` gate, so Laya never decides a step. Fully-autonomous = 100% (all local, zero LLM
