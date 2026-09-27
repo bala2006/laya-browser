@@ -37,6 +37,7 @@ import { applyFieldValue, type FieldKind } from "../tools/fill.js";
 import { policySeed, refineWithGoalValue } from "./policy.js";
 import { escalate, type SampleFn } from "./escalation.js";
 import { checkDestructiveSubmit, checkDomainAllowed } from "../safety.js";
+import { isSecretField, redactText } from "../redact.js";
 import {
   DEFAULT_CONFIDENCE_THRESHOLD,
   DEFAULT_LOOP_WINDOW,
@@ -53,6 +54,16 @@ import type { Control, Decision, LayaDecisionEngine, PageState } from "../types.
  * outcome string is unchanged.
  */
 export type RunOutcome = "done" | "blocked" | "max_steps" | "degraded" | "error" | "stuck";
+
+/**
+ * (B2) A human-in-the-loop confirmation callback.
+ *
+ * Given a short human-readable prompt (e.g. `About to click "Delete account" - approve?`),
+ * it resolves to `true` when the human approves the action and `false` when they refuse.
+ * Injectable so the loop stays unit-testable; production wires it to MCP elicitation in
+ * src/server.ts. It must NEVER throw (the loop treats any rejection as a refusal).
+ */
+export type ConfirmFn = (prompt: string) => Promise<boolean>;
 
 /** One recorded step of the transcript. */
 export interface StepRecord {
@@ -179,6 +190,27 @@ export interface RunGoalOptions {
    * declaring the run stuck. Defaults to {@link DEFAULT_LOOP_WINDOW}.
    */
   loopWindow?: number;
+  /**
+   * (B1) Whether secret values typed into secret-looking fields (and common secret patterns)
+   * are masked in the transcript detail/value, the overlay narration, and any logs. Defaults
+   * to true. The REAL value is always still typed into the page; only the displayed/logged
+   * echo is masked. When false, behaviour is unchanged.
+   */
+  redactSecrets?: boolean;
+  /**
+   * (B2) Whether a destructive auto-submit CLICK that the guard would refuse should instead
+   * request inline human approval. Only takes effect when {@link confirm} is also supplied.
+   * Defaults to false, preserving the refuse-by-default fail-safe.
+   */
+  confirmDestructive?: boolean;
+  /**
+   * (B2) Optional human-in-the-loop confirmation callback. When present AND
+   * {@link confirmDestructive} is true, a destructive CLICK the guard would refuse triggers
+   * an inline approval request (amber "awaiting confirmation" overlay) instead of an
+   * immediate block: approval proceeds with the CLICK, refusal keeps the existing block.
+   * When absent, the existing refuse-by-default fail-safe is preserved exactly.
+   */
+  confirm?: ConfirmFn;
   /**
    * Optional visual-overlay (agentLens HUD) controller, threaded in from the session so the
    * loop can narrate each step on-page. When omitted, EVERY narration call is a guarded
@@ -378,6 +410,12 @@ class Narrator {
   constructor(
     private readonly overlay: BrowserOverlay | undefined,
     private readonly page: Page | undefined,
+    /**
+     * (B1) Redact secret values/patterns out of any string BEFORE it reaches the overlay.
+     * Defaults to identity (no redaction) so callers that do not opt in are unaffected. The
+     * loop threads a redactor bound to the run-scoped set of typed secret values.
+     */
+    private readonly redactor: (text: string) => string = (text) => text,
   ) {}
 
   /** Whether narration is active (an overlay AND a page were supplied). */
@@ -393,17 +431,17 @@ class Narrator {
   async setState(state: OverlayState, status?: string): Promise<void> {
     if (!this.on) return;
     await this.overlay!.setState(this.page, state);
-    if (status !== undefined) await this.overlay!.setStatus(this.page, status);
+    if (status !== undefined) await this.overlay!.setStatus(this.page, this.redactor(status));
   }
 
   async toast(message: string, kind: ToastKind = "info"): Promise<void> {
     if (!this.on) return;
-    await this.overlay!.toast(this.page, message, kind);
+    await this.overlay!.toast(this.page, this.redactor(message), kind);
   }
 
   async log(line: string): Promise<void> {
     if (!this.on) return;
-    await this.overlay!.log(this.page, line);
+    await this.overlay!.log(this.page, this.redactor(line));
   }
 
   async countdown(ms: number): Promise<void> {
@@ -434,7 +472,7 @@ class Narrator {
         this.page,
         rect.x + rect.width / 2,
         rect.y + rect.height / 2,
-        caption,
+        caption !== undefined ? this.redactor(caption) : caption,
       );
       await this.overlay!.spotlight(this.page, rect);
     }
@@ -474,6 +512,10 @@ async function execute(
   options: Required<Pick<RunGoalOptions, "waitMs">> & {
     scrollBy?: number;
     selfHealRetries: number;
+    /** (B1) When true, capture secret values typed into secret-looking fields for masking. */
+    redactSecrets: boolean;
+    /** (B1) The run-scoped set the ACTUAL typed secret values are recorded into. */
+    secrets: Set<string>;
   },
   session: BrowserSession,
   narrator: Narrator,
@@ -507,6 +549,12 @@ async function execute(
       const value = resolveValue(decision, state) ?? "";
       const c = findControl(state, decision.target);
       const field = c ? String(c.name || c.role) : decision.target;
+      // B1: if this field looks secret, record the ACTUAL typed value into the run-scoped
+      // secret set so it is masked wherever it later appears in details/logs/overlay. The
+      // real value is still typed into the page below (automation is never weakened).
+      if (options.redactSecrets && value && c && isSecretField(`${c.type ?? ""} ${c.name}`)) {
+        options.secrets.add(value);
+      }
       await narrator.focusTarget(decision.target, `Typing ${field}\u2026`);
       const retries = await runWithSelfHeal(
         session,
@@ -569,6 +617,16 @@ async function execute(
       for (const field of decision.fields) {
         const control = findControl(state, field.target);
         const label = control ? String(control.name || control.role) : field.target;
+        // B1: record the ACTUAL value of any secret-looking field into the run-scoped set so
+        // it is masked in the transcript/logs/overlay; the real value is still filled below.
+        if (
+          options.redactSecrets &&
+          field.value &&
+          control &&
+          isSecretField(`${control.type ?? ""} ${control.name}`)
+        ) {
+          options.secrets.add(field.value);
+        }
         // Tier 1: spotlight/cursor each field in turn as it is filled.
         await narrator.focusTarget(field.target, `Filling ${label}\u2026`);
         const locator = session.resolveRef(field.target);
@@ -636,6 +694,24 @@ async function execute(
 }
 
 /**
+ * (B1) Return a copy of a snapshot with every captured secret value masked in its
+ * human-readable text, its visible text, and each control's displayed value. The final
+ * snapshot is surfaced to the client (and rendered by renderRunResult), and a secret-looking
+ * field carries its real value on the live page, so this masks that echo without touching the
+ * page. `redact` is the run-scoped redactor; when redaction is off the caller passes identity.
+ */
+function redactSnapshot(snapshot: Snapshot, redact: (text: string) => string): Snapshot {
+  return {
+    ...snapshot,
+    visibleText: redact(snapshot.visibleText),
+    text: redact(snapshot.text),
+    controls: snapshot.controls.map((c) =>
+      c.value !== undefined ? { ...c, value: redact(c.value) } : c,
+    ),
+  };
+}
+
+/**
  * Drive the browser toward `goal` with the given engine.
  *
  * Returns a structured {@link RunResult} with a per-step transcript, the final snapshot,
@@ -660,13 +736,25 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
     settleProbe = true,
     loopDetection = true,
     loopWindow = DEFAULT_LOOP_WINDOW,
+    redactSecrets = true,
+    confirmDestructive = false,
+    confirm,
     overlay,
     overlayPage,
   } = options;
 
+  // (B1) The run-scoped set of ACTUAL secret values the loop typed into secret-looking
+  // fields. A redactor bound to this set masks those values (and common secret patterns) out
+  // of any string that reaches the transcript, the overlay, or a log. Masking the DISPLAYED
+  // representation only; the real value is always still typed into the page. When
+  // redactSecrets is off, the redactor is the identity function (unchanged behaviour).
+  const secrets = new Set<string>();
+  const redact = (text: string): string =>
+    redactSecrets ? redactText(text, [...secrets]) : text;
+
   // A single narration facade for the whole run. Inert when no overlay/page was threaded in
   // (all existing autopilot tests), so it never changes automation semantics.
-  const narrator = new Narrator(overlay, overlayPage);
+  const narrator = new Narrator(overlay, overlayPage, redact);
 
   // Graceful degradation when no weights are available.
   if (!engine.available) {
@@ -780,19 +868,47 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
         if (target) {
           const guard = checkDestructiveSubmit(target, state, destructiveFormGuard);
           if (!guard.allowed) {
-            transcript.push({
-              step,
-              operation: "BLOCKED",
-              operationConfidence: 1,
-              targetConfidence: 1,
-              source: decision.source,
-              detail: "BLOCKED (destructive-form guard)",
-              note: guard.reason ?? "Destructive-form guard refused the auto-submit.",
-            });
-            recentActions.push("BLOCKED (destructive-form guard)");
-            await narrator.log("BLOCKED (destructive-form guard)");
-            outcome = "blocked";
-            break;
+            // B2: opt-in human-in-the-loop confirmation. When confirmDestructive is on AND a
+            // confirm callback is available, request inline approval (amber "awaiting
+            // confirmation" HUD) instead of an immediate block. Approval proceeds with the
+            // CLICK; refusal keeps the existing block. When confirm is absent or
+            // confirmDestructive is off, the refuse-by-default fail-safe is preserved exactly.
+            let approved = false;
+            if (confirmDestructive && confirm) {
+              const targetName = String(target.name || target.role);
+              const prompt = `About to click ${JSON.stringify(targetName)} - approve?`;
+              await narrator.setState("uncertain", `Awaiting confirmation: ${prompt}`);
+              await narrator.toast(prompt, "uncertain");
+              // The confirm callback must never throw; guard defensively regardless so the
+              // loop degrades to a refusal (fail-safe) rather than erroring out.
+              try {
+                approved = await confirm(prompt);
+              } catch {
+                approved = false;
+              }
+            }
+            if (!approved) {
+              transcript.push({
+                step,
+                operation: "BLOCKED",
+                operationConfidence: 1,
+                targetConfidence: 1,
+                source: decision.source,
+                detail: "BLOCKED (destructive-form guard)",
+                note: guard.reason ?? "Destructive-form guard refused the auto-submit.",
+              });
+              recentActions.push("BLOCKED (destructive-form guard)");
+              await narrator.log("BLOCKED (destructive-form guard)");
+              outcome = "blocked";
+              break;
+            }
+            // Approved: fall through and execute the CLICK. The approval is noted on the
+            // step record below so the transcript records that a human authorised it.
+            note = note
+              ? `${note}; approved via confirmation`
+              : "approved via confirmation";
+            await narrator.setState("acting", "Approved - proceeding");
+            await narrator.toast("Approved - proceeding", "info");
           }
         }
       }
@@ -806,7 +922,7 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
       const executed = await execute(
         decision,
         state,
-        { waitMs, scrollBy, selfHealRetries },
+        { waitMs, scrollBy, selfHealRetries, redactSecrets, secrets },
         session,
         narrator,
       );
@@ -816,22 +932,32 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
         operationConfidence: decision.operationConfidence,
         targetConfidence: decision.targetConfidence,
         source: decision.source,
-        detail: executed.detail,
-        ...(note ? { note } : {}),
+        // B1: mask any captured secret value out of the human-readable detail string.
+        detail: redact(executed.detail),
+        ...(note ? { note: redact(note) } : {}),
       };
       if (decision.target !== undefined) record.target = decision.target;
       const value = "value" in decision ? decision.value : undefined;
-      if (value !== undefined) record.value = value;
+      // B1: store the MASKED form of the value / batch fields in the transcript. The real
+      // value was already typed into the page inside execute(); only this recorded echo is
+      // masked so the transcript never carries a secret.
+      if (value !== undefined) record.value = redact(value);
       if (decision.operation === "PRESS_KEY") record.key = decision.key;
       if (decision.operation === "FILL_FORM") {
-        record.fields = decision.fields.map((f) => ({ target: f.target, value: f.value }));
+        record.fields = decision.fields.map((f) => ({
+          target: f.target,
+          value: redact(f.value),
+        }));
       }
       if (decision.operation === "VERIFY") record.marker = decision.marker;
       if (executed.verified !== undefined) record.verified = executed.verified;
       if (executed.retries !== undefined) record.retries = executed.retries;
       transcript.push(record);
-      recentActions.push(executed.detail);
-      // Tier 4: mirror the transcript line into the on-page activity-log feed.
+      // B1: keep the recent-action log (which is rendered back into the next PageState and
+      // can reach the escalation LLM prompt) masked too, so no secret leaks downstream.
+      recentActions.push(redact(executed.detail));
+      // Tier 4: mirror the transcript line into the on-page activity-log feed (already
+      // redacted inside the narrator).
       await narrator.log(executed.detail);
 
       // SCREENSHOT and VERIFY are terminal/verification steps: once one runs, the goal-run
@@ -901,7 +1027,9 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
       outcome,
       degraded: false,
       transcript,
-      ...(lastSnapshot ? { finalSnapshot: lastSnapshot } : {}),
+      ...(lastSnapshot
+        ? { finalSnapshot: redactSnapshot(lastSnapshot, redact) }
+        : {}),
       verification: {
         checked: false,
         verified: false,
@@ -914,8 +1042,11 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
 
   // Always capture the true final page for independent verification (the loop may have
   // ended on DONE, BLOCKED, or the step budget; DONE is not trusted as success).
-  const finalSnapshot = await capture(page);
-  const verification = verifyFinalPage(goal, finalSnapshot);
+  const rawFinalSnapshot = await capture(page);
+  // Verify against the REAL page text so verification is never weakened by redaction.
+  const verification = verifyFinalPage(goal, rawFinalSnapshot);
+  // B1: surface a redacted copy of the final snapshot so no secret reaches the client output.
+  const finalSnapshot = redactSnapshot(rawFinalSnapshot, redact);
 
   const summaryOutcome =
     outcome === "done" && verification.checked && !verification.verified

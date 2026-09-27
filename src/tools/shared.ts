@@ -30,6 +30,14 @@ export interface ToolContext {
    * default) the tool refuses with a clear message instead of running anything.
    */
   allowUnsafeCode?: boolean;
+  /**
+   * (B3) Whether the destructive-action guard also applies to Assist-mode tools (opt-in).
+   * Default false: when false, Assist tools behave byte-for-byte as before (no snapshot, no
+   * guard). When true, `browser_click` captures a snapshot, resolves the target control, and
+   * refuses a destructive click. Scoped to `browser_click` as the required example; other
+   * Assist tools remain unguarded by design.
+   */
+  assistDestructiveGuard?: boolean;
 }
 
 /** MCP tool result content block (text). */
