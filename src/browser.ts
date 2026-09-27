@@ -86,6 +86,23 @@ const BROWSER_TYPES: Record<BrowserEngineName, BrowserType> = {
 /** A snapshot ref looks like `e` followed by one or more digits, e.g. `e12`. */
 const REF_PATTERN = /^e\d+$/;
 
+/** (A2) Default post-action settle-probe window, in milliseconds. Kept short and bounded. */
+export const DEFAULT_SETTLE_PROBE_MS = 400;
+
+/**
+ * (A2) The result of a purely-observational {@link BrowserSession.probeSettle}. Reports
+ * whether ANY change was observed after the action, whether the page navigated (URL
+ * changed), and the raw DOM mutation count seen over the probe window.
+ */
+export interface SettleProbeResult {
+  /** Whether any change was observed (a navigation OR one or more DOM mutations). */
+  changed: boolean;
+  /** Whether the URL changed relative to the URL captured just before the action. */
+  urlChanged: boolean;
+  /** How many DOM mutations were seen over the probe window. */
+  mutations: number;
+}
+
 /** Cap the console/network buffers so a long-running session cannot grow unbounded. */
 const RING_BUFFER_LIMIT = 500;
 
@@ -915,6 +932,79 @@ export class BrowserSession {
         he.removeAttribute("data-laya-highlight-prev");
       }
     });
+  }
+
+  /**
+   * (A2) A lightweight, purely-observational post-action settle probe.
+   *
+   * Reads `document.readyState`, the current URL, and counts DOM mutations over a short,
+   * bounded window via an in-page `MutationObserver`, all inside a single `page.evaluate`
+   * with its OWN internal timeout. It deliberately uses NO `networkidle` wait and NO
+   * `slowMo`: it never blocks longer than `timeoutMs` and never throws into the caller (any
+   * failure resolves to a "nothing observed" result), so the Autopilot loop can consult it
+   * without ever changing the decision path or the run outcome.
+   *
+   * Returns whether a change was observed at all ({@link SettleProbeResult.changed}),
+   * whether the URL changed vs. the URL captured just before the action
+   * ({@link SettleProbeResult.urlChanged}), and the mutation count seen in the window.
+   */
+  async probeSettle(
+    page: Page,
+    options: { timeoutMs?: number; beforeUrl?: string } = {},
+  ): Promise<SettleProbeResult> {
+    const timeoutMs = options.timeoutMs ?? DEFAULT_SETTLE_PROBE_MS;
+    const beforeUrl = options.beforeUrl ?? "";
+    try {
+      const result = await page.evaluate(
+        ({ timeoutMs, beforeUrl }) =>
+          new Promise<{ urlChanged: boolean; mutations: number; readyComplete: boolean }>(
+            (resolve) => {
+              let mutations = 0;
+              let observer: MutationObserver | undefined;
+              try {
+                observer = new MutationObserver((records) => {
+                  mutations += records.length;
+                });
+                observer.observe(document.documentElement, {
+                  subtree: true,
+                  childList: true,
+                  attributes: true,
+                  characterData: true,
+                });
+              } catch {
+                // MutationObserver unavailable (extremely rare); fall through with 0 counts.
+              }
+              const cap = Math.max(0, Math.min(2000, Number(timeoutMs) || 0));
+              window.setTimeout(() => {
+                try {
+                  observer?.disconnect();
+                } catch {
+                  // Ignore disconnect failures.
+                }
+                resolve({
+                  urlChanged:
+                    typeof beforeUrl === "string" &&
+                    beforeUrl !== "" &&
+                    window.location.href !== beforeUrl,
+                  mutations,
+                  readyComplete: document.readyState === "complete",
+                });
+              }, cap);
+            },
+          ),
+        { timeoutMs, beforeUrl },
+      );
+      const changed = result.urlChanged || result.mutations > 0;
+      return {
+        changed,
+        urlChanged: result.urlChanged,
+        mutations: result.mutations,
+      };
+    } catch {
+      // A navigation/close mid-probe (or an evaluate rejection) leaves us with no signal;
+      // report "nothing observed" so the probe stays purely observational and never throws.
+      return { changed: false, urlChanged: false, mutations: 0 };
+    }
   }
 
   /**

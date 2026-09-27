@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Stale Ref</title>
+  </head>
+  <body>
+    <h1>Stale Ref</h1>
+    <p id="status">not confirmed</p>
+
+    <!-- The self-healing target. It carries a stable accessible name + role ("Confirm"
+         button). A re-render REPLACES this node with a fresh, identically-named button, so a
+         ref captured against the original goes stale and must be re-resolved by name+role. -->
+    <div id="host">
+      <button id="confirm" type="button" onclick="markConfirmed()">Confirm</button>
+    </div>
+
+    <script>
+      function markConfirmed() {
+        document.getElementById("status").textContent = "confirmed";
+      }
+
+      // Replace the Confirm button with a brand-new, identically-named button that still
+      // confirms when clicked. Callers invoke this (via page.evaluate) to make the original
+      // captured ref stale, exercising the A1 self-healing name+role re-resolution.
+      function rebuildTarget() {
+        const host = document.getElementById("host");
+        host.innerHTML = "";
+        const fresh = document.createElement("button");
+        fresh.id = "confirm";
+        fresh.type = "button";
+        fresh.textContent = "Confirm";
+        fresh.addEventListener("click", markConfirmed);
+        host.appendChild(fresh);
+      }
+      window.rebuildTarget = rebuildTarget;
+    </script>
+  </body>
+</html>

@@ -32,6 +32,14 @@ export interface RunGoalContext extends ToolContext {
   destructiveFormGuard?: boolean;
   /** Milliseconds the WAIT operation pauses for. Defaults to the loop's built-in default. */
   waitMs?: number;
+  /** (A1) Self-healing retry attempts for a failed targeted action. */
+  selfHealRetries?: number;
+  /** (A2) Whether the post-action settle probe runs. Defaults to true. */
+  settleProbe?: boolean;
+  /** (A3) Whether loop detection stops a stuck run early. Defaults to true. */
+  loopDetection?: boolean;
+  /** (A3) How many recent steps the loop detector compares. */
+  loopWindow?: number;
 }
 
 export const inputSchema = {
@@ -134,6 +142,14 @@ export function makeHandler(ctx: RunGoalContext) {
           ? { destructiveFormGuard: ctx.destructiveFormGuard }
           : {}),
         ...(ctx.waitMs !== undefined ? { waitMs: ctx.waitMs } : {}),
+        ...(ctx.selfHealRetries !== undefined
+          ? { selfHealRetries: ctx.selfHealRetries }
+          : {}),
+        ...(ctx.settleProbe !== undefined ? { settleProbe: ctx.settleProbe } : {}),
+        ...(ctx.loopDetection !== undefined
+          ? { loopDetection: ctx.loopDetection }
+          : {}),
+        ...(ctx.loopWindow !== undefined ? { loopWindow: ctx.loopWindow } : {}),
       });
       const isError = result.outcome === "error";
       return textResult(renderRunResult(result), isError);

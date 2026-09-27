@@ -112,6 +112,10 @@ export function createServer(options: CreateServerOptions = {}): CreatedServer {
       allowedDomains: config.allowedDomains,
       destructiveFormGuard: config.destructiveFormGuard,
       waitMs: config.autopilotWaitMs,
+      selfHealRetries: config.selfHealRetries,
+      settleProbe: config.settleProbe,
+      loopDetection: config.loopDetection,
+      loopWindow: config.loopWindow,
       // Resolve the sampler lazily at call time: the client's `sampling` capability is only
       // known after it has connected and initialized, which happens after createServer.
       sample: async (prompt) => {

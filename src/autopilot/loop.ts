@@ -37,11 +37,22 @@ import { applyFieldValue, type FieldKind } from "../tools/fill.js";
 import { policySeed, refineWithGoalValue } from "./policy.js";
 import { escalate, type SampleFn } from "./escalation.js";
 import { checkDestructiveSubmit, checkDomainAllowed } from "../safety.js";
-import { DEFAULT_CONFIDENCE_THRESHOLD, DEFAULT_MAX_STEPS } from "../config.js";
+import {
+  DEFAULT_CONFIDENCE_THRESHOLD,
+  DEFAULT_LOOP_WINDOW,
+  DEFAULT_MAX_STEPS,
+  DEFAULT_SELF_HEAL_RETRIES,
+} from "../config.js";
 import type { Control, Decision, LayaDecisionEngine, PageState } from "../types.js";
 
-/** How the goal run ended. */
-export type RunOutcome = "done" | "blocked" | "max_steps" | "degraded" | "error";
+/**
+ * How the goal run ended.
+ *
+ * `stuck` (A3) is ADDITIVE: the loop detector observed the identical step repeating with no
+ * progress and bailed early rather than burning the whole step budget. Every pre-existing
+ * outcome string is unchanged.
+ */
+export type RunOutcome = "done" | "blocked" | "max_steps" | "degraded" | "error" | "stuck";
 
 /** One recorded step of the transcript. */
 export interface StepRecord {
@@ -71,6 +82,17 @@ export interface StepRecord {
   detail: string;
   /** Optional note explaining how the decision was reached (rule seed / escalation). */
   note?: string;
+  /**
+   * (A1) How many self-healing retries this step needed before the action succeeded. Present
+   * (and >= 1) only when at least one retry ran; absent for steps that succeeded first try.
+   */
+  retries?: number;
+  /**
+   * (A2) Whether the post-action settle probe observed a change (a navigation or DOM
+   * mutations) after this step. Present only when the settle probe ran for the step. Purely
+   * observational: it never affects the outcome.
+   */
+  settled?: boolean;
 }
 
 /** Independent, post-hoc verification of the final page. */
@@ -133,6 +155,30 @@ export interface RunGoalOptions {
   allowedDomains?: string[];
   /** Whether the destructive-form guard is active. Defaults to true. */
   destructiveFormGuard?: boolean;
+  /**
+   * (A1) How many times a failed targeted action (CLICK/TYPE_TEXT/SELECT/HOVER) is retried
+   * against a freshly re-captured page, re-resolving the same target by accessible name +
+   * role (self-healing against stale refs / transient failures). Defaults to
+   * {@link DEFAULT_SELF_HEAL_RETRIES}. `0` disables self-healing.
+   */
+  selfHealRetries?: number;
+  /**
+   * (A2) Whether to run the purely-observational post-action settle probe after each
+   * executed action. Defaults to true. The probe NEVER changes the decision path or outcome;
+   * it only records {@link StepRecord.settled} and narrates a "settling"/"no change" hint.
+   */
+  settleProbe?: boolean;
+  /**
+   * (A3) Whether loop detection is active: when the last {@link loopWindow} steps are
+   * identical (same URL + control set + decision), the run bails early with the `stuck`
+   * outcome instead of burning the whole budget. Defaults to true.
+   */
+  loopDetection?: boolean;
+  /**
+   * (A3) How many of the most recent step signatures the loop detector compares before
+   * declaring the run stuck. Defaults to {@link DEFAULT_LOOP_WINDOW}.
+   */
+  loopWindow?: number;
   /**
    * Optional visual-overlay (agentLens HUD) controller, threaded in from the session so the
    * loop can narrate each step on-page. When omitted, EVERY narration call is a guarded
@@ -248,6 +294,77 @@ interface ExecuteResult {
   detail: string;
   /** For a VERIFY/SCREENSHOT terminal step: whether the check passed / capture succeeded. */
   verified?: boolean;
+  /** (A1) How many self-healing retries the targeted action needed (>= 1 when any ran). */
+  retries?: number;
+}
+
+/**
+ * (A1) Re-resolve a control by its accessible name + role against a FRESHLY captured page.
+ *
+ * Used to self-heal a stale/missing ref: after an action fails in a way that looks like the
+ * captured ref went stale, we re-capture the page and look for the control whose name + role
+ * match the target we were originally aiming at, returning its NEW ref (`eN`) so the caller
+ * can retry via {@link BrowserSession.resolveRef}. Matching is exact on role and (trimmed)
+ * name; returns undefined when nothing matches, so the caller can rethrow the original error.
+ */
+export async function resolveByNameRole(
+  session: BrowserSession,
+  page: Page,
+  name: string,
+  role: string,
+): Promise<string | undefined> {
+  const fresh = await capture(page);
+  const wantName = name.trim();
+  const match = fresh.controls.find(
+    (c) => c.role === role && String(c.name).trim() === wantName,
+  );
+  return match?.ref;
+}
+
+/** Whether an error thrown by a targeted Playwright action looks like a stale/missing ref. */
+function looksLikeStaleRef(err: unknown): boolean {
+  const msg = (err as Error)?.message ?? "";
+  return (
+    /Timeout|not (?:visible|attached|found|stable)|no element|detached|zero elements|resolve to no elements|element is not/i.test(
+      msg,
+    ) || msg === ""
+  );
+}
+
+/**
+ * (A1) Run a targeted action against `ref`, self-healing a stale ref up to `maxRetries`
+ * times. On a failure that looks like a stale/missing ref we re-capture the page, re-resolve
+ * the SAME control by its captured accessible name + role, and retry against the new ref.
+ * When re-resolution finds no match the original error is rethrown. Returns the number of
+ * retries actually performed (0 when the first attempt succeeded).
+ */
+async function runWithSelfHeal(
+  session: BrowserSession,
+  narrator: Narrator,
+  target: { ref: string; name: string; role: string },
+  maxRetries: number,
+  action: (ref: string) => Promise<void>,
+): Promise<number> {
+  let ref = target.ref;
+  let attempt = 0;
+  // Attempt 0 is the initial try; attempts 1..maxRetries are self-healing retries.
+  for (;;) {
+    try {
+      await action(ref);
+      return attempt;
+    } catch (err) {
+      if (attempt >= maxRetries || !looksLikeStaleRef(err)) throw err;
+      const page = await session.getPage();
+      const fresh = await resolveByNameRole(session, page, target.name, target.role);
+      if (fresh === undefined) throw err;
+      attempt += 1;
+      ref = fresh;
+      await narrator.toast("Re-resolving stale element\u2026", "uncertain");
+      await narrator.log(
+        `Re-resolving ${JSON.stringify(target.name)} (${target.role}) -> ${ref} (retry ${attempt})`,
+      );
+    }
+  }
 }
 
 /**
@@ -354,7 +471,10 @@ function fieldKindFor(control: Control | undefined): FieldKind {
 async function execute(
   decision: Decision,
   state: PageState,
-  options: Required<Pick<RunGoalOptions, "waitMs">> & { scrollBy?: number },
+  options: Required<Pick<RunGoalOptions, "waitMs">> & {
+    scrollBy?: number;
+    selfHealRetries: number;
+  },
   session: BrowserSession,
   narrator: Narrator,
 ): Promise<ExecuteResult> {
@@ -364,14 +484,23 @@ async function execute(
       const name = c ? String(c.name || c.role) : decision.target;
       // Tier 1/2: move cursor + spotlight the target, then ripple at its centre.
       const rect = await narrator.focusTarget(decision.target, `Clicking ${name}`);
-      const locator = session.resolveRef(decision.target);
       if (rect) {
         const { x, y } = Narrator.rectCenter(rect);
         await narrator.ripple(x, y);
       }
-      await locator.click();
+      // A1: self-heal a stale ref by re-resolving the same control (name + role).
+      const retries = await runWithSelfHeal(
+        session,
+        narrator,
+        { ref: decision.target, name: c ? String(c.name) : "", role: c ? c.role : "" },
+        options.selfHealRetries,
+        async (ref) => {
+          await session.resolveRef(ref).click();
+        },
+      );
       return {
         detail: `CLICK ${decision.target}${c ? ` (${c.role} ${JSON.stringify(c.name)})` : ""}`,
+        ...(retries > 0 ? { retries } : {}),
       };
     }
     case "TYPE_TEXT": {
@@ -379,31 +508,58 @@ async function execute(
       const c = findControl(state, decision.target);
       const field = c ? String(c.name || c.role) : decision.target;
       await narrator.focusTarget(decision.target, `Typing ${field}\u2026`);
-      const locator = session.resolveRef(decision.target);
-      await locator.fill(value);
-      return { detail: `TYPE_TEXT ${decision.target} = ${JSON.stringify(value)}` };
+      const retries = await runWithSelfHeal(
+        session,
+        narrator,
+        { ref: decision.target, name: c ? String(c.name) : "", role: c ? c.role : "" },
+        options.selfHealRetries,
+        async (ref) => {
+          await session.resolveRef(ref).fill(value);
+        },
+      );
+      return {
+        detail: `TYPE_TEXT ${decision.target} = ${JSON.stringify(value)}`,
+        ...(retries > 0 ? { retries } : {}),
+      };
     }
     case "SELECT": {
       const value = resolveValue(decision, state) ?? "";
       const c = findControl(state, decision.target);
       const field = c ? String(c.name || c.role) : decision.target;
       await narrator.focusTarget(decision.target, `Selecting ${field}`);
-      const locator = session.resolveRef(decision.target);
-      await locator
-        .selectOption({ label: value })
-        .catch(async () => {
-          await locator.selectOption(value);
-        });
-      return { detail: `SELECT ${decision.target} = ${JSON.stringify(value)}` };
+      const retries = await runWithSelfHeal(
+        session,
+        narrator,
+        { ref: decision.target, name: c ? String(c.name) : "", role: c ? c.role : "" },
+        options.selfHealRetries,
+        async (ref) => {
+          const locator = session.resolveRef(ref);
+          await locator.selectOption({ label: value }).catch(async () => {
+            await locator.selectOption(value);
+          });
+        },
+      );
+      return {
+        detail: `SELECT ${decision.target} = ${JSON.stringify(value)}`,
+        ...(retries > 0 ? { retries } : {}),
+      };
     }
     case "HOVER": {
       const c = findControl(state, decision.target);
       const name = c ? String(c.name || c.role) : decision.target;
       await narrator.focusTarget(decision.target, `Hovering ${name}`);
-      const locator = session.resolveRef(decision.target);
-      await locator.hover();
+      const retries = await runWithSelfHeal(
+        session,
+        narrator,
+        { ref: decision.target, name: c ? String(c.name) : "", role: c ? c.role : "" },
+        options.selfHealRetries,
+        async (ref) => {
+          await session.resolveRef(ref).hover();
+        },
+      );
       return {
         detail: `HOVER ${decision.target}${c ? ` (${c.role} ${JSON.stringify(c.name)})` : ""}`,
+        ...(retries > 0 ? { retries } : {}),
       };
     }
     case "FILL_FORM": {
@@ -500,6 +656,10 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
     sample,
     allowedDomains = [],
     destructiveFormGuard = true,
+    selfHealRetries = DEFAULT_SELF_HEAL_RETRIES,
+    settleProbe = true,
+    loopDetection = true,
+    loopWindow = DEFAULT_LOOP_WINDOW,
     overlay,
     overlayPage,
   } = options;
@@ -551,6 +711,10 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
   const transcript: StepRecord[] = [];
   let outcome: RunOutcome = "max_steps";
   let lastSnapshot: Snapshot | undefined;
+  // (A3) Rolling window of per-step signatures for loop detection. A signature is the URL +
+  // the sorted set of control name+role pairs + the decision (operation/target/value). When
+  // the last `loopWindow` signatures are all identical the run has made no progress.
+  const signatures: string[] = [];
 
   try {
     for (let step = 1; step <= maxSteps; step++) {
@@ -637,7 +801,15 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
       // Targeted ops (CLICK/TYPE_TEXT/SELECT/HOVER/FILL_FORM) render their own cursor/spotlight
       // caption inside execute(); non-targeted ops get a status here.
       await narrator.setState("acting", actionCaption(decision, state));
-      const executed = await execute(decision, state, { waitMs, scrollBy }, session, narrator);
+      // Capture the pre-action URL so the settle probe can tell whether we navigated.
+      const beforeUrl = page.url();
+      const executed = await execute(
+        decision,
+        state,
+        { waitMs, scrollBy, selfHealRetries },
+        session,
+        narrator,
+      );
       const record: StepRecord = {
         step,
         operation: decision.operation,
@@ -656,6 +828,7 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
       }
       if (decision.operation === "VERIFY") record.marker = decision.marker;
       if (executed.verified !== undefined) record.verified = executed.verified;
+      if (executed.retries !== undefined) record.retries = executed.retries;
       transcript.push(record);
       recentActions.push(executed.detail);
       // Tier 4: mirror the transcript line into the on-page activity-log feed.
@@ -666,6 +839,55 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
       if (decision.operation === "VERIFY" || decision.operation === "SCREENSHOT") {
         outcome = "done";
         break;
+      }
+
+      // A2: purely-observational settle probe. It NEVER changes the decision path or outcome;
+      // it only records `settled` on the step and narrates a hint. Terminal ops already broke
+      // out above, so this runs only for the continuing loop.
+      if (settleProbe) {
+        await narrator.setState("acting", "Waiting for page to settle\u2026");
+        const probe = await session.probeSettle(page, { beforeUrl });
+        record.settled = probe.changed;
+        if (!probe.changed) {
+          await narrator.toast("No change detected", "uncertain");
+        }
+      }
+
+      // A3: loop-detection / stuck guard. Signature = URL + sorted control name+role set +
+      // the decision. When the last `loopWindow` signatures are all identical the run is not
+      // progressing; bail early with the additive `stuck` outcome rather than burning the
+      // full budget.
+      if (loopDetection) {
+        const controlSig = state.controls
+          .map((c) => `${c.role}\u0000${String(c.name)}`)
+          .sort()
+          .join("\u0001");
+        const decisionSig = `${decision.operation}\u0000${
+          decision.target ?? ""
+        }\u0000${value ?? ""}`;
+        signatures.push(`${state.url}\u0002${controlSig}\u0002${decisionSig}`);
+        if (
+          signatures.length >= loopWindow &&
+          signatures
+            .slice(-loopWindow)
+            .every((sig) => sig === signatures[signatures.length - 1])
+        ) {
+          transcript.push({
+            step: step + 1,
+            operation: "BLOCKED",
+            operationConfidence: 1,
+            targetConfidence: 1,
+            source: decision.source,
+            detail: "BLOCKED (stuck: no progress detected)",
+            note: `Loop detector: the last ${loopWindow} steps were identical (no progress).`,
+          });
+          recentActions.push("BLOCKED (stuck: no progress detected)");
+          await narrator.setState("error", "Stuck - not progressing");
+          await narrator.toast("Stuck - no progress detected", "error");
+          await narrator.log("BLOCKED (stuck: no progress detected)");
+          outcome = "stuck";
+          break;
+        }
       }
     }
   } catch (err) {
@@ -705,10 +927,22 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
   if (outcome === "done" && !verificationFailed) {
     await narrator.setState("success", "Goal complete");
     await narrator.toast("Goal complete", "success");
-  } else if (outcome === "blocked" || verificationFailed) {
-    await narrator.setState("error", verificationFailed ? "Verification failed" : "Blocked");
+  } else if (outcome === "blocked" || outcome === "stuck" || verificationFailed) {
+    // Treat `stuck` like blocked for verification messaging while keeping the distinct
+    // outcome string. The overlay was already set during the stuck bail; refresh it here so
+    // the final HUD state is consistent regardless of which branch surfaced it.
+    const label = verificationFailed
+      ? "Verification failed"
+      : outcome === "stuck"
+        ? "Stuck - not progressing"
+        : "Blocked";
+    await narrator.setState("error", label);
     await narrator.toast(
-      verificationFailed ? "Reported DONE but verification failed" : "Run blocked",
+      verificationFailed
+        ? "Reported DONE but verification failed"
+        : outcome === "stuck"
+          ? "Stuck - no progress detected"
+          : "Run blocked",
       "error",
     );
   }

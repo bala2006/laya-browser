@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Loop Trap</title>
+  </head>
+  <body>
+    <h1>Loop Trap</h1>
+    <p id="marker">This page never changes</p>
+    <!--
+      A button whose click never mutates the DOM and never navigates. A rogue engine that
+      keeps choosing CLICK on it produces the identical step forever, so the loop detector
+      should bail with the `stuck` outcome well before the step budget is exhausted.
+    -->
+    <button id="spin" type="button">Spin forever</button>
+  </body>
+</html>
