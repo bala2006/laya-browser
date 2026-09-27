@@ -30,6 +30,8 @@ export interface RunGoalContext extends ToolContext {
   allowedDomains?: string[];
   /** Whether the destructive-form guard is active. Defaults to true. */
   destructiveFormGuard?: boolean;
+  /** Milliseconds the WAIT operation pauses for. Defaults to the loop's built-in default. */
+  waitMs?: number;
 }
 
 export const inputSchema = {
@@ -118,6 +120,7 @@ export function makeHandler(ctx: RunGoalContext) {
         ...(ctx.destructiveFormGuard !== undefined
           ? { destructiveFormGuard: ctx.destructiveFormGuard }
           : {}),
+        ...(ctx.waitMs !== undefined ? { waitMs: ctx.waitMs } : {}),
       });
       const isError = result.outcome === "error";
       return textResult(renderRunResult(result), isError);

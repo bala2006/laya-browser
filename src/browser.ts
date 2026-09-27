@@ -35,6 +35,7 @@ import type {
   RouteRule,
   TabInfo,
 } from "./types.js";
+import type { OverlayConfig } from "./config.js";
 
 /** The Playwright engine a {@link BrowserSession} drives. */
 export type BrowserEngineName = "chromium" | "firefox" | "webkit";
@@ -43,10 +44,18 @@ export type BrowserEngineName = "chromium" | "firefox" | "webkit";
 export interface BrowserSessionOptions {
   /** Which Playwright engine to launch. Defaults to `"chromium"`. */
   engine?: BrowserEngineName;
-  /** Launch headless (default) or headed. Defaults to `true`. */
+  /**
+   * Launch headless or headed. Defaults to `false` (headed). A headed launch on a machine
+   * with no display server transparently falls back to headless (see {@link BrowserSession.launch}).
+   */
   headless?: boolean;
   /** Viewport size for the page. Defaults to 1280x800. */
   viewport?: { width: number; height: number };
+  /**
+   * Resolved visual-overlay (agentLens HUD) configuration threaded in from the typed config.
+   * Optional so a bare `BrowserSession` still works; when omitted the overlay is off.
+   */
+  overlay?: OverlayConfig;
   /**
    * Optional Chromium channel (e.g. `"chrome"`, `"msedge"`). Ignored for firefox/webkit,
    * which have no channel concept.
@@ -87,8 +96,15 @@ const RING_BUFFER_LIMIT = 500;
  * loads no model weights.
  */
 export class BrowserSession {
-  private readonly options: Required<Omit<BrowserSessionOptions, "channel">> &
-    Pick<BrowserSessionOptions, "channel">;
+  private readonly options: Required<Omit<BrowserSessionOptions, "channel" | "overlay">> &
+    Pick<BrowserSessionOptions, "channel" | "overlay">;
+
+  /**
+   * The headless mode a launch actually used. Starts as the requested option and is set to
+   * `true` when a headed launch fails and we fall back to headless, so downstream (e.g. the
+   * overlay in `auto` mode) can decide on/off from the mode the browser really runs in.
+   */
+  private effectiveHeadless: boolean;
 
   /** The Playwright browser type selected by {@link BrowserSessionOptions.engine}. */
   private readonly browserType: BrowserType;
@@ -118,18 +134,29 @@ export class BrowserSession {
   constructor(options: BrowserSessionOptions = {}) {
     this.options = {
       engine: options.engine ?? "chromium",
-      headless: options.headless ?? true,
+      headless: options.headless ?? false,
       viewport: options.viewport ?? { width: 1280, height: 800 },
       channel: options.channel,
+      overlay: options.overlay,
       actionTimeoutMs: options.actionTimeoutMs ?? 10000,
       navigationTimeoutMs: options.navigationTimeoutMs ?? 20000,
     };
     this.browserType = BROWSER_TYPES[this.options.engine];
+    this.effectiveHeadless = this.options.headless;
   }
 
   /** Whether a browser has actually been launched yet. */
   get launched(): boolean {
     return this.browser !== undefined;
+  }
+
+  /**
+   * The headless mode the browser is actually running in. Before launch this reflects the
+   * requested option; after a headed launch that failed and fell back, it is `true`. The
+   * overlay uses this to resolve `auto` mode (on when headed) against reality.
+   */
+  get headless(): boolean {
+    return this.effectiveHeadless;
   }
 
   /**
@@ -154,10 +181,29 @@ export class BrowserSession {
     // Only Chromium honours a `channel`; firefox/webkit have no channel concept, so we
     // pass it only for chromium and keep every other launch option identical across engines.
     const useChannel = this.options.engine === "chromium" && this.options.channel;
-    const browser = await this.browserType.launch({
-      headless: this.options.headless,
+    const launchOptions = {
       ...(useChannel ? { channel: this.options.channel } : {}),
-    });
+    };
+    let browser: Browser;
+    try {
+      browser = await this.browserType.launch({
+        headless: this.options.headless,
+        ...launchOptions,
+      });
+      this.effectiveHeadless = this.options.headless;
+    } catch (err) {
+      // A HEADLESS launch that fails is a real error and must propagate. A HEADED launch can
+      // fail on a machine with no display server (e.g. CI/sandbox): warn ONCE to stderr
+      // (never stdout, to keep the stdio JSON-RPC stream intact) and retry headless so the
+      // server still comes up. On a user's machine with a display, the headed launch works.
+      if (this.options.headless) throw err;
+      const msg = (err as Error).message;
+      process.stderr.write(
+        `[laya-browser-mcp] headed launch failed (${msg}); falling back to headless.\n`,
+      );
+      browser = await this.browserType.launch({ headless: true, ...launchOptions });
+      this.effectiveHeadless = true;
+    }
     const context = await browser.newContext({
       viewport: this.options.viewport,
     });

@@ -6,8 +6,10 @@
  * the browser cleanly on SIGINT/SIGTERM. No model weights are loaded in Assist mode.
  *
  * Env:
- *   LAYA_BROWSER_HEADLESS=false   run headed (default headless)
+ *   LAYA_BROWSER_HEADLESS=true    run headless (default: headed; a headed launch with no
+ *                                 display server auto-falls-back to headless)
  *   LAYA_BROWSER_CHANNEL=chrome   use a specific Chromium channel
+ *   LAYA_BROWSER_OVERLAY=auto|on|off   agentLens visual overlay (default: auto = on when headed)
  */
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { createServer } from "./server.js";

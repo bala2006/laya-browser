@@ -461,9 +461,16 @@ constructor options, then handed inward as typed config.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `LAYA_BROWSER_HEADLESS` | `true` | `false` runs headed. |
+| `LAYA_BROWSER_HEADLESS` | `false` (headed) | Set `true` to run headless. A headed launch on a machine with no display server auto-falls-back to headless (one stderr warning). |
 | `LAYA_BROWSER_CHANNEL` | — | Chromium channel (e.g. `chrome`). |
 | `LAYA_BROWSER_VIEWPORT` | `1280x800` | Viewport `WIDTHxHEIGHT`. |
+| `LAYA_BROWSER_OVERLAY` | `auto` | agentLens visual overlay: `auto` (on when headed, off when headless), `on`, or `off`. |
+| `LAYA_BROWSER_OVERLAY_ACCENT` | `#a855f7` | Overlay brand accent as a `#rgb`/`#rrggbb` hex (invalid falls back to the default). |
+| `LAYA_BROWSER_OVERLAY_TYPING` | `false` | `true` enables the per-character typing effect. |
+| `LAYA_BROWSER_OVERLAY_COUNTDOWN` | `false` | `true` shows a WAIT countdown. |
+| `LAYA_BROWSER_OVERLAY_DEBUG` | `false` | `true` outlines the elements the agent sees. |
+| `LAYA_BROWSER_OVERLAY_LOG` | `true` | `false` hides the collapsible activity-log panel. |
+| `LAYA_AUTOPILOT_WAIT_MS` | `300` | Autopilot `WAIT` duration in ms (clamped `0..5000`). |
 | `LAYA_ENGINE` | `auto` | `stub` forces the deterministic engine; `auto` uses weights when present. |
 | `LAYA_MODEL_DIR` | — | Local ONNX bundle directory (skips download). |
 | `LAYA_REPO` / `LAYA_SUBFOLDER` / `LAYA_REVISION` | — | Hugging Face source coordinates. |

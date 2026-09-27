@@ -1,0 +1,34 @@
+{
+  "id": "FEAT-004",
+  "type": "test",
+  "description": "Add REAL headless Playwright+vitest tests that exercise the overlay end-to-end and the headed-default/headless-fallback logic, then fix any bugs the tests reveal in FEAT-001..003. Verify visuals via screenshots + DOM queries (headless), since the sandbox has no display. Depends on FEAT-001..003.",
+  "status": "pending",
+  "steps": [
+    "Add test/overlay.test.ts following the existing real-headless pattern (see test/devtools-tools.test.ts and test/assist.test.ts): startFixtureServer(), construct a BrowserSession with overlay FORCED ON (LAYA_BROWSER_OVERLAY='on' via config override or a direct overlay-enabled BrowserSession option) in headless:true mode so the injected overlay renders in a headless screenshot and DOM query.",
+    "Assert overlay DOM injection: after navigating to a fixture (e.g. login.html), query that the overlay root/banner node exists and is visible (getComputedStyle display !== none, visibility !== hidden) via page.evaluate/locator, that the banner text contains 'Laya is controlling this browser', and that the root and its children have pointer-events:none and a high z-index.",
+    "Assert survives navigation (addInitScript re-injection): navigate to a second fixture (e.g. nav-b.html or search-form.html) and confirm the overlay banner node is present again on the new document (proving context.addInitScript re-injects rather than the one-shot highlight being wiped).",
+    "Assert overlay never intercepts real clicks: place/verify that clicking a control that sits under the banner region still triggers the underlying element (e.g. use a fixture with a top-of-page button, or elementFromPoint at the banner's coordinates returns the underlying page element, not an overlay node). Confirm a normal browser_click/loop CLICK on a fixture still works with the overlay enabled.",
+    "Assert the overlay API renders nodes: drive overlay methods directly (setStatus/moveCursor/spotlight/ripple/toast/log/progress/setState/countdown/scrollIndicator/showSeenElements) and assert via DOM queries that the corresponding nodes appear (cursor element present & positioned, spotlight box around a target ref's rect, a toast node with the message text, an activity-log entry with a logged line, progress showing 'N/max', state class/color reflecting thinking/acting/success/error/uncertain). Take at least one page.screenshot() (Buffer length > 0) to prove the overlay renders in a headless screenshot.",
+    "Assert debug 'what agent sees' mode outlines elements carrying data-laya-ref: run a capture() first so refs are stamped, then showSeenElements() and assert outline nodes/labels reference existing [data-laya-ref] elements.",
+    "Add an autopilot-with-overlay test: run runGoal (stub engine) with the session's overlay against a form fixture (e.g. search-form.html or multi-field-form.html) and assert the activity-log panel accumulated entries matching the transcript steps, and that a final success/error state is set — while the returned RunResult transcript/verification is unchanged vs the no-overlay run.",
+    "Add config tests in test/config.test.ts (or a new test/overlay-config.test.ts): empty env -> headless false; LAYA_BROWSER_HEADLESS='true' -> headless true; overlay.enabled resolves from 'auto' to !headless; LAYA_BROWSER_OVERLAY='off' disables even headed; LAYA_BROWSER_OVERLAY='on' enables even headless; accent defaults to #a855f7 and a bad accent falls back; typingEffect/waitCountdown default false; LAYA_AUTOPILOT_WAIT_MS parses and clamps.",
+    "Add a headed-fallback test: construct a BrowserSession with headless:false and call getPage(); in this display-less sandbox the headed launch will fail and the code must transparently fall back to headless and return a usable Page (assert we can navigate + capture). Capture stderr if feasible to confirm the warning is emitted; at minimum assert no throw and a working page. If a headed launch somehow succeeds in the environment, the test should still pass (skipIf pattern acceptable) — but the fallback path is the expected one here.",
+    "Run the FULL suite. Investigate and FIX any bug the new tests reveal in the overlay module, browser.ts fallback, config parsing, or loop narration (this is the user's explicit 'real testing and fix if any bugs are present' requirement). Iterate until npm run typecheck, npm run test, and npm run build are all green. Ensure the pre-existing 2 skipped tests remain the only skips (real-weights + webkit) and firefox cross-browser still passes."
+  ],
+  "acceptance_criteria": [
+    "test/overlay.test.ts drives real headless Chromium and asserts: banner injected + visible + correct text; pointer-events:none + high z-index on overlay nodes; overlay survives a navigation; overlay does not intercept a real click; each overlay API method renders its DOM node; at least one non-empty page.screenshot() proves headless render; debug see-elements outlines existing data-laya-ref nodes.",
+    "An autopilot-with-overlay test shows the activity log matches the transcript and a terminal state is set, while RunResult is unchanged vs no overlay.",
+    "Config tests cover headed default, LAYA_BROWSER_HEADLESS='true', overlay auto/on/off resolution, accent default+fallback, typing/countdown defaults, and LAYA_AUTOPILOT_WAIT_MS.",
+    "A headed-default construction falls back to headless without throwing and yields a working page.",
+    "npm run typecheck clean, npm run test green (only the pre-existing real-weights + webkit skips), npm run build emits dist/.",
+    "Any bug found during testing is fixed and described in findings."
+  ],
+  "verification": [
+    "Run `npm run typecheck` — clean.",
+    "Run `npm run test` — all pass except the 2 pre-existing gated skips; the new overlay + config + fallback tests pass.",
+    "Run `npm run build` — emits dist/ without error.",
+    "Review the new tests to confirm they assert real DOM/screenshot outcomes that would FAIL if the overlay injection, fallback, or narration were reverted (not static-only assertions)."
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}

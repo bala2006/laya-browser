@@ -11,9 +11,17 @@
  * loads weights), so it can be unit-tested in isolation.
  *
  * Environment variables honoured:
- *   LAYA_BROWSER_HEADLESS=false        run headed (default: headless)
+ *   LAYA_BROWSER_HEADLESS=true         run headless (default: headed; a headed launch on a
+ *                                      machine with no display server auto-falls-back to headless)
  *   LAYA_BROWSER_CHANNEL=chrome        Chromium channel
  *   LAYA_BROWSER_VIEWPORT=1440x900     viewport WIDTHxHEIGHT
+ *   LAYA_BROWSER_OVERLAY=auto|on|off   agentLens visual overlay (default: auto = on when headed)
+ *   LAYA_BROWSER_OVERLAY_ACCENT=#a855f7   overlay brand accent (hex; default #a855f7)
+ *   LAYA_BROWSER_OVERLAY_TYPING=false  opt-in per-character typing effect
+ *   LAYA_BROWSER_OVERLAY_COUNTDOWN=false  opt-in WAIT countdown display
+ *   LAYA_BROWSER_OVERLAY_DEBUG=false   outline "what the agent sees" elements
+ *   LAYA_BROWSER_OVERLAY_LOG=true      collapsible activity-log panel
+ *   LAYA_AUTOPILOT_WAIT_MS=300         Autopilot WAIT-operation duration in ms (clamped 0..5000)
  *   LAYA_MODEL_DIR=/path/to/bundle     local ONNX bundle (skips download)
  *   LAYA_REPO / LAYA_SUBFOLDER / LAYA_REVISION   Hugging Face source coordinates
  *   LAYA_CACHE=/path                   download cache root
@@ -73,14 +81,52 @@ export interface Viewport {
   height: number;
 }
 
+/** How the visual overlay is switched: `auto` follows headed/headless, `on`/`off` force it. */
+export type OverlayMode = "auto" | "on" | "off";
+
+/** All valid overlay modes, used to validate LAYA_BROWSER_OVERLAY. */
+export const OVERLAY_MODES: readonly OverlayMode[] = ["auto", "on", "off"] as const;
+
+/** The default overlay brand accent (agentLens purple). */
+export const DEFAULT_OVERLAY_ACCENT = "#a855f7";
+
+/**
+ * The resolved visual-overlay configuration (agentLens HUD). The overlay is an on-page,
+ * pointer-events:none set of nodes injected via `context.addInitScript`, so it never
+ * intercepts clicks or alters page behaviour. `enabled` is the resolved on/off decision;
+ * `mode` records how it was chosen (so a downstream `auto` can re-derive from the effective
+ * headless mode after a headed launch falls back to headless).
+ */
+export interface OverlayConfig {
+  /** Whether the overlay is on, resolved from {@link mode} and the headless setting. */
+  enabled: boolean;
+  /** How the overlay switch was requested: `auto` (on when headed) / `on` / `off`. */
+  mode: OverlayMode;
+  /** Brand accent as a validated `#rgb`/`#rrggbb` hex string. */
+  accent: string;
+  /** Whether the per-character typing effect is shown (opt-in). */
+  typingEffect: boolean;
+  /** Whether a WAIT countdown is displayed (opt-in). */
+  waitCountdown: boolean;
+  /** Whether "what the agent sees" element outlines are drawn (opt-in debug). */
+  debugSeeElements: boolean;
+  /** Whether the collapsible activity-log panel is shown. */
+  activityLog: boolean;
+}
+
 /** The fully-parsed, typed configuration handed inward to the rest of the server. */
 export interface LayaBrowserConfig {
-  /** Launch the browser headless (default) or headed. */
+  /** Launch the browser headless or headed (default: headed). */
   headless: boolean;
   /** Optional Chromium channel (e.g. `"chrome"`). */
   channel?: string;
   /** Page viewport. */
   viewport: Viewport;
+
+  /** The resolved visual-overlay (agentLens HUD) configuration. */
+  overlay: OverlayConfig;
+  /** Milliseconds the Autopilot WAIT operation pauses for. Clamped to `[0, 5000]`. */
+  autopilotWaitMs: number;
 
   /** Local ONNX bundle directory; when set, nothing is downloaded. */
   modelDir?: string;
@@ -138,6 +184,8 @@ export interface ConfigOverrides {
   headless?: boolean;
   channel?: string;
   viewport?: Viewport;
+  overlay?: Partial<OverlayConfig>;
+  autopilotWaitMs?: number;
   modelDir?: string;
   repo?: string;
   subfolder?: string;
@@ -158,6 +206,11 @@ export interface ConfigOverrides {
 export const DEFAULT_CONFIDENCE_THRESHOLD = 0.6;
 export const DEFAULT_MAX_STEPS = 15;
 export const DEFAULT_VIEWPORT: Viewport = { width: 1280, height: 800 };
+/** Default Autopilot WAIT duration (ms), lower than the loop's legacy 500. */
+export const DEFAULT_AUTOPILOT_WAIT_MS = 300;
+/** Bounds for the Autopilot WAIT duration. */
+export const AUTOPILOT_WAIT_MS_MIN = 0;
+export const AUTOPILOT_WAIT_MS_MAX = 5000;
 
 /** Parse a boolean env var: only the literal string `"false"` disables a default-true flag. */
 function envBoolDefaultTrue(value: string | undefined): boolean {
@@ -209,6 +262,21 @@ function clamp(n: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, n));
 }
 
+/** Parse an overlay mode (`auto`/`on`/`off`); anything else falls back to `auto`. */
+function parseOverlayMode(value: string | undefined): OverlayMode {
+  const v = value?.trim().toLowerCase();
+  return (OVERLAY_MODES as readonly string[]).includes(v ?? "")
+    ? (v as OverlayMode)
+    : "auto";
+}
+
+/** Validate a `#rgb`/`#rrggbb` hex color; return the default accent when malformed. */
+function parseHexColor(value: string | undefined, fallback: string): string {
+  if (!value) return fallback;
+  const v = value.trim();
+  return /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(v) ? v : fallback;
+}
+
 /**
  * Parse the effective configuration from environment + overrides.
  *
@@ -219,8 +287,10 @@ export function loadConfig(
   overrides: ConfigOverrides = {},
   env: Record<string, string | undefined> = process.env,
 ): LayaBrowserConfig {
+  // Headed by default: only the literal string "true" runs headless. A headed launch on a
+  // machine with no display server auto-falls-back to headless in BrowserSession.launch().
   const headless =
-    overrides.headless ?? envBoolDefaultTrue(env.LAYA_BROWSER_HEADLESS);
+    overrides.headless ?? envBoolDefaultFalse(env.LAYA_BROWSER_HEADLESS);
 
   const channel = overrides.channel ?? env.LAYA_BROWSER_CHANNEL;
 
@@ -286,9 +356,50 @@ export function loadConfig(
   const allowUnsafeCode =
     overrides.allowUnsafeCode ?? envBoolDefaultFalse(env.LAYA_ALLOW_UNSAFE_CODE);
 
+  // Overlay: parse each knob once. `auto` resolves to enabled = !headless (on when headed);
+  // `on`/`off` force it regardless. Overrides win per-field over the env-derived values.
+  const overlayMode = overrides.overlay?.mode ?? parseOverlayMode(env.LAYA_BROWSER_OVERLAY);
+  const overlayEnabled =
+    overrides.overlay?.enabled ??
+    (overlayMode === "on" ? true : overlayMode === "off" ? false : !headless);
+  const overlay: OverlayConfig = {
+    enabled: overlayEnabled,
+    mode: overlayMode,
+    accent:
+      overrides.overlay?.accent ??
+      parseHexColor(env.LAYA_BROWSER_OVERLAY_ACCENT, DEFAULT_OVERLAY_ACCENT),
+    typingEffect:
+      overrides.overlay?.typingEffect ??
+      envBoolDefaultFalse(env.LAYA_BROWSER_OVERLAY_TYPING),
+    waitCountdown:
+      overrides.overlay?.waitCountdown ??
+      envBoolDefaultFalse(env.LAYA_BROWSER_OVERLAY_COUNTDOWN),
+    debugSeeElements:
+      overrides.overlay?.debugSeeElements ??
+      envBoolDefaultFalse(env.LAYA_BROWSER_OVERLAY_DEBUG),
+    activityLog:
+      overrides.overlay?.activityLog ??
+      envBoolDefaultTrue(env.LAYA_BROWSER_OVERLAY_LOG),
+  };
+
+  const autopilotWaitMs = clamp(
+    Math.trunc(
+      overrides.autopilotWaitMs ??
+        parseNumber(env.LAYA_AUTOPILOT_WAIT_MS, {
+          min: AUTOPILOT_WAIT_MS_MIN,
+          max: AUTOPILOT_WAIT_MS_MAX,
+        }) ??
+        DEFAULT_AUTOPILOT_WAIT_MS,
+    ),
+    AUTOPILOT_WAIT_MS_MIN,
+    AUTOPILOT_WAIT_MS_MAX,
+  );
+
   const config: LayaBrowserConfig = {
     headless,
     viewport,
+    overlay,
+    autopilotWaitMs,
     engine,
     confidenceThreshold,
     maxSteps,

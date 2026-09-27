@@ -1,0 +1,31 @@
+{
+  "id": "FEAT-003",
+  "type": "feat",
+  "description": "Wire the autopilot loop (src/autopilot/loop.ts) to narrate each step through the overlay API built in FEAT-002, covering the per-step behaviors of all four tiers, and make the WAIT duration use the configurable value from FEAT-001. Depends on FEAT-001 (config) and FEAT-002 (overlay API).",
+  "status": "pending",
+  "steps": [
+    "Thread the overlay into the loop: add an optional overlay handle to RunGoalOptions (and RunGoalContext in src/tools/run_goal.ts) and pass the session's BrowserOverlay in from server.ts's run_goal registration. When absent (unit tests that construct runGoal without a session overlay), every overlay call must be a guarded no-op so the loop's existing pure logic and all current autopilot tests remain unchanged.",
+    "In runGoal(): at the top of each iteration set overlay progress(step, maxSteps) and setState('thinking') with a status like 'Deciding…' before the decision pipeline (policySeed / engine.decide / escalate). This gives the idle heartbeat/breathing pulse during thinks (Tier 4) and the thinking HUD (Tier 2).",
+    "When a decision escalates due to low confidence (the lowConfidence || BLOCKED branch), set overlay setState('uncertain') (amber) and a status/toast noting the LLM escalation, before switching to acting — this is the Tier 3 uncertainty coloring tied to confidence < threshold.",
+    "Just before execute(): setState('acting') with a caption describing the action (e.g. 'Clicking <name>', 'Typing <field>…', 'Navigating…', 'Selecting…'). For targeted operations (CLICK/TYPE_TEXT/SELECT/HOVER and each FILL_FORM field), compute the target element's rect via the overlay ref-rect helper and moveCursor to it + spotlight it (Tier 1). On CLICK, ripple at the target center (Tier 1).",
+    "In execute()'s WAIT case: use the configurable autopilot WAIT ms from FEAT-001 (options.waitMs already exists — ensure server/run_goal passes config.autopilotWaitMs into runGoal's waitMs; keep DEFAULT_WAIT_MS as fallback). When config.overlay.waitCountdown is enabled, call overlay.countdown(ms) so the WAIT shows a countdown ring instead of a silent freeze (Tier 3); otherwise keep it lightweight.",
+    "In execute()'s SCROLL_DOWN case: call overlay.scrollIndicator('down', position) (Tier 3). In NAVIGATE_BACK and any navigation: toast('Navigating…') and on completion toast('Navigation complete') (Tier 3). Keep these best-effort/guarded.",
+    "Append each executed step's human-readable detail to the overlay activity log via overlay.log(detail) (Tier 4), mirroring the recentActions transcript the loop already builds — do this right after the existing recentActions.push(executed.detail) so the on-page feed matches the returned transcript.",
+    "On terminal outcomes: setState('success') + toast on DONE/verified, setState('error') + toast on BLOCKED/error, so the banner reflects the final result color (Tier 3). Ensure the overlay is left in a clean state (e.g. hideSpotlight) at the end of the run.",
+    "Do NOT introduce networkidle or slowMo anywhere. Keep execute() as the only IO function; overlay calls are IO but must be additive, guarded, and never change the Playwright action semantics or the returned StepRecord/RunResult shape (so existing autopilot.test.ts / autopilot-part2.test.ts assertions about transcript/verification are unchanged).",
+    "Run npm run typecheck; ensure existing autopilot tests (which construct runGoal with a fake session/engine and NO overlay) still pass because overlay calls are guarded no-ops when no overlay is provided."
+  ],
+  "acceptance_criteria": [
+    "runGoal accepts an optional overlay and narrates: progress per step, thinking->acting state transitions, uncertainty(amber) on escalation, cursor move + spotlight + ripple on targeted actions, scroll indicator on SCROLL_DOWN, toasts on navigation/terminal, and activity-log appends matching the transcript.",
+    "The WAIT operation uses the configurable autopilot WAIT ms (defaulting lower than 500) and shows a countdown only when config.overlay.waitCountdown is on.",
+    "When no overlay is supplied, runGoal behaves exactly as before (all existing autopilot tests pass unchanged); StepRecord/RunResult shapes are unchanged.",
+    "No networkidle or slowMo introduced.",
+    "npm run typecheck clean."
+  ],
+  "verification": [
+    "Run `npm run typecheck` — clean.",
+    "Run `npm run test` — autopilot.test.ts, autopilot-part2.test.ts, escalation.test.ts, safety.test.ts still pass (overlay narration is additive and guarded)."
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}

@@ -1,0 +1,7 @@
+{
+  "task_id": "task-laya-overlay-tiers",
+  "task_description": "Implement a live on-page overlay/visual-narration layer (Tiers 1-4: banner, animated cursor, click ripple, target spotlight, action popover/caption, status HUD with thinking/acting + step N/max progress, optional typing effect, scroll indicator, toasts, success/error/uncertainty coloring, optional WAIT countdown, collapsible activity-log panel, Esc-to-release hint, idle heartbeat, and a debug 'what the agent sees' mode) for laya-browser-mcp. Injected via context.addInitScript so it survives navigations, owned by BrowserSession, with pointer-events:none so it never intercepts clicks. Make HEADED the default with graceful headless auto-fallback, gate the overlay on-by-default-in-headed via LAYA_BROWSER_OVERLAY (+ sub-knobs; typing effect and WAIT countdown default off), narrate each autopilot loop step through the overlay, address the domWalk double-reflow / post-action snapshot cost, and add REAL headless Playwright tests (screenshots + DOM assertions) covering injection, visibility, pointer-events, navigation re-injection, click non-interception, and headed-default/headless-fallback — fixing any bugs found. Commit locally; do not push or open a PR (orchestrator publishes).",
+  "status": "in_progress",
+  "feature_order": ["FEAT-001", "FEAT-002", "FEAT-003", "FEAT-004"],
+  "blocked_reason": null
+}
