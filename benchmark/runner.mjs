@@ -47,7 +47,7 @@ export function parseEvalValue(text) {
   try {
     return JSON.parse(payload);
   } catch {
-    // A bare unquoted string (rare) — return as-is.
+    // A bare unquoted string (rare); return as-is.
     return payload === "undefined" ? undefined : payload;
   }
 }
