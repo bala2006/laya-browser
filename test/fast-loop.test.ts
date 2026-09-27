@@ -306,6 +306,30 @@ describe("fast loop: freshGuard fresh vs stale (real headless chromium)", () => 
     await page.locator("#query").fill("laptops");
     expect(await session.freshGuard(page, undefined, { marker: snap.marker })).toBe(false);
   });
+
+  it("stays fresh for controls named via title or a child img[alt] (name-derivation parity)", async () => {
+    // The act-time guard recompute (currentGuardAndPageKey.nameFor) must derive the accessible
+    // name with the SAME fallback chain as captureFast.accessibleName. A control named only via
+    // its title attribute or a child img[alt] would otherwise recompute a different name and be
+    // wrongly reported stale on an unchanged page.
+    const page = await session.getPage();
+    await page.goto(fixtures.url("fast-title-name.html"), { waitUntil: "domcontentloaded" });
+    const snap = await captureFast(page);
+
+    const byTitle = snap.controls.find((c) => c.name === "Settings")!;
+    const byImgAlt = snap.controls.find((c) => c.name === "Search")!;
+    expect(byTitle).toBeDefined();
+    expect(byImgAlt).toBeDefined();
+
+    // Unchanged page: both re-check as FRESH, proving the recomputed name matches the observed
+    // one for the title and img[alt] fallbacks.
+    expect(
+      await session.freshGuard(page, byTitle.nodeId, { guard: byTitle.guard, pageKey: snap.pageKey }),
+    ).toBe(true);
+    expect(
+      await session.freshGuard(page, byImgAlt.nodeId, { guard: byImgAlt.guard, pageKey: snap.pageKey }),
+    ).toBe(true);
+  });
 });
 
 describe("fast loop: occlusion hit-test (real headless chromium)", () => {

@@ -47,12 +47,6 @@ const EMAIL_RE = /^[^\s@"']+@[^\s@"']+\.[^\s@"']+$/;
 const DATE_RE = /^(?:\d{4}-\d{2}-\d{2}|\d{1,2}\/\d{1,2}\/\d{2,4})$/;
 
 /**
- * Trim an unquoted assignment value at the first clause boundary so a multi-word value like
- * `New York` is kept whole while a trailing clause (`, and ...` / `. ...` / `; ...` /
- * ` and ...`) is dropped. Also strips a lone trailing sentence period so `name is Ada Lovelace.`
- * yields `Ada Lovelace`. Returns the trimmed value (never widens past the original span).
- */
-/**
  * Reduce a captured no-separator key to the field label immediately before the quote: the
  * trailing run of label words after the last clause/joining boundary (a joining word like
  * `and`/`then`, or the assignment word `is`). So `first name is ada and last name` becomes
@@ -68,6 +62,12 @@ function lastLabelWord(key: string): string {
   return parts.slice(start).join(" ");
 }
 
+/**
+ * Trim an unquoted assignment value at the first clause boundary so a multi-word value like
+ * `New York` is kept whole while a trailing clause (`, and ...` / `. ...` / `; ...` /
+ * ` and ...`) is dropped. Also strips a lone trailing sentence period so `name is Ada Lovelace.`
+ * yields `Ada Lovelace`. Returns the trimmed value (never widens past the original span).
+ */
 function trimUnquotedValue(raw: string): string {
   let v = raw;
   // Cut at a comma / semicolon / a joining word (` and ` / ` then `) that starts a new clause.

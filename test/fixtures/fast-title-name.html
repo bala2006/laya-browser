@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Title and image-alt names</title>
+    <style>
+      body { margin: 0; padding: 40px; }
+      button { display: block; margin: 8px 0; }
+    </style>
+  </head>
+  <body>
+    <h1>Guard name derivation</h1>
+
+    <!-- Named ONLY via title (no text content, no aria-label): captureFast records "Settings"
+         via the title fallback, so the act-time recompute must use the same fallback or the
+         guard would look stale. -->
+    <button id="by-title" type="button" title="Settings"></button>
+
+    <!-- Named ONLY via a child img[alt]: captureFast records "Search" via the img[alt]
+         fallback, which the act-time recompute must also apply. -->
+    <button id="by-img-alt" type="button">
+      <img alt="Search" src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==" />
+    </button>
+  </body>
+</html>

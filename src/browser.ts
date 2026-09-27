@@ -204,12 +204,30 @@ function currentGuardAndPageKey(nodeId: number): {
     if (el.hasAttribute("contenteditable")) return "textbox";
     return tag;
   }
+  // (F1) Accessible-name derivation, kept BYTE-FOR-BYTE identical to captureFast's
+  // accessibleName in snapshot.ts so the act-time guard recompute never disagrees with the
+  // observe-time guard. The full fallback chain is: aria-label, aria-labelledby, associated
+  // label/placeholder/name for form fields, input submit/button/reset value, title,
+  // textContent, then a child img[alt]. Any divergence here would make guardsEqual report a
+  // fresh node as stale, so this MUST mirror accessibleName exactly.
   function nameFor(el: Element): string {
     const he = el as HTMLElement;
+    const tag = el.tagName.toLowerCase();
+
     const ariaLabel = he.getAttribute("aria-label");
     if (ariaLabel && ariaLabel.trim()) return ariaLabel.trim();
+
     const doc = he.ownerDocument || document;
-    const tag = el.tagName.toLowerCase();
+
+    const labelledBy = he.getAttribute("aria-labelledby");
+    if (labelledBy) {
+      const names = labelledBy
+        .split(/\s+/)
+        .map((id) => doc.getElementById(id)?.textContent?.trim() ?? "")
+        .filter(Boolean);
+      if (names.length) return names.join(" ");
+    }
+
     if (tag === "input" || tag === "textarea" || tag === "select") {
       const id = he.getAttribute("id");
       if (id) {
@@ -224,8 +242,27 @@ function currentGuardAndPageKey(nodeId: number): {
       const nameAttr = he.getAttribute("name");
       if (nameAttr && nameAttr.trim()) return nameAttr.trim();
     }
+
+    if (tag === "input") {
+      const type = (he.getAttribute("type") ?? "text").toLowerCase();
+      if (type === "submit" || type === "button" || type === "reset") {
+        const v = (he as HTMLInputElement).value;
+        if (v && v.trim()) return v.trim();
+      }
+    }
+
+    const title = he.getAttribute("title");
+    if (title && title.trim()) return title.trim();
+
     const text = (he.textContent ?? "").replace(/\s+/g, " ").trim();
     if (text) return text.length > 120 ? text.slice(0, 117) + "..." : text;
+
+    const altImg = he.querySelector("img[alt]");
+    if (altImg) {
+      const alt = altImg.getAttribute("alt");
+      if (alt && alt.trim()) return alt.trim();
+    }
+
     return "";
   }
   // pageKey: recompute exactly as captureFast (form-field state + document/nav identity).
@@ -1587,8 +1624,11 @@ export class BrowserSession {
    * result so the loop can re-observe on `stale`/`covered`/`gone` instead of throwing.
    *
    * For `fill` the value is focused + selected + set + input/change dispatched; for `select`
-   * the option value is set + input/change dispatched; for `click` a real click is issued at
-   * the rect center via the element handle. NO fresh selector query happens.
+   * the option value is set + input/change dispatched; for `click` a synthetic `el.click()` is
+   * fired on the target AFTER the rect-center occlusion hit-test passes (the center coordinate
+   * gates the action but is not used to synthesise a pointer gesture, so no full
+   * pointerdown/mousedown/mouseup sequence is dispatched the way a real pointer click would).
+   * NO fresh selector query happens.
    */
   async actOnNode(
     page: Page,
