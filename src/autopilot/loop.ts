@@ -552,8 +552,69 @@ class Narrator {
 
   async setState(state: OverlayState, status?: string): Promise<void> {
     if (!this.on) return;
-    await this.overlay!.setState(this.page, state);
-    if (status !== undefined) await this.overlay!.setStatus(this.page, this.redactor(status));
+    // (Perf) The state and its caption are always set together, so they share one round-trip.
+    if (status === undefined) {
+      await this.overlay!.setState(this.page, state);
+      return;
+    }
+    await this.overlay!.callBatch(this.page, [
+      ["setState", state],
+      ["setStatus", this.redactor(status)],
+    ]);
+  }
+
+  /**
+   * (Perf) The step preamble: advance the counter and enter the thinking state (with its
+   * caption) in ONE round-trip. This used to be three separate evaluates fired before any
+   * decision work began, on every step.
+   */
+  async beginStep(step: number, max: number, status = "Deciding\u2026"): Promise<void> {
+    if (!this.on) return;
+    await this.overlay!.callBatch(this.page, [
+      ["progress", step, max],
+      ["setState", "thinking"],
+      ["setStatus", this.redactor(status)],
+    ]);
+  }
+
+  /**
+   * (Perf) Raise a notice as BOTH a toast and an activity-log line in one round-trip: the two
+   * always accompany each other for the same event, so they never needed separate evaluates.
+   */
+  async notice(message: string, kind: ToastKind = "info"): Promise<void> {
+    if (!this.on) return;
+    const text = this.redactor(message);
+    await this.overlay!.callBatch(this.page, [
+      ["toast", text, kind],
+      ["log", text],
+    ]);
+  }
+
+  /**
+   * (Perf) Set the state + caption AND raise a toast in ONE round-trip. These three always fire
+   * together when escalating to the LLM or asking for destructive-action confirmation.
+   */
+  async stateWithToast(
+    state: OverlayState,
+    status: string,
+    message: string,
+    kind: ToastKind = "uncertain",
+  ): Promise<void> {
+    if (!this.on) return;
+    await this.overlay!.callBatch(this.page, [
+      ["setState", state],
+      ["setStatus", this.redactor(status)],
+      ["toast", this.redactor(message), kind],
+    ]);
+  }
+
+  /** (Perf) Reveal the cursor and light the session aura in one round-trip at run start. */
+  async beginRun(): Promise<void> {
+    if (!this.on) return;
+    await this.overlay!.callBatch(this.page, [
+      ["showCursor"],
+      ["sessionFrame", true],
+    ]);
   }
 
   async toast(message: string, kind: ToastKind = "info"): Promise<void> {
@@ -605,17 +666,13 @@ class Narrator {
    */
   async focusTarget(ref: string, caption?: string): Promise<OverlayRect | null> {
     if (!this.on) return null;
-    const rect = await this.overlay!.refRect(this.page, ref);
-    if (rect) {
-      await this.overlay!.moveCursor(
-        this.page,
-        rect.x + rect.width / 2,
-        rect.y + rect.height / 2,
-        caption !== undefined ? this.redactor(caption) : caption,
-      );
-      await this.overlay!.spotlight(this.page, rect);
-    }
-    return rect;
+    // (Perf) One round-trip resolves the ref and aims the cursor + spotlight at it, instead of
+    // three. `this.redactor` still masks the caption, exactly as before.
+    return this.overlay!.focus(
+      this.page,
+      ref,
+      caption !== undefined ? this.redactor(caption) : caption,
+    );
   }
 
   async ripple(x: number, y: number): Promise<void> {
@@ -995,8 +1052,7 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
   // visible from the start (it then moves in real time via focusTarget->moveCursor per step)
   // and light up the four-corner session frame for the duration of the run. Both are
   // best-effort no-ops when no overlay/page is present.
-  await narrator.showCursor();
-  await narrator.sessionFrame(true);
+  await narrator.beginRun();
 
   const recentActions: string[] = [];
   const transcript: StepRecord[] = [];
@@ -1028,8 +1084,7 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
     for (let step = 1; step <= maxSteps; step++) {
       // Tier 4 heartbeat + Tier 2 thinking HUD: announce the step and enter the thinking
       // state BEFORE the (potentially slow) decision pipeline runs.
-      await narrator.progress(step, maxSteps);
-      await narrator.setState("thinking", "Deciding\u2026");
+      await narrator.beginStep(step, maxSteps);
 
       // (D1) Start-of-step wall clock, used for the per-step timing artifact.
       const stepStart = Date.now();
@@ -1053,8 +1108,7 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
             d.kind === "consent"
               ? `Closed cookie banner (${d.clicked})`
               : `Closed modal (${d.clicked})`;
-          await narrator.toast(label, "info");
-          await narrator.log(label);
+          await narrator.notice(label, "info");
           recentActions.push(label);
         }
       }
@@ -1087,8 +1141,7 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
       const isFirstStep = prevSnapshot === undefined;
       if (!isFirstStep && diff.added.length > 0) {
         const plural = diff.added.length === 1 ? "control" : "controls";
-        await narrator.toast(`${diff.added.length} new ${plural} appeared`, "info");
-        await narrator.log(`${diff.added.length} new ${plural} appeared`);
+        await narrator.notice(`${diff.added.length} new ${plural} appeared`, "info");
       }
       // Advance the previous-snapshot pointer AFTER computing the diff for this step.
       prevSnapshot = snapshot;
@@ -1116,8 +1169,12 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
         decision.targetConfidence < confidenceThreshold;
       if (decision.source !== "rule" && (lowConfidence || decision.operation === "BLOCKED")) {
         // Tier 3: colour the HUD amber to signal low-confidence escalation to the LLM.
-        await narrator.setState("uncertain", "Low confidence \u2014 asking the LLM\u2026");
-        await narrator.toast("Escalating to the LLM for the next step", "uncertain");
+        await narrator.stateWithToast(
+          "uncertain",
+          "Low confidence \u2014 asking the LLM\u2026",
+          "Escalating to the LLM for the next step",
+          "uncertain",
+        );
         // (C2) When delta prompting is enabled and a meaningful diff exists (and this is not
         // the first step), escalate with a delta-only prompt to cut tokens; otherwise the
         // full-snapshot prompt is used (the default).
@@ -1184,8 +1241,12 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
             if (confirmDestructive && confirm) {
               const targetName = String(target.name || target.role);
               const prompt = `About to click ${JSON.stringify(targetName)} - approve?`;
-              await narrator.setState("uncertain", `Awaiting confirmation: ${prompt}`);
-              await narrator.toast(prompt, "uncertain");
+              await narrator.stateWithToast(
+                "uncertain",
+                `Awaiting confirmation: ${prompt}`,
+                prompt,
+                "uncertain",
+              );
               // The confirm callback must never throw; guard defensively regardless so the
               // loop degrades to a refusal (fail-safe) rather than erroring out.
               try {
@@ -1225,8 +1286,12 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
             note = note
               ? `${note}; approved via confirmation`
               : "approved via confirmation";
-            await narrator.setState("acting", "Approved - proceeding");
-            await narrator.toast("Approved - proceeding", "info");
+            await narrator.stateWithToast(
+              "acting",
+              "Approved - proceeding",
+              "Approved - proceeding",
+              "info",
+            );
           }
         }
       }
@@ -1408,8 +1473,7 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
   // Tier 3: colour the banner by the final result, then leave the HUD in a clean state.
   const verificationFailed = verification.checked && !verification.verified;
   if (outcome === "done" && !verificationFailed) {
-    await narrator.setState("success", "Goal complete");
-    await narrator.toast("Goal complete", "success");
+    await narrator.stateWithToast("success", "Goal complete", "Goal complete", "success");
   } else if (outcome === "blocked" || outcome === "stuck" || verificationFailed) {
     // Treat `stuck` like blocked for verification messaging while keeping the distinct
     // outcome string. The overlay was already set during the stuck bail; refresh it here so
@@ -1419,8 +1483,9 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
       : outcome === "stuck"
         ? "Stuck - not progressing"
         : "Blocked";
-    await narrator.setState("error", label);
-    await narrator.toast(
+    await narrator.stateWithToast(
+      "error",
+      label,
       verificationFailed
         ? "Reported DONE but verification failed"
         : outcome === "stuck"
