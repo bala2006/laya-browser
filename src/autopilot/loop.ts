@@ -21,7 +21,15 @@
  * INDEPENDENT final-page verification (the goal's expected marker, checked directly on the
  * page) and report `verified` true/false separately from the operation the model chose.
  */
+import type { Page } from "playwright";
 import type { BrowserSession } from "../browser.js";
+import type {
+  BrowserOverlay,
+  OverlayRect,
+  OverlayState,
+  ScrollDirection,
+  ToastKind,
+} from "../overlay.js";
 import { capture, type Snapshot } from "../snapshot.js";
 import { buildState, type BuildStateOptions } from "../state-builder.js";
 import { fieldValueFromGoal, goalSuccessMarkers } from "../laya/goal.js";
@@ -125,6 +133,18 @@ export interface RunGoalOptions {
   allowedDomains?: string[];
   /** Whether the destructive-form guard is active. Defaults to true. */
   destructiveFormGuard?: boolean;
+  /**
+   * Optional visual-overlay (agentLens HUD) controller, threaded in from the session so the
+   * loop can narrate each step on-page. When omitted, EVERY narration call is a guarded
+   * no-op and the loop behaves exactly as before (the pure decision/transition logic and all
+   * existing autopilot tests are unaffected).
+   */
+  overlay?: BrowserOverlay;
+  /**
+   * The active page the overlay narrates against. Only used for overlay calls; supplied
+   * alongside {@link overlay}. When absent the loop resolves the page for IO on its own.
+   */
+  overlayPage?: Page;
 }
 
 const DEFAULT_WAIT_MS = 500;
@@ -138,6 +158,44 @@ export const DEGRADED_MESSAGE =
 /** Look up a control by its ref within a page state. */
 function findControl(state: PageState, ref: string): Control | undefined {
   return state.controls.find((c) => c.ref === ref);
+}
+
+/**
+ * A short, human-readable caption for the HUD status line describing the action about to
+ * run. Targeted ops render their own cursor caption inside {@link execute}; this covers the
+ * banner status for every operation so the "acting" state always reads clearly.
+ */
+function actionCaption(decision: Decision, state: PageState): string {
+  const name = (ref: string): string => {
+    const c = findControl(state, ref);
+    return c ? String(c.name || c.role) : ref;
+  };
+  switch (decision.operation) {
+    case "CLICK":
+      return `Clicking ${name(decision.target)}`;
+    case "TYPE_TEXT":
+      return `Typing ${name(decision.target)}\u2026`;
+    case "SELECT":
+      return `Selecting ${name(decision.target)}`;
+    case "HOVER":
+      return `Hovering ${name(decision.target)}`;
+    case "FILL_FORM":
+      return `Filling ${decision.fields.length} field(s)\u2026`;
+    case "PRESS_KEY":
+      return `Pressing ${decision.key}`;
+    case "NAVIGATE_BACK":
+      return "Navigating\u2026";
+    case "SCROLL_DOWN":
+      return "Scrolling down\u2026";
+    case "WAIT":
+      return "Waiting\u2026";
+    case "SCREENSHOT":
+      return "Capturing screenshot\u2026";
+    case "VERIFY":
+      return "Verifying\u2026";
+    default:
+      return "Acting\u2026";
+  }
 }
 
 /**
@@ -192,6 +250,91 @@ interface ExecuteResult {
   verified?: boolean;
 }
 
+/**
+ * A thin, always-safe narration facade over the optional {@link BrowserOverlay}. When no
+ * overlay/page was threaded in it is entirely inert, so the loop's pure logic and every
+ * existing autopilot test (which construct runGoal with NO overlay) are unaffected. When an
+ * overlay is present each method delegates to the overlay's own guarded, never-throwing
+ * server-side API against the active page.
+ */
+class Narrator {
+  constructor(
+    private readonly overlay: BrowserOverlay | undefined,
+    private readonly page: Page | undefined,
+  ) {}
+
+  /** Whether narration is active (an overlay AND a page were supplied). */
+  private get on(): boolean {
+    return this.overlay !== undefined && this.page !== undefined;
+  }
+
+  async progress(step: number, max: number): Promise<void> {
+    if (!this.on) return;
+    await this.overlay!.progress(this.page, step, max);
+  }
+
+  async setState(state: OverlayState, status?: string): Promise<void> {
+    if (!this.on) return;
+    await this.overlay!.setState(this.page, state);
+    if (status !== undefined) await this.overlay!.setStatus(this.page, status);
+  }
+
+  async toast(message: string, kind: ToastKind = "info"): Promise<void> {
+    if (!this.on) return;
+    await this.overlay!.toast(this.page, message, kind);
+  }
+
+  async log(line: string): Promise<void> {
+    if (!this.on) return;
+    await this.overlay!.log(this.page, line);
+  }
+
+  async countdown(ms: number): Promise<void> {
+    if (!this.on) return;
+    await this.overlay!.countdown(this.page, ms);
+  }
+
+  async scrollIndicator(direction: ScrollDirection, pos?: number): Promise<void> {
+    if (!this.on) return;
+    await this.overlay!.scrollIndicator(this.page, direction, pos);
+  }
+
+  async hideSpotlight(): Promise<void> {
+    if (!this.on) return;
+    await this.overlay!.hideSpotlight(this.page);
+  }
+
+  /**
+   * Point the synthetic cursor + spotlight at a targeted control (resolved via the overlay's
+   * `data-laya-ref` helper), optionally with a caption. Returns the target rect (or null) so
+   * a CLICK can ripple at its centre. Best-effort: any missing rect leaves the HUD untouched.
+   */
+  async focusTarget(ref: string, caption?: string): Promise<OverlayRect | null> {
+    if (!this.on) return null;
+    const rect = await this.overlay!.refRect(this.page, ref);
+    if (rect) {
+      await this.overlay!.moveCursor(
+        this.page,
+        rect.x + rect.width / 2,
+        rect.y + rect.height / 2,
+        caption,
+      );
+      await this.overlay!.spotlight(this.page, rect);
+    }
+    return rect;
+  }
+
+  async ripple(x: number, y: number): Promise<void> {
+    if (!this.on) return;
+    await this.overlay!.ripple(this.page, x, y);
+  }
+
+  /** Center of a rect, used to place the click ripple. */
+  static rectCenter(rect: OverlayRect): { x: number; y: number } {
+    return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+  }
+}
+
 /** Pick the {@link FieldKind} used to fill a control in a FILL_FORM batch. */
 function fieldKindFor(control: Control | undefined): FieldKind {
   if (!control) return "textbox";
@@ -213,24 +356,38 @@ async function execute(
   state: PageState,
   options: Required<Pick<RunGoalOptions, "waitMs">> & { scrollBy?: number },
   session: BrowserSession,
+  narrator: Narrator,
 ): Promise<ExecuteResult> {
   switch (decision.operation) {
     case "CLICK": {
-      const locator = session.resolveRef(decision.target);
-      await locator.click();
       const c = findControl(state, decision.target);
+      const name = c ? String(c.name || c.role) : decision.target;
+      // Tier 1/2: move cursor + spotlight the target, then ripple at its centre.
+      const rect = await narrator.focusTarget(decision.target, `Clicking ${name}`);
+      const locator = session.resolveRef(decision.target);
+      if (rect) {
+        const { x, y } = Narrator.rectCenter(rect);
+        await narrator.ripple(x, y);
+      }
+      await locator.click();
       return {
         detail: `CLICK ${decision.target}${c ? ` (${c.role} ${JSON.stringify(c.name)})` : ""}`,
       };
     }
     case "TYPE_TEXT": {
       const value = resolveValue(decision, state) ?? "";
+      const c = findControl(state, decision.target);
+      const field = c ? String(c.name || c.role) : decision.target;
+      await narrator.focusTarget(decision.target, `Typing ${field}\u2026`);
       const locator = session.resolveRef(decision.target);
       await locator.fill(value);
       return { detail: `TYPE_TEXT ${decision.target} = ${JSON.stringify(value)}` };
     }
     case "SELECT": {
       const value = resolveValue(decision, state) ?? "";
+      const c = findControl(state, decision.target);
+      const field = c ? String(c.name || c.role) : decision.target;
+      await narrator.focusTarget(decision.target, `Selecting ${field}`);
       const locator = session.resolveRef(decision.target);
       await locator
         .selectOption({ label: value })
@@ -240,9 +397,11 @@ async function execute(
       return { detail: `SELECT ${decision.target} = ${JSON.stringify(value)}` };
     }
     case "HOVER": {
+      const c = findControl(state, decision.target);
+      const name = c ? String(c.name || c.role) : decision.target;
+      await narrator.focusTarget(decision.target, `Hovering ${name}`);
       const locator = session.resolveRef(decision.target);
       await locator.hover();
-      const c = findControl(state, decision.target);
       return {
         detail: `HOVER ${decision.target}${c ? ` (${c.role} ${JSON.stringify(c.name)})` : ""}`,
       };
@@ -252,8 +411,12 @@ async function execute(
       // browser_fill_form tool so the deterministic "faster" path matches the manual tool.
       const filled: string[] = [];
       for (const field of decision.fields) {
+        const control = findControl(state, field.target);
+        const label = control ? String(control.name || control.role) : field.target;
+        // Tier 1: spotlight/cursor each field in turn as it is filled.
+        await narrator.focusTarget(field.target, `Filling ${label}\u2026`);
         const locator = session.resolveRef(field.target);
-        const kind = fieldKindFor(findControl(state, field.target));
+        const kind = fieldKindFor(control);
         await applyFieldValue(locator, field.value, kind);
         filled.push(`${field.target}=${JSON.stringify(field.value)}`);
       }
@@ -266,7 +429,9 @@ async function execute(
     }
     case "NAVIGATE_BACK": {
       const page = await session.getPage();
+      await narrator.toast("Navigating\u2026");
       await page.goBack({ waitUntil: "domcontentloaded" }).catch(() => undefined);
+      await narrator.toast("Navigation complete");
       return { detail: "NAVIGATE_BACK" };
     }
     case "SCROLL_DOWN": {
@@ -276,10 +441,17 @@ async function execute(
         (px) => window.scrollBy(0, px ?? window.innerHeight),
         by ?? null,
       );
+      // Tier 3: report the new scroll position after the scroll.
+      const position = await page
+        .evaluate(() => Math.round(window.scrollY))
+        .catch(() => undefined);
+      await narrator.scrollIndicator("down", position ?? undefined);
       return { detail: "SCROLL_DOWN" };
     }
     case "WAIT": {
       const page = await session.getPage();
+      // Tier 3: show the countdown ring (a no-op unless config.overlay.waitCountdown is on).
+      await narrator.countdown(options.waitMs);
       await page.waitForTimeout(options.waitMs);
       return { detail: `WAIT ${options.waitMs}ms` };
     }
@@ -328,7 +500,13 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
     sample,
     allowedDomains = [],
     destructiveFormGuard = true,
+    overlay,
+    overlayPage,
   } = options;
+
+  // A single narration facade for the whole run. Inert when no overlay/page was threaded in
+  // (all existing autopilot tests), so it never changes automation semantics.
+  const narrator = new Narrator(overlay, overlayPage);
 
   // Graceful degradation when no weights are available.
   if (!engine.available) {
@@ -376,6 +554,11 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
 
   try {
     for (let step = 1; step <= maxSteps; step++) {
+      // Tier 4 heartbeat + Tier 2 thinking HUD: announce the step and enter the thinking
+      // state BEFORE the (potentially slow) decision pipeline runs.
+      await narrator.progress(step, maxSteps);
+      await narrator.setState("thinking", "Deciding\u2026");
+
       const snapshot = await capture(page);
       lastSnapshot = snapshot;
       const state = buildState(goal, snapshot, recentActions, stateOptions);
@@ -402,6 +585,9 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
         decision.operationConfidence < confidenceThreshold ||
         decision.targetConfidence < confidenceThreshold;
       if (decision.source !== "rule" && (lowConfidence || decision.operation === "BLOCKED")) {
+        // Tier 3: colour the HUD amber to signal low-confidence escalation to the LLM.
+        await narrator.setState("uncertain", "Low confidence \u2014 asking the LLM\u2026");
+        await narrator.toast("Escalating to the LLM for the next step", "uncertain");
         const result = await escalate(state, sample);
         decision = refineWithGoalValue(result.decision, state);
         note = result.note;
@@ -418,6 +604,7 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
           ...(note ? { note } : {}),
         });
         recentActions.push(decision.operation);
+        await narrator.log(decision.operation);
         outcome = decision.operation === "DONE" ? "done" : "blocked";
         break;
       }
@@ -439,13 +626,18 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
               note: guard.reason ?? "Destructive-form guard refused the auto-submit.",
             });
             recentActions.push("BLOCKED (destructive-form guard)");
+            await narrator.log("BLOCKED (destructive-form guard)");
             outcome = "blocked";
             break;
           }
         }
       }
 
-      const executed = await execute(decision, state, { waitMs, scrollBy }, session);
+      // Tier 2: switch to the acting state with an op-appropriate caption just before IO.
+      // Targeted ops (CLICK/TYPE_TEXT/SELECT/HOVER/FILL_FORM) render their own cursor/spotlight
+      // caption inside execute(); non-targeted ops get a status here.
+      await narrator.setState("acting", actionCaption(decision, state));
+      const executed = await execute(decision, state, { waitMs, scrollBy }, session, narrator);
       const record: StepRecord = {
         step,
         operation: decision.operation,
@@ -466,6 +658,8 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
       if (executed.verified !== undefined) record.verified = executed.verified;
       transcript.push(record);
       recentActions.push(executed.detail);
+      // Tier 4: mirror the transcript line into the on-page activity-log feed.
+      await narrator.log(executed.detail);
 
       // SCREENSHOT and VERIFY are terminal/verification steps: once one runs, the goal-run
       // ends (a VERIFY reports its result; a SCREENSHOT captures the final page).
@@ -476,6 +670,10 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
     }
   } catch (err) {
     outcome = "error";
+    // Tier 3: reflect the failure on the banner and clean up the spotlight before returning.
+    await narrator.setState("error", "Stopped on error");
+    await narrator.toast(`Error: ${(err as Error).message}`, "error");
+    await narrator.hideSpotlight();
     return {
       goal,
       outcome,
@@ -501,6 +699,20 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
     outcome === "done" && verification.checked && !verification.verified
       ? "reported DONE but the final-page verification FAILED"
       : outcome;
+
+  // Tier 3: colour the banner by the final result, then leave the HUD in a clean state.
+  const verificationFailed = verification.checked && !verification.verified;
+  if (outcome === "done" && !verificationFailed) {
+    await narrator.setState("success", "Goal complete");
+    await narrator.toast("Goal complete", "success");
+  } else if (outcome === "blocked" || verificationFailed) {
+    await narrator.setState("error", verificationFailed ? "Verification failed" : "Blocked");
+    await narrator.toast(
+      verificationFailed ? "Reported DONE but verification failed" : "Run blocked",
+      "error",
+    );
+  }
+  await narrator.hideSpotlight();
 
   return {
     goal,

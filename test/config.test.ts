@@ -8,6 +8,72 @@ describe("loadConfig capability and engine parsing", () => {
     expect(config.browserEngine).toBe("chromium");
   });
 
+  it("defaults to HEADED (headless false) and honours the literal 'true'", () => {
+    expect(loadConfig({}, {}).headless).toBe(false);
+    expect(loadConfig({}, { LAYA_BROWSER_HEADLESS: "false" }).headless).toBe(false);
+    expect(loadConfig({}, { LAYA_BROWSER_HEADLESS: "1" }).headless).toBe(false);
+    expect(loadConfig({}, { LAYA_BROWSER_HEADLESS: "true" }).headless).toBe(true);
+    expect(loadConfig({ headless: true }, {}).headless).toBe(true);
+  });
+
+  it("resolves the overlay with sensible defaults (auto = on when headed)", () => {
+    const overlay = loadConfig({}, {}).overlay;
+    expect(overlay.mode).toBe("auto");
+    expect(overlay.enabled).toBe(true); // headed default -> overlay on
+    expect(overlay.accent).toBe("#a855f7");
+    expect(overlay.typingEffect).toBe(false);
+    expect(overlay.waitCountdown).toBe(false);
+    expect(overlay.debugSeeElements).toBe(false);
+    expect(overlay.activityLog).toBe(true);
+  });
+
+  it("auto overlay turns OFF when headless, and on/off force it regardless", () => {
+    expect(loadConfig({}, { LAYA_BROWSER_HEADLESS: "true" }).overlay.enabled).toBe(false);
+    expect(
+      loadConfig({}, { LAYA_BROWSER_HEADLESS: "true", LAYA_BROWSER_OVERLAY: "on" }).overlay
+        .enabled,
+    ).toBe(true);
+    expect(loadConfig({}, { LAYA_BROWSER_OVERLAY: "off" }).overlay.enabled).toBe(false);
+  });
+
+  it("validates the overlay accent hex and falls back on garbage", () => {
+    expect(loadConfig({}, { LAYA_BROWSER_OVERLAY_ACCENT: "#0af" }).overlay.accent).toBe("#0af");
+    expect(loadConfig({}, { LAYA_BROWSER_OVERLAY_ACCENT: "#00aaff" }).overlay.accent).toBe(
+      "#00aaff",
+    );
+    expect(loadConfig({}, { LAYA_BROWSER_OVERLAY_ACCENT: "rebeccapurple" }).overlay.accent).toBe(
+      "#a855f7",
+    );
+    expect(loadConfig({}, { LAYA_BROWSER_OVERLAY_ACCENT: "#xyz" }).overlay.accent).toBe(
+      "#a855f7",
+    );
+  });
+
+  it("parses the opt-in overlay sub-knobs from env", () => {
+    const config = loadConfig(
+      {},
+      {
+        LAYA_BROWSER_OVERLAY_TYPING: "true",
+        LAYA_BROWSER_OVERLAY_COUNTDOWN: "true",
+        LAYA_BROWSER_OVERLAY_DEBUG: "true",
+        LAYA_BROWSER_OVERLAY_LOG: "false",
+      },
+    );
+    expect(config.overlay.typingEffect).toBe(true);
+    expect(config.overlay.waitCountdown).toBe(true);
+    expect(config.overlay.debugSeeElements).toBe(true);
+    expect(config.overlay.activityLog).toBe(false);
+  });
+
+  it("parses and clamps the Autopilot WAIT ms with a lower default than the legacy 500", () => {
+    expect(loadConfig({}, {}).autopilotWaitMs).toBe(300);
+    expect(loadConfig({}, { LAYA_AUTOPILOT_WAIT_MS: "1000" }).autopilotWaitMs).toBe(1000);
+    expect(loadConfig({}, { LAYA_AUTOPILOT_WAIT_MS: "99999" }).autopilotWaitMs).toBe(300); // out of range -> default
+    expect(loadConfig({}, { LAYA_AUTOPILOT_WAIT_MS: "-5" }).autopilotWaitMs).toBe(300); // out of range -> default
+    expect(loadConfig({}, { LAYA_AUTOPILOT_WAIT_MS: "garbage" }).autopilotWaitMs).toBe(300);
+    expect(loadConfig({ autopilotWaitMs: 42 }, {}).autopilotWaitMs).toBe(42);
+  });
+
   it("parses LAYA_CAPS into a typed, comma/space-separated capability list", () => {
     const config = loadConfig({}, { LAYA_CAPS: "network, storage devtools" });
     expect(config.capabilities).toEqual<Capability[]>([

@@ -68,6 +68,7 @@ export function createServer(options: CreateServerOptions = {}): CreatedServer {
     engine: config.browserEngine,
     headless: config.headless,
     viewport: config.viewport,
+    overlay: config.overlay,
     ...(config.channel !== undefined ? { channel: config.channel } : {}),
     ...options.browser,
   };
@@ -110,6 +111,7 @@ export function createServer(options: CreateServerOptions = {}): CreatedServer {
       confidenceThreshold: config.confidenceThreshold,
       allowedDomains: config.allowedDomains,
       destructiveFormGuard: config.destructiveFormGuard,
+      waitMs: config.autopilotWaitMs,
       // Resolve the sampler lazily at call time: the client's `sampling` capability is only
       // known after it has connected and initialized, which happens after createServer.
       sample: async (prompt) => {

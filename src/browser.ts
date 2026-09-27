@@ -35,6 +35,8 @@ import type {
   RouteRule,
   TabInfo,
 } from "./types.js";
+import type { OverlayConfig } from "./config.js";
+import { BrowserOverlay } from "./overlay.js";
 
 /** The Playwright engine a {@link BrowserSession} drives. */
 export type BrowserEngineName = "chromium" | "firefox" | "webkit";
@@ -43,10 +45,18 @@ export type BrowserEngineName = "chromium" | "firefox" | "webkit";
 export interface BrowserSessionOptions {
   /** Which Playwright engine to launch. Defaults to `"chromium"`. */
   engine?: BrowserEngineName;
-  /** Launch headless (default) or headed. Defaults to `true`. */
+  /**
+   * Launch headless or headed. Defaults to `false` (headed). A headed launch on a machine
+   * with no display server transparently falls back to headless (see {@link BrowserSession.launch}).
+   */
   headless?: boolean;
   /** Viewport size for the page. Defaults to 1280x800. */
   viewport?: { width: number; height: number };
+  /**
+   * Resolved visual-overlay (agentLens HUD) configuration threaded in from the typed config.
+   * Optional so a bare `BrowserSession` still works; when omitted the overlay is off.
+   */
+  overlay?: OverlayConfig;
   /**
    * Optional Chromium channel (e.g. `"chrome"`, `"msedge"`). Ignored for firefox/webkit,
    * which have no channel concept.
@@ -87,8 +97,15 @@ const RING_BUFFER_LIMIT = 500;
  * loads no model weights.
  */
 export class BrowserSession {
-  private readonly options: Required<Omit<BrowserSessionOptions, "channel">> &
-    Pick<BrowserSessionOptions, "channel">;
+  private readonly options: Required<Omit<BrowserSessionOptions, "channel" | "overlay">> &
+    Pick<BrowserSessionOptions, "channel" | "overlay">;
+
+  /**
+   * The headless mode a launch actually used. Starts as the requested option and is set to
+   * `true` when a headed launch fails and we fall back to headless, so downstream (e.g. the
+   * overlay in `auto` mode) can decide on/off from the mode the browser really runs in.
+   */
+  private effectiveHeadless: boolean;
 
   /** The Playwright browser type selected by {@link BrowserSessionOptions.engine}. */
   private readonly browserType: BrowserType;
@@ -115,21 +132,61 @@ export class BrowserSession {
   /** Active route-mocking rules, keyed by URL pattern (one rule per pattern). */
   private routeRules = new Map<string, RouteRule>();
 
+  /**
+   * The visual overlay (agentLens HUD). Built from the resolved overlay config; injected via
+   * `context.addInitScript` in {@link launch} when active. Disabled (a no-op controller) when
+   * no overlay config was threaded in.
+   */
+  private readonly overlay: BrowserOverlay;
+
   constructor(options: BrowserSessionOptions = {}) {
     this.options = {
       engine: options.engine ?? "chromium",
-      headless: options.headless ?? true,
+      headless: options.headless ?? false,
       viewport: options.viewport ?? { width: 1280, height: 800 },
       channel: options.channel,
+      overlay: options.overlay,
       actionTimeoutMs: options.actionTimeoutMs ?? 10000,
       navigationTimeoutMs: options.navigationTimeoutMs ?? 20000,
     };
     this.browserType = BROWSER_TYPES[this.options.engine];
+    this.effectiveHeadless = this.options.headless;
+    // Build the overlay from the resolved config. When no overlay config was threaded in,
+    // synthesise a disabled one so the controller is a safe no-op.
+    this.overlay = new BrowserOverlay(
+      this.options.overlay ?? {
+        enabled: false,
+        mode: "off",
+        accent: "#a855f7",
+        typingEffect: false,
+        waitCountdown: false,
+        debugSeeElements: false,
+        activityLog: true,
+      },
+    );
+  }
+
+  /**
+   * The visual overlay controller, so the Autopilot loop (and other in-boundary callers) can
+   * narrate through the same HUD the session installs. Always returns a controller; it is a
+   * no-op when the overlay is disabled.
+   */
+  getOverlay(): BrowserOverlay {
+    return this.overlay;
   }
 
   /** Whether a browser has actually been launched yet. */
   get launched(): boolean {
     return this.browser !== undefined;
+  }
+
+  /**
+   * The headless mode the browser is actually running in. Before launch this reflects the
+   * requested option; after a headed launch that failed and fell back, it is `true`. The
+   * overlay uses this to resolve `auto` mode (on when headed) against reality.
+   */
+  get headless(): boolean {
+    return this.effectiveHeadless;
   }
 
   /**
@@ -154,10 +211,29 @@ export class BrowserSession {
     // Only Chromium honours a `channel`; firefox/webkit have no channel concept, so we
     // pass it only for chromium and keep every other launch option identical across engines.
     const useChannel = this.options.engine === "chromium" && this.options.channel;
-    const browser = await this.browserType.launch({
-      headless: this.options.headless,
+    const launchOptions = {
       ...(useChannel ? { channel: this.options.channel } : {}),
-    });
+    };
+    let browser: Browser;
+    try {
+      browser = await this.browserType.launch({
+        headless: this.options.headless,
+        ...launchOptions,
+      });
+      this.effectiveHeadless = this.options.headless;
+    } catch (err) {
+      // A HEADLESS launch that fails is a real error and must propagate. A HEADED launch can
+      // fail on a machine with no display server (e.g. CI/sandbox): warn ONCE to stderr
+      // (never stdout, to keep the stdio JSON-RPC stream intact) and retry headless so the
+      // server still comes up. On a user's machine with a display, the headed launch works.
+      if (this.options.headless) throw err;
+      const msg = (err as Error).message;
+      process.stderr.write(
+        `[laya-browser-mcp] headed launch failed (${msg}); falling back to headless.\n`,
+      );
+      browser = await this.browserType.launch({ headless: true, ...launchOptions });
+      this.effectiveHeadless = true;
+    }
     const context = await browser.newContext({
       viewport: this.options.viewport,
     });
@@ -184,6 +260,24 @@ export class BrowserSession {
     const page = await context.newPage();
     // The "page" event above will have registered `page`; ensure it is the active tab.
     this.registerPage(page, { activate: true });
+
+    // Resolve the overlay against the EFFECTIVE headless mode: in `auto` mode the overlay is
+    // on only when actually headed; `on`/`off` force it regardless. Forced `on` MUST inject
+    // even headless so visual verification (which runs headless) can assert the HUD exists.
+    const overlayCfg = this.options.overlay;
+    if (overlayCfg) {
+      const active =
+        overlayCfg.mode === "on"
+          ? true
+          : overlayCfg.mode === "off"
+            ? false
+            : !this.effectiveHeadless;
+      this.overlay.enable(active);
+      if (active) {
+        // addInitScript covers future loads/tabs; inject into the already-open page too.
+        await this.overlay.install(context, [page]);
+      }
+    }
     return page;
   }
 
@@ -694,6 +788,9 @@ export class BrowserSession {
   async mouseMove(x: number, y: number): Promise<void> {
     const page = await this.getPage();
     await page.mouse.move(x, y);
+    // Best-effort, AFTER the real action: mirror the synthetic cursor so vision-mode
+    // coordinate moves are visible in the HUD without ever changing move semantics.
+    await this.overlay.moveCursor(page, x, y);
   }
 
   /** Move to coordinates and click there with the given button (default left). */
@@ -705,6 +802,9 @@ export class BrowserSession {
     const page = await this.getPage();
     await page.mouse.move(x, y);
     await page.mouse.click(x, y, { button });
+    // Best-effort ripple + cursor AFTER the real click so click behaviour never changes.
+    await this.overlay.moveCursor(page, x, y);
+    await this.overlay.ripple(page, x, y);
   }
 
   /** Press-and-hold the given mouse button at the current cursor position. */
@@ -732,6 +832,8 @@ export class BrowserSession {
     // An intermediate move makes drag handlers that watch for movement fire reliably.
     await page.mouse.move(endX, endY, { steps: 8 });
     await page.mouse.up();
+    // Best-effort cursor trail AFTER the real drag so drag semantics never change.
+    await this.overlay.moveCursor(page, endX, endY);
   }
 
   /** Scroll the page by a wheel delta. */
@@ -763,10 +865,33 @@ export class BrowserSession {
    * evaluate-based highlight (the headless analogue of the codegen inspector overlay).
    */
   async highlight(target: string): Promise<boolean> {
-    await this.getPage();
+    const page = await this.getPage();
     const locator = this.resolveRef(target);
     const count = await locator.count();
     if (count === 0) return false;
+    // When the overlay is active, spotlight the target through the HUD so the highlight
+    // survives navigation and matches the agentLens visual language. Still keep the inline
+    // outline too (best-effort) so browser_hide_highlight has something to clear even if the
+    // overlay is torn down mid-session, and so the contract is identical either way.
+    if (this.overlay.isEnabled()) {
+      const trimmed = target.trim();
+      if (REF_PATTERN.test(trimmed)) {
+        await this.overlay.spotlight(page, trimmed);
+      } else {
+        const rect = await locator
+          .first()
+          .boundingBox()
+          .catch(() => null);
+        if (rect) {
+          await this.overlay.spotlight(page, {
+            x: rect.x,
+            y: rect.y,
+            width: rect.width,
+            height: rect.height,
+          });
+        }
+      }
+    }
     await locator.first().evaluate((el) => {
       const he = el as HTMLElement;
       he.setAttribute("data-laya-highlight-prev", he.style.outline || "");
@@ -779,6 +904,9 @@ export class BrowserSession {
   /** Remove any outline previously added by {@link highlight} across the page. */
   async hideHighlight(): Promise<void> {
     const page = await this.getPage();
+    if (this.overlay.isEnabled()) {
+      await this.overlay.hideSpotlight(page);
+    }
     await page.evaluate(() => {
       const marked = document.querySelectorAll("[data-laya-highlight-prev]");
       for (const el of Array.from(marked)) {

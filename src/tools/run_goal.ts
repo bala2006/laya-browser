@@ -30,6 +30,8 @@ export interface RunGoalContext extends ToolContext {
   allowedDomains?: string[];
   /** Whether the destructive-form guard is active. Defaults to true. */
   destructiveFormGuard?: boolean;
+  /** Milliseconds the WAIT operation pauses for. Defaults to the loop's built-in default. */
+  waitMs?: number;
 }
 
 export const inputSchema = {
@@ -102,10 +104,23 @@ export function renderRunResult(result: RunResult): string {
 export function makeHandler(ctx: RunGoalContext) {
   return async (args: Args): Promise<ToolResult> => {
     try {
+      // Thread the session's visual overlay (agentLens HUD) and the active page into the loop
+      // so each step is narrated on-page. Both are optional: the overlay is a guarded no-op
+      // when disabled, and the loop treats a missing overlay as no narration at all.
+      //
+      // Acquire the page ONLY when the engine can actually run a goal. On the no-weights
+      // degraded path runGoal returns immediately without a browser, so launching one here
+      // just to narrate would be wasted startup cost — keep that path launch-free.
+      const overlay = ctx.session.getOverlay();
+      const overlayPage = ctx.engine.available
+        ? await ctx.session.getPage()
+        : undefined;
       const result = await runGoal({
         goal: args.goal,
         session: ctx.session,
         engine: ctx.engine,
+        overlay,
+        ...(overlayPage !== undefined ? { overlayPage } : {}),
         ...(args.url !== undefined ? { url: args.url } : {}),
         ...(args.maxSteps !== undefined ? { maxSteps: args.maxSteps } : {}),
         ...(ctx.confidenceThreshold !== undefined
@@ -118,6 +133,7 @@ export function makeHandler(ctx: RunGoalContext) {
         ...(ctx.destructiveFormGuard !== undefined
           ? { destructiveFormGuard: ctx.destructiveFormGuard }
           : {}),
+        ...(ctx.waitMs !== undefined ? { waitMs: ctx.waitMs } : {}),
       });
       const isError = result.outcome === "error";
       return textResult(renderRunResult(result), isError);

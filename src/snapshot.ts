@@ -174,7 +174,10 @@ function domWalk(visibleTextLimit: number): unknown {
 
   function isVisible(el: Element): boolean {
     const he = el as HTMLElement;
-    // offsetParent is null for display:none (except position:fixed); also check rects.
+    // Cheap style reads first, so a display:none / hidden / transparent element short-circuits
+    // BEFORE any layout read. Only then read the bounding rect, exactly once, to decide the
+    // zero-size case. This avoids the previous double forced reflow while selecting the same
+    // elements as before (identical behaviour, fewer layout flushes).
     const style = window.getComputedStyle(he);
     if (style.display === "none" || style.visibility === "hidden") return false;
     if (style.opacity === "0") return false;
