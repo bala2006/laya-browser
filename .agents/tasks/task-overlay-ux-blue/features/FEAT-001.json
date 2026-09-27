@@ -1,0 +1,24 @@
+{
+  "id": "FEAT-001",
+  "type": "chore",
+  "description": "Establish and confirm a green baseline before making changes. Dependencies and Playwright browsers are already installed in this sandbox during routing, but the coder must re-verify the toolchain and record the baseline so any later failure is attributable to the change, not the environment.",
+  "status": "completed",
+  "steps": [
+    "From /projects/sandbox/laya-browser-mcp run `pnpm install` (idempotent) to confirm deps are present.",
+    "Confirm browsers: `pnpm exec playwright install chromium firefox` (already downloaded; this is a no-op verification). webkit host libs are unavailable in this sandbox and its cross-browser case self-skips - do not treat that as a failure.",
+    "Run `pnpm typecheck` and confirm it passes with no errors.",
+    "Run `pnpm test` and confirm the suite is green: expect ~244 passed / 2 skipped. If test/cross-browser.test.ts fails with 'firefox is not installed', run `pnpm exec playwright install firefox` and re-run; it then passes (webkit case skips).",
+    "Record the exact baseline test counts in this feature's findings."
+  ],
+  "acceptance_criteria": [
+    "`pnpm typecheck` exits 0.",
+    "`pnpm test` is green (all suites pass; only skips are the documented webkit/host-limited cases).",
+    "Baseline test counts are recorded in findings."
+  ],
+  "verification": [
+    "pnpm typecheck",
+    "pnpm test"
+  ],
+  "blocked_reason": null,
+  "findings": "Green baseline confirmed on branch fix/overlay-ux-blue (HEAD 15663c8). Steps run from /projects/sandbox/laya-browser-mcp:\n- `pnpm install`: idempotent, 'Already up to date' (exit 0). Warning about ignored build scripts (esbuild, onnxruntime-node) is pre-existing and harmless.\n- `pnpm exec playwright install chromium firefox`: no-op verification, exit 0. Note: Playwright prints 'BEWARE: your OS is not officially supported ... downloading fallback build for ubuntu24.04-x64' - expected in this sandbox, not a failure. webkit host libs remain unavailable; its cross-browser case self-skips.\n- `pnpm typecheck` (tsc -p tsconfig.json --noEmit): PASS, exit 0, no errors.\n- `pnpm test` (vitest full suite): GREEN, exit 0. Test Files 37 passed (37). Tests: 245 passed | 3 skipped (248 total). Duration ~17.9s wall. firefox was already installed so no cross-browser reinstall was needed; the only skips are the documented webkit/host-limited cases.\n\nBaseline counts to compare later changes against: 37 test files, 245 passed, 3 skipped, 0 failed. (Slightly higher than the briefing's ~244/2 estimate; suite is fully green with only documented skips.) No source code changed in this feature."
+}
