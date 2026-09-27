@@ -47,6 +47,9 @@ const OPERATIONS: readonly Operation[] = [
   "SCROLL_DOWN",
   "WAIT",
   "NAVIGATE_BACK",
+  // (R4) The planner may move to an explicit URL, not just go back. This is a PLANNER-ONLY
+  // operation: the local Laya engine keeps the option set its checkpoint was trained on.
+  "NAVIGATE",
   "PRESS_KEY",
   "FILL_FORM",
   "DONE",
@@ -79,7 +82,7 @@ export const ESCALATION_PROMPT_PREFIX: string = [
   "not confident. Choose the SINGLE next step.",
   "",
   "Respond with ONLY a JSON object on one line, no prose, of the form:",
-  '{"operation":"CLICK|TYPE_TEXT|SELECT|HOVER|SCROLL_DOWN|WAIT|NAVIGATE_BACK|PRESS_KEY|FILL_FORM|DONE|BLOCKED","target":"<ref like e5, required for CLICK/TYPE_TEXT/SELECT/HOVER>","value":"<text to type or option to select, optional>","key":"<key like Enter/Escape, required for PRESS_KEY>","fields":[{"target":"<ref>","value":"<text>"}]}',
+  '{"operation":"CLICK|TYPE_TEXT|SELECT|HOVER|SCROLL_DOWN|WAIT|NAVIGATE_BACK|NAVIGATE|PRESS_KEY|FILL_FORM|DONE|BLOCKED","target":"<ref like e5, required for CLICK/TYPE_TEXT/SELECT/HOVER>","value":"<text to type or option to select, optional>","url":"<absolute http(s) URL, required for NAVIGATE>","key":"<key like Enter/Escape, required for PRESS_KEY>","fields":[{"target":"<ref>","value":"<text>"}]}',
   "Prefer a single FILL_FORM with a `fields` list when several fields must be filled to progress the goal; otherwise use one targeted step.",
   "For a large READ (e.g. 'what does the page say about X'), do NOT scroll the whole page; the client has an `extract`/`ask_page` tool for scoped reads.",
   "Use a target ref (in `target` or every `fields[].target`) that appears in the CONTROLS list below. If nothing can progress the goal, return BLOCKED.",
@@ -212,6 +215,21 @@ export function parseDecision(raw: string, knownRefs: ReadonlySet<string>): Deci
     return decision;
   }
 
+  // (R4) NAVIGATE: guard the required `url` payload at this untrusted boundary. Only an
+  // absolute http(s) URL is accepted, so the planner cannot smuggle a `javascript:` or a
+  // protocol-relative hop into a navigation the page could execute.
+  if (operation === "NAVIGATE") {
+    const url = typeof obj.url === "string" ? obj.url.trim() : "";
+    if (!/^https?:\/\//i.test(url)) return blocked();
+    return {
+      operation: "NAVIGATE",
+      operationConfidence: LLM_CONFIDENCE,
+      targetConfidence: 1,
+      url,
+      source: "llm",
+    };
+  }
+
   // PRESS_KEY: guard the required `key` payload; a missing/empty key collapses to BLOCKED.
   if (operation === "PRESS_KEY") {
     const key = typeof obj.key === "string" ? obj.key.trim() : "";
@@ -251,6 +269,7 @@ export function parseDecision(raw: string, knownRefs: ReadonlySet<string>): Deci
 
   return {
     operation: operation as "SCROLL_DOWN" | "WAIT" | "NAVIGATE_BACK" | "DONE" | "BLOCKED",
+    // (NAVIGATE is handled above, where its required url payload is validated.)
     operationConfidence: LLM_CONFIDENCE,
     targetConfidence: 1,
     source: "llm",
@@ -348,23 +367,36 @@ export async function escalate(
  * Uses the SDK's `server.server.createMessage` (the `sampling/createMessage` request). The
  * returned function sends a single user message and returns the text of the model's reply;
  * non-text content yields an empty string (parsed as BLOCKED downstream).
+ *
+ * (R1) The request is BOUNDED by `timeoutMs`. A client LLM that is slow (or whose provider
+ * stalls) would otherwise hold the whole `laya_run_goal` tool call open until the CLIENT's
+ * own request timeout fires, which the SDK defaults to 60s and surfaces as `-32001`
+ * RequestTimeout. Timing out here instead rejects this one sampling request, which
+ * {@link escalate} already turns into a graceful BLOCKED decision.
  */
-export function samplerFromServer(server: McpServer): SampleFn | undefined {
+export function samplerFromServer(
+  server: McpServer,
+  options: { timeoutMs?: number } = {},
+): SampleFn | undefined {
   const capabilities = server.server.getClientCapabilities();
   if (!capabilities?.sampling) return undefined;
 
+  const timeoutMs = options.timeoutMs;
   return async (prompt: string): Promise<string> => {
-    const result = await server.server.createMessage({
-      messages: [
-        {
-          role: "user",
-          content: { type: "text", text: prompt },
-        },
-      ],
-      maxTokens: 256,
-      systemPrompt:
-        "You choose one browser automation step and reply with a single-line JSON object only.",
-    });
+    const result = await server.server.createMessage(
+      {
+        messages: [
+          {
+            role: "user",
+            content: { type: "text", text: prompt },
+          },
+        ],
+        maxTokens: 256,
+        systemPrompt:
+          "You choose one browser automation step and reply with a single-line JSON object only.",
+      },
+      timeoutMs !== undefined ? { timeout: timeoutMs } : undefined,
+    );
     const content = result.content;
     if (content && content.type === "text" && typeof content.text === "string") {
       return content.text;

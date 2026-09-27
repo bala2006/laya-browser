@@ -67,28 +67,37 @@ const INSTRUCTIONS = [
  * (mirroring how {@link samplerFromServer} gates sampling). When the client did not advertise
  * elicitation, or the request fails, or the human declines/cancels, this resolves to `false`
  * so the loop preserves its refuse-by-default fail-safe. Never throws.
+ *
+ * (R1) The request is BOUNDED by `timeoutMs`: elicitation waits on a human, and a prompt
+ * nobody answers would otherwise block the tool call until the client's own 60s request
+ * timeout fired as `-32001` RequestTimeout. On timeout this resolves to `false`, which is the
+ * SAME outcome as a refusal, so the fail-safe is preserved.
  */
 async function confirmViaElicitation(
   server: McpServer,
   prompt: string,
+  timeoutMs: number,
 ): Promise<boolean> {
   try {
     const capabilities = server.server.getClientCapabilities();
     if (!capabilities?.elicitation) return false;
-    const result = await server.server.elicitInput({
-      message: prompt,
-      requestedSchema: {
-        type: "object",
-        properties: {
-          approve: {
-            type: "boolean",
-            title: "Approve",
-            description: "Approve this destructive action.",
+    const result = await server.server.elicitInput(
+      {
+        message: prompt,
+        requestedSchema: {
+          type: "object",
+          properties: {
+            approve: {
+              type: "boolean",
+              title: "Approve",
+              description: "Approve this destructive action.",
+            },
           },
+          required: ["approve"],
         },
-        required: ["approve"],
       },
-    });
+      { timeout: timeoutMs },
+    );
     // Only an explicit accept with approve === true authorises the action; a decline, a
     // cancel, or a missing/false field is treated as a refusal (fail-safe).
     return result.action === "accept" && result.content?.approve === true;
@@ -154,7 +163,9 @@ export function createServer(options: CreateServerOptions = {}): CreatedServer {
       // resolve it at call time; when the client lacks sampling this returns undefined and the
       // extract tool degrades to returning the most relevant text span (never throws).
       sample: async (prompt) => {
-        const sampler = samplerFromServer(server);
+        const sampler = samplerFromServer(server, {
+          timeoutMs: config.clientRequestTimeoutMs,
+        });
         if (!sampler) throw new Error("client does not support MCP sampling");
         return sampler(prompt);
       },
@@ -212,16 +223,23 @@ export function createServer(options: CreateServerOptions = {}): CreatedServer {
       // which happens after createServer). Mirrors how `sample` is wired for sampling. When
       // the client lacks elicitation, confirm resolves to false (refuse), preserving the
       // refuse-by-default fail-safe. Never throws.
-      confirm: async (prompt) => confirmViaElicitation(server, prompt),
+      confirm: async (prompt) =>
+        confirmViaElicitation(server, prompt, config.clientRequestTimeoutMs),
       // Resolve the sampler lazily at call time: the client's `sampling` capability is only
       // known after it has connected and initialized, which happens after createServer.
       sample: async (prompt) => {
-        const sampler = samplerFromServer(server);
+        const sampler = samplerFromServer(server, {
+          timeoutMs: config.clientRequestTimeoutMs,
+        });
         if (!sampler) {
           throw new Error("client does not support MCP sampling");
         }
         return sampler(prompt);
       },
+      // (R2) Resolve the client's sampling capability lazily. It is what lets a goal run with NO
+      // local weights: the client plans the step itself. Without it the run degrades to the
+      // Assist-mode hint exactly as before.
+      plannerAvailable: () => Boolean(server.server.getClientCapabilities()?.sampling),
     }) as never,
   );
 

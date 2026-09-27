@@ -118,6 +118,12 @@ export type Operation =
   | "SCROLL_DOWN"
   | "WAIT"
   | "NAVIGATE_BACK"
+  /**
+   * (R4) Go to an explicit URL mid-run. It is the one operation the LOCAL Laya engine is never
+   * asked about: the narrow choice question keeps the option set the checkpoint was trained on,
+   * and NAVIGATE is reachable only through the planner that can express a URL (the client LLM).
+   */
+  | "NAVIGATE"
   | "PRESS_KEY"
   | "FILL_FORM"
   | "SCREENSHOT"
@@ -161,6 +167,7 @@ export interface FieldFill {
  *   - targeted ops (`CLICK`/`TYPE_TEXT`/`SELECT`/`HOVER`) carry a single `target`;
  *   - targetless ops (`SCROLL_DOWN`/`WAIT`/`NAVIGATE_BACK`/`SCREENSHOT`/`DONE`/`BLOCKED`)
  *     carry no `target`, `key`, `fields`, or `value`;
+ *   - `NAVIGATE` carries a `url` (and no `target`);
  *   - `PRESS_KEY` carries a `key` (and no `target`);
  *   - `FILL_FORM` carries a `fields` list (and no single `target`);
  *   - `VERIFY` carries an expected `marker` (and no `target`).
@@ -189,6 +196,16 @@ export type Decision =
       target?: undefined;
       /** No target, so target confidence is fixed. */
       targetConfidence: number;
+      value?: undefined;
+      source: DecisionSource;
+    }
+  | {
+      operation: "NAVIGATE";
+      operationConfidence: number;
+      target?: undefined;
+      targetConfidence: number;
+      /** The absolute http(s) URL to navigate to. */
+      url: string;
       value?: undefined;
       source: DecisionSource;
     }

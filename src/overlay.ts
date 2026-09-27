@@ -384,8 +384,11 @@ function buildClientScript(optsJson: string): string {
       padding: "7px 10px 7px 8px", borderRadius: "999px",
       border: "1px solid " + LIGHT.ring,
       boxShadow: "0 12px 32px " + LIGHT.glow + ", 0 2px 10px rgba(2,6,23,0.22), 0 0 0 1px " + LIGHT.ring + " inset",
-      // Keep clear of the bottom-left activity-log panel at any viewport width.
-      maxWidth: "min(420px, max(260px, calc(100vw - 292px)))",
+      // Keep clear of the bottom-left activity-log panel at any viewport width. The budget is
+      // sized so the goal command's step counter + progress bar + cost meter still fit on ONE
+      // row: at 420px they wrapped the pill onto a second line, which made the goal HUD a
+      // different SHAPE from the Assist HUD's single-row pill.
+      maxWidth: "min(680px, max(260px, calc(100vw - 292px)))",
       transition: "background 250ms ease, border-color 250ms ease, box-shadow 250ms ease",
     });
     // Left icon: a CIRCULAR badge of tinted glass holding a thin line-art mark (the reference's
@@ -407,7 +410,13 @@ function buildClientScript(optsJson: string): string {
     stateLabel.textContent = "";
     // The status is the one variable-length line: it may shrink (and only then ellipsise) so it
     // never squeezes its siblings into clipping.
-    const status = mkDiv({ color: LIGHT.inkSoft, fontWeight: "500", flex: "0 1 auto", minWidth: "0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "min(240px, 56vw)" });
+    // The status is the pill's elastic middle. Its small flex-BASIS is what keeps the pill to ONE
+    // row: with an auto flex-basis the line-breaker saw the status at its full text width, and the
+    // goal command's step counter + bar + meter pushed the total past the budget, wrapping the
+    // pill onto a second row - a shape the Assist HUD never takes. A 60px basis means the row
+    // always fits and the status then GROWS into whatever room is left, ellipsising only when its
+    // text is longer than that room. The pill's own maxWidth still bounds the whole line.
+    const status = mkDiv({ color: LIGHT.inkSoft, fontWeight: "500", flex: "1 1 60px", minWidth: "0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" });
     const progress = mkDiv({ color: LIGHT.inkFaint, fontVariantNumeric: "tabular-nums" });
 
     // progress bar inside the pill (hairline track + accent fill, so it reads on the glass)
@@ -430,7 +439,9 @@ function buildClientScript(optsJson: string): string {
       display: "none", alignItems: "center", gap: "8px", color: LIGHT.inkFaint,
       fontSize: "11px", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap",
       borderLeft: "1px solid " + LIGHT.hairline, paddingLeft: "8px", marginLeft: "2px",
-      flex: "0 0 auto",
+      // Shrinkable (unlike the icon/title/state/progress/grip blocks) so a squeeze lands on the
+      // cost text rather than wrapping the pill onto a second row.
+      flex: "0 1 auto", minWidth: "0", overflow: "hidden", textOverflow: "ellipsis",
     });
     banner.appendChild(meter);
 
@@ -554,8 +565,11 @@ function buildClientScript(optsJson: string): string {
     const seen = mkDiv({ position: "fixed", left: "0", top: "0", width: "0", height: "0", display: "none" });
     root.appendChild(seen);
 
-    // --- Session aura: while Laya is in control of the tab the viewport wears a GRADIENT ON ALL
-    // FOUR SIDES. Four accent bands, one per edge, over a soft radial vignette so the corners join
+    // --- Session aura: while the agentLens HUD is present the viewport wears a GRADIENT ON ALL
+    // FOUR SIDES. It is armed HERE, at build time, rather than by a caller: the frame means "Laya
+    // has this tab", which is true of every document the HUD is injected into, so the goal
+    // command and the Assist tools render the identical frame instead of the goal run arming one
+    // that Assist never showed. Four accent bands, one per edge, over a soft radial vignette so the corners join
     // without a seam. TWO details matter and were both wrong before:
     //   1. every layer needs an EXPLICIT background-position, or it is painted at the top-left
     //      corner - which put the "to left" band (meant for the right edge) at the LEFT, leaving a
@@ -568,7 +582,7 @@ function buildClientScript(optsJson: string): string {
     const edgeSide = accentRgba(0.24);
     const sessionFrame = mkDiv({
       position: "fixed", top: "0", left: "0", right: "0", bottom: "0",
-      display: "none", pointerEvents: "none",
+      display: "block", pointerEvents: "none",
       backgroundColor: "transparent",
       backgroundImage:
         // one band per edge, each fading inward from its own edge
@@ -796,7 +810,9 @@ function buildClientScript(optsJson: string): string {
       const tok = t >= 1000 ? (t / 1000).toFixed(1) + "k" : String(t);
       els.meter.style.display = "flex";
       els.meter.setAttribute("data-laya-meter", "1");
-      els.meter.textContent = "\u{1F9EE} " + s + " steps \u00B7 " + e + " LLM \u00B7 ~" + tok + " tok";
+      // No leading glyph: at 20px of pill width it was what pushed the pill past its budget and
+      // wrapped the goal HUD onto a second row (the shape the Assist HUD never takes).
+      els.meter.textContent = s + " steps \u00B7 " + e + " LLM \u00B7 " + tok + " tok";
       stack();
     },
     showCursor(x, y) {

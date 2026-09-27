@@ -39,6 +39,13 @@ export interface RunGoalContext extends ToolContext {
    * clear BLOCKED result (the client lacks MCP sampling support).
    */
   sample?: SampleFn;
+  /**
+   * (R2) Whether the client can answer an MCP sampling request, resolved lazily at call time.
+   * When the local engine has no weights this decides whether the goal still runs (planned by
+   * the client LLM) or degrades to the Assist-mode hint. Also gates the page acquisition below,
+   * so a client that cannot plan still gets the launch-free degraded path.
+   */
+  plannerAvailable?: () => boolean;
   /** Domain allow-list applied to the initial navigation. Empty = allow all. */
   allowedDomains?: string[];
   /** Whether the destructive-form guard is active. Defaults to true. */
@@ -219,9 +226,11 @@ export function makeHandler(ctx: RunGoalContext) {
       // degraded path runGoal returns immediately without a browser, so launching one here
       // just to narrate would be wasted startup cost — keep that path launch-free.
       const overlay = ctx.session.getOverlay();
-      const overlayPage = ctx.engine.available
-        ? await ctx.session.getPage()
-        : undefined;
+      // (R2) Acquire the page for narration when EITHER planner exists, so an LLM-planned run
+      // still narrates through the HUD. With neither one the run returns the degraded hint
+      // before it ever needs a browser, so that path stays launch-free.
+      const canPlan = ctx.engine.available || ctx.plannerAvailable?.() === true;
+      const overlayPage = canPlan ? await ctx.session.getPage() : undefined;
       const result = await runGoal({
         goal: args.goal,
         session: ctx.session,
@@ -234,6 +243,9 @@ export function makeHandler(ctx: RunGoalContext) {
           ? { confidenceThreshold: ctx.confidenceThreshold }
           : {}),
         ...(ctx.sample !== undefined ? { sample: ctx.sample } : {}),
+        ...(ctx.plannerAvailable !== undefined
+          ? { plannerAvailable: ctx.plannerAvailable }
+          : {}),
         ...(ctx.allowedDomains !== undefined
           ? { allowedDomains: ctx.allowedDomains }
           : {}),

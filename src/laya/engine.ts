@@ -53,9 +53,10 @@ export interface LayaEngineOptions {
  * Deliberately COMPACT: it is the narrow single-control set the model can pick from turn by
  * turn (CLICK/TYPE_TEXT/SELECT/HOVER/SCROLL_DOWN/WAIT/NAVIGATE_BACK/DONE/BLOCKED). The
  * batch/payload operations added in Part 2 are NOT offered here — FILL_FORM is emitted by the
- * deterministic layer (it needs a resolved field/value list), and PRESS_KEY/SCREENSHOT/VERIFY
- * need a payload/marker the narrow choice question cannot supply. Keeping this set small keeps
- * the `operation` question within Laya's `head_max_len` budget.
+ * deterministic layer (it needs a resolved field/value list), and PRESS_KEY/SCREENSHOT/VERIFY/
+ * NAVIGATE need a payload/marker/url the narrow choice question cannot supply. Keeping this set
+ * small keeps the `operation` question within Laya's `head_max_len` budget, and keeping it
+ * UNCHANGED keeps the options the checkpoint was trained on.
  */
 const OPERATIONS: Operation[] = [
   "CLICK",
@@ -90,6 +91,10 @@ const OPERATION_CRITERIA: Record<Operation, string> = {
   SCROLL_DOWN: "Scroll the page down to reveal more content.",
   WAIT: "Wait for the page to update before acting.",
   NAVIGATE_BACK: "Go back to the previous page in history.",
+  // (R4) Documented for exhaustiveness only: like FILL_FORM/PRESS_KEY/SCREENSHOT/VERIFY, this
+  // is NOT in the offered {@link OPERATIONS} subset. The model's choice set keeps exactly the
+  // options its checkpoint was trained on; NAVIGATE is planned by the client LLM instead.
+  NAVIGATE: "Open an explicit URL to reach another page.",
   PRESS_KEY: "Press a keyboard key such as Enter or Escape.",
   FILL_FORM: "Fill several form fields in one batch step.",
   SCREENSHOT: "Capture a screenshot of the page.",

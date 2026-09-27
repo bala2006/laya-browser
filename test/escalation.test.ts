@@ -87,6 +87,25 @@ describe("parseDecision boundary", () => {
     expect(d.target).toBeUndefined();
   });
 
+  it("(R4) parses NAVIGATE with an absolute http(s) url", () => {
+    const d = parseDecision('{"operation":"NAVIGATE","url":"https://example.com/a"}', refs);
+    expect(d.operation).toBe("NAVIGATE");
+    expect(d).toMatchObject({ url: "https://example.com/a", source: "llm" });
+  });
+
+  it("(R4) blocks a NAVIGATE without a safe absolute url", () => {
+    // The planner's url is untrusted input: a relative path, a javascript: URL, or a missing
+    // url must all collapse to BLOCKED rather than reaching page.goto.
+    for (const raw of [
+      '{"operation":"NAVIGATE"}',
+      '{"operation":"NAVIGATE","url":"/relative"}',
+      '{"operation":"NAVIGATE","url":"javascript:alert(1)"}',
+      '{"operation":"NAVIGATE","url":"//evil.example"}',
+    ]) {
+      expect(parseDecision(raw, refs).operation).toBe("BLOCKED");
+    }
+  });
+
   it("parses a PRESS_KEY carrying a key payload", () => {
     const d = parseDecision('{"operation":"PRESS_KEY","key":"Enter"}', refs);
     expect(d).toMatchObject({ operation: "PRESS_KEY", key: "Enter", source: "llm" });

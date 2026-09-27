@@ -97,6 +97,30 @@ describe("B2 confirmation hook through the loop (real chromium)", () => {
     expect(await page.locator("#status").textContent()).toBe("Account active");
   });
 
+  it("(R3) asks even without confirmDestructive, instead of hard-blocking the goal", async () => {
+    // The flag used to gate the ask, so a client that COULD be asked was still hard-blocked
+    // unless an operator flipped a separate switch. The ask now follows the confirm callback
+    // alone, which is what makes a goal able to finish a destructive submit autonomously.
+    let asked = "";
+    const result = await runGoal({
+      goal: "delete the account",
+      session,
+      engine: clickDeleteEngine(),
+      url: fixtures.url("delete-account.html"),
+      maxSteps: 4,
+      // confirmDestructive deliberately NOT set.
+      confirm: async (prompt) => {
+        asked = prompt;
+        return true;
+      },
+    });
+
+    expect(asked).toContain("Delete account");
+    expect(result.outcome).not.toBe("blocked");
+    const page = await session.getPage();
+    expect(await page.locator("#status").textContent()).toBe("Account deleted");
+  });
+
   it("preserves refuse-by-default when confirm is absent (even with confirmDestructive on)", async () => {
     const result = await runGoal({
       goal: "delete the account",

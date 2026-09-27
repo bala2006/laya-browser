@@ -144,15 +144,41 @@ describe("Autopilot safety (real chromium, no weights)", () => {
     await fixtures.close();
   });
 
-  it("blocks the initial navigation when the fixture host is off the allow-list", async () => {
+  it("(R3) proceeds off the allow-list with a warning when there is nobody to ask", async () => {
+    // The allow-list used to abort the whole goal before a single step ran, so one off-list URL
+    // left the goal command unable to do anything at all. It is now advisory when no confirm
+    // callback is available: the run proceeds and SAYS SO, instead of silently doing nothing.
     const result = await runGoal({
-      goal: 'search for "laptops"',
+      goal: 'search for "laptops" and expect "Showing results for laptops"',
       session,
       engine: new StubEngine(),
       url: fixtures.url("search-form.html"),
       allowedDomains: ["example.com"],
       maxSteps: 3,
     });
+    expect(result.degraded).toBe(false);
+    expect(result.outcome).not.toBe("blocked");
+    expect(result.warnings?.join(" ")).toContain("allow-list");
+    // It really ran against the real page (literal marker, not a self-report).
+    const page = await session.getPage();
+    expect(page.url()).toContain("search-form.html");
+  });
+
+  it("(R3) still blocks off the allow-list when a confirm callback refuses", async () => {
+    let asked = "";
+    const result = await runGoal({
+      goal: 'search for "laptops"',
+      session,
+      engine: new StubEngine(),
+      url: fixtures.url("search-form.html"),
+      allowedDomains: ["example.com"],
+      confirm: async (prompt) => {
+        asked = prompt;
+        return false;
+      },
+      maxSteps: 3,
+    });
+    expect(asked).toContain("allow-list");
     expect(result.outcome).toBe("blocked");
     expect(result.message).toContain("allow-list");
     expect(result.transcript.length).toBe(0);

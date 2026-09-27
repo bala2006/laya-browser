@@ -51,6 +51,8 @@
  *   LAYA_AUTO_DISMISS=false            (T2.2) auto-dismiss cookie/consent/blocking-modal overlays during Autopilot (default: false)
  *   LAYA_FRAME_DEPTH=0                 (T2.3) how many levels of same-origin iframe / open shadow root the DOM walk descends (clamped 0..5; 0 = top document only)
  *   LAYA_DOWNLOAD_DIR=/path            (T2.4) default directory browser_download_file saves into when no explicit path is given
+ *   LAYA_CLIENT_REQUEST_TIMEOUT_MS=20000  (R1) budget for a client-bound MCP request (sampling escalation /
+ *                                      elicitation confirm) before degrading (clamped 1000..30000)
  */
 
 /** How the Autopilot engine is selected. `auto` decides from the presence of weights. */
@@ -311,6 +313,17 @@ export interface LayaBrowserConfig {
    * when the caller gives no explicit path. Unset means the caller must supply a path.
    */
   downloadDir?: string;
+  /**
+   * (R1) How long to wait on a CLIENT-BOUND MCP request before degrading. Two requests the
+   * server sends to its own client are unbounded by the protocol: the `sampling/createMessage`
+   * escalation and the `elicitation/create` confirmation. A slow client LLM (or a human who
+   * never answers) would otherwise block the whole `laya_run_goal` call past the client's
+   * request timeout, which the SDK tops out at 60s and reports as `-32001` RequestTimeout.
+   * Bounding each request well inside that keeps a stalled client a graceful BLOCKED instead
+   * of a lost run. Clamped to `[1000, 30000]`. Defaults to
+   * {@link DEFAULT_CLIENT_REQUEST_TIMEOUT_MS}.
+   */
+  clientRequestTimeoutMs: number;
 }
 
 /** Overrides supplied programmatically (constructor options / tool arguments). */
@@ -350,6 +363,7 @@ export interface ConfigOverrides {
   autoDismiss?: boolean;
   frameDepth?: number;
   downloadDir?: string;
+  clientRequestTimeoutMs?: number;
 }
 
 /** Built-in defaults, used when neither an override nor an env var is present. */
@@ -384,6 +398,15 @@ export const STATE_TEXT_LIMIT_MAX = 8000;
 export const DEFAULT_FRAME_DEPTH = 0;
 export const FRAME_DEPTH_MIN = 0;
 export const FRAME_DEPTH_MAX = 5;
+
+/**
+ * (R1) Default budget for a client-bound MCP request (sampling escalation / elicitation
+ * confirmation), and its inclusive bounds. Comfortably inside the SDK's 60s client request
+ * timeout, so a stalled client degrades instead of timing the whole tool call out.
+ */
+export const DEFAULT_CLIENT_REQUEST_TIMEOUT_MS = 20000;
+export const CLIENT_REQUEST_TIMEOUT_MS_MIN = 1000;
+export const CLIENT_REQUEST_TIMEOUT_MS_MAX = 30000;
 
 /** Parse a boolean env var: only the literal string `"false"` disables a default-true flag. */
 function envBoolDefaultTrue(value: string | undefined): boolean {
@@ -633,6 +656,21 @@ export function loadConfig(
   const downloadDir =
     downloadDirRaw && downloadDirRaw.trim() !== "" ? downloadDirRaw.trim() : undefined;
 
+  // (R1) Bound every client-bound MCP request (sampling escalation / elicitation confirm) so
+  // a stalled client cannot hang a tool call past the SDK's 60s request timeout (-32001).
+  const clientRequestTimeoutMs = clamp(
+    Math.trunc(
+      overrides.clientRequestTimeoutMs ??
+        parseNumber(env.LAYA_CLIENT_REQUEST_TIMEOUT_MS, {
+          min: CLIENT_REQUEST_TIMEOUT_MS_MIN,
+          max: CLIENT_REQUEST_TIMEOUT_MS_MAX,
+        }) ??
+        DEFAULT_CLIENT_REQUEST_TIMEOUT_MS,
+    ),
+    CLIENT_REQUEST_TIMEOUT_MS_MIN,
+    CLIENT_REQUEST_TIMEOUT_MS_MAX,
+  );
+
   // Overlay: parse each knob once. `auto` resolves to enabled = !headless (on when headed);
   // `on`/`off` force it regardless. Overrides win per-field over the env-derived values.
   const overlayMode = overrides.overlay?.mode ?? parseOverlayMode(env.LAYA_BROWSER_OVERLAY);
@@ -711,6 +749,7 @@ export function loadConfig(
     loopScreenshots,
     autoDismiss,
     frameDepth,
+    clientRequestTimeoutMs,
   };
   if (storageStatePath !== undefined) config.storageStatePath = storageStatePath;
   if (downloadDir !== undefined) config.downloadDir = downloadDir;

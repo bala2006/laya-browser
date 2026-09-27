@@ -177,6 +177,13 @@ export interface RunResult {
    * {@link RunGoalOptions.recordArtifacts} is true; absent (and behaviour unchanged) otherwise.
    */
   steps?: RunStepArtifact[];
+  /**
+   * (R3) Non-fatal conditions the relaxed hard stops let the run continue past, in the order
+   * they happened (e.g. "navigating off the allow-list"). Empty/absent when nothing was
+   * relaxed, so a caller can tell "finished cleanly" from "finished with a warning" instead of
+   * inferring it from the transcript.
+   */
+  warnings?: string[];
 }
 
 /** Options for {@link runGoal}. */
@@ -207,6 +214,15 @@ export interface RunGoalOptions {
    * a clear BLOCKED result (the client lacks sampling). Injectable for tests.
    */
   sample?: SampleFn;
+  /**
+   * (R2) Whether the client can actually answer an MCP sampling request, resolved lazily at
+   * call time (the client's `sampling` capability is only known after initialize, which happens
+   * after the server is built). Consulted ONLY to decide the no-weights path: when the local
+   * engine has no weights but the client can plan, the loop runs on the client LLM instead of
+   * degrading. Defaults to "assume yes when a sample callback is present", so an injected
+   * sampler in a test behaves as before.
+   */
+  plannerAvailable?: () => boolean;
   /** Domain allow-list. When non-empty, restricts navigation/submits to these hosts. */
   allowedDomains?: string[];
   /** Whether the destructive-form guard is active. Defaults to true. */
@@ -243,17 +259,19 @@ export interface RunGoalOptions {
    */
   redactSecrets?: boolean;
   /**
-   * (B2) Whether a destructive auto-submit CLICK that the guard would refuse should instead
-   * request inline human approval. Only takes effect when {@link confirm} is also supplied.
-   * Defaults to false, preserving the refuse-by-default fail-safe.
+   * (B2) Retained for compatibility and still parsed/validated by the config layer, but no
+   * longer consulted by the loop: (R3) makes the ask follow {@link confirm} alone, because
+   * requiring a second flag turned a configurable confirmation into a hard block. Kept so
+   * existing callers and the LAYA_CONFIRM_DESTRUCTIVE env var keep
+   * working; {@link confirm} alone now decides whether the loop can ask.
    */
   confirmDestructive?: boolean;
   /**
-   * (B2) Optional human-in-the-loop confirmation callback. When present AND
-   * {@link confirmDestructive} is true, a destructive CLICK the guard would refuse triggers
-   * an inline approval request (amber "awaiting confirmation" overlay) instead of an
-   * immediate block: approval proceeds with the CLICK, refusal keeps the existing block.
-   * When absent, the existing refuse-by-default fail-safe is preserved exactly.
+   * (B2) Optional human-in-the-loop confirmation callback. When present, a destructive CLICK the
+   * guard would refuse triggers an inline approval request (amber "awaiting confirmation"
+   * overlay) instead of an immediate block: approval proceeds with the CLICK, refusal keeps the
+   * block. When absent there is nobody to ask, so the refuse-by-default fail-safe is preserved
+   * exactly. Also used by (R3) to confirm an off-allow-list navigation.
    */
   confirm?: ConfirmFn;
   /**
@@ -611,10 +629,11 @@ class Narrator {
   /** (Perf) Reveal the cursor and light the session aura in one round-trip at run start. */
   async beginRun(): Promise<void> {
     if (!this.on) return;
-    await this.overlay!.callBatch(this.page, [
-      ["showCursor"],
-      ["sessionFrame", true],
-    ]);
+    // The four-corner session frame is NOT armed here. It is armed at overlay build time for
+    // every document the HUD is injected into, so the goal command and the Assist tools show
+    // the identical frame; a run-scoped toggle would make the goal HUD look different from the
+    // Assist HUD (and drop the frame the moment a run ended).
+    await this.overlay!.showCursor(this.page);
   }
 
   async toast(message: string, kind: ToastKind = "info"): Promise<void> {
@@ -651,12 +670,6 @@ class Narrator {
   async showCursor(): Promise<void> {
     if (!this.on) return;
     await this.overlay!.showCursor(this.page);
-  }
-
-  /** Toggle the four-corner session frame on/off. Best-effort no-op. */
-  async sessionFrame(on: boolean): Promise<void> {
-    if (!this.on) return;
-    await this.overlay!.sessionFrame(this.page, on);
   }
 
   /**
@@ -850,6 +863,17 @@ async function execute(
       await narrator.toast("Navigation complete");
       return { detail: "NAVIGATE_BACK" };
     }
+    case "NAVIGATE": {
+      const page = await session.getPage();
+      await narrator.toast("Navigating\u2026");
+      // Bounded so a hostile or hanging target cannot stall the whole run; a failed navigation
+      // leaves the loop to re-capture and re-plan on the current page.
+      await page
+        .goto(decision.url, { waitUntil: "domcontentloaded", timeout: 15000 })
+        .catch(() => undefined);
+      await narrator.toast("Navigation complete");
+      return { detail: `NAVIGATE ${decision.url}` };
+    }
     case "SCROLL_DOWN": {
       const page = await session.getPage();
       const by = options.scrollBy;
@@ -959,6 +983,7 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
     stateOptions,
     confidenceThreshold = DEFAULT_CONFIDENCE_THRESHOLD,
     sample,
+    plannerAvailable,
     allowedDomains = [],
     destructiveFormGuard = true,
     selfHealRetries = DEFAULT_SELF_HEAL_RETRIES,
@@ -966,7 +991,6 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
     loopDetection = true,
     loopWindow = DEFAULT_LOOP_WINDOW,
     redactSecrets = true,
-    confirmDestructive = false,
     confirm,
     snapshotBackend = DEFAULT_SNAPSHOT_BACKEND,
     // Deliberate default asymmetry: this loop option defaults to false to preserve DOM order
@@ -1009,8 +1033,18 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
   // (all existing autopilot tests), so it never changes automation semantics.
   const narrator = new Narrator(overlay, overlayPage, redact);
 
-  // Graceful degradation when no weights are available.
-  if (!engine.available) {
+  // (R2) Autonomy without local weights. The loop used to refuse outright whenever the Laya
+  // engine had no weights, which made the goal command unable to do ANYTHING without a ~1.7GB
+  // model bundle. When the client can answer an MCP sampling request it can plan the step
+  // itself, so the run proceeds with the client LLM as the planner and the deterministic rule
+  // layer still seeding the high-confidence steps. The `degraded` result (and its launch-free
+  // hint) is now reserved for the case where NEITHER planner exists.
+  const canPlan =
+    engine.available ||
+    (sample !== undefined && (plannerAvailable === undefined || plannerAvailable()));
+
+  // Graceful degradation when there is neither a local engine nor a client that can plan.
+  if (!canPlan) {
     return {
       goal,
       outcome: "degraded",
@@ -1027,34 +1061,60 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
   }
 
   const page = await session.getPage();
+  // (R3) A warning the relaxed hard stops surfaced, echoed on the HUD once the run starts and
+  // carried into the transcript's recent-actions log so it reaches the escalation prompt too.
+  let runWarning: string | undefined;
   if (url) {
-    // Domain allow-list guard: refuse to navigate off-list when a list is configured.
+    // Domain allow-list guard. It used to abort the whole goal before a single step ran, which
+    // meant one off-list URL made the tool unable to do anything at all. It now CONFIRMS when a
+    // confirm callback is available and otherwise proceeds with a warning, so an autonomous run
+    // can finish; an explicit refusal still blocks, and the fail-safe is unchanged when there is
+    // nobody to ask... which for a warning-only guard is "proceed, loudly".
     const verdict = checkDomainAllowed(url, allowedDomains);
     if (!verdict.allowed) {
-      return {
-        goal,
-        outcome: "blocked",
-        degraded: false,
-        transcript: [],
-        verification: {
-          checked: false,
-          verified: false,
-          markers: [],
-          detail: "Blocked before navigation by the domain allow-list.",
-        },
-        message: verdict.reason ?? "Navigation blocked by the domain allow-list.",
-      };
+      let approved = true;
+      if (confirm) {
+        try {
+          approved = await confirm(
+            `Navigate off the allow-list to ${url} - approve?`,
+          );
+        } catch {
+          approved = false;
+        }
+      }
+      if (!approved) {
+        return {
+          goal,
+          outcome: "blocked",
+          degraded: false,
+          transcript: [],
+          verification: {
+            checked: false,
+            verified: false,
+            markers: [],
+            detail: "Blocked before navigation by the domain allow-list.",
+          },
+          message: verdict.reason ?? "Navigation blocked by the domain allow-list.",
+        };
+      }
+      runWarning = verdict.reason ?? `Navigating off the allow-list to ${url}.`;
     }
     await page.goto(url, { waitUntil: "domcontentloaded" });
   }
 
   // (Issues 2 + 4) Announce that Laya is controlling the browser: make the synthetic cursor
-  // visible from the start (it then moves in real time via focusTarget->moveCursor per step)
-  // and light up the four-corner session frame for the duration of the run. Both are
+  // visible from the start (it then moves in real time via focusTarget->moveCursor per step).
+  // The four-corner session frame is armed by the overlay itself, for every mode. Both are
   // best-effort no-ops when no overlay/page is present.
   await narrator.beginRun();
 
   const recentActions: string[] = [];
+  const warnings: string[] = [];
+  if (runWarning !== undefined) {
+    await narrator.notice(runWarning, "uncertain");
+    recentActions.push(runWarning);
+    warnings.push(runWarning);
+  }
   const transcript: StepRecord[] = [];
   // (D1) Per-step observability artifacts, accumulated only when recordArtifacts is on.
   const artifacts: RunStepArtifact[] = [];
@@ -1157,9 +1217,20 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
       if (seed) {
         decision = seed.decision;
         note = `rule: ${seed.reason}`;
-      } else {
+      } else if (engine.available) {
         // Laya answers the narrow question; fill goal-stated values it did not supply.
         decision = refineWithGoalValue(await engine.decide(state), state);
+      } else {
+        // (R2) LLM-planned step. With no local weights there is nothing to ask, so the step is
+        // deliberately left below the confidence threshold with a BLOCKED placeholder: the
+        // confidence check below then routes it through the SAME escalation path, which is where
+        // the client LLM chooses the step. Same plumbing, same parsing, same guards.
+        decision = {
+          operation: "BLOCKED",
+          operationConfidence: 0,
+          targetConfidence: 0,
+          source: "laya",
+        };
       }
 
       // Confidence check: escalate on low confidence or BLOCKED (never for rule seeds,
@@ -1232,13 +1303,16 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
         if (target) {
           const guard = checkDestructiveSubmit(target, state, destructiveFormGuard);
           if (!guard.allowed) {
-            // B2: opt-in human-in-the-loop confirmation. When confirmDestructive is on AND a
-            // confirm callback is available, request inline approval (amber "awaiting
-            // confirmation" HUD) instead of an immediate block. Approval proceeds with the
-            // CLICK; refusal keeps the existing block. When confirm is absent or
-            // confirmDestructive is off, the refuse-by-default fail-safe is preserved exactly.
+            // B2 + (R3): human-in-the-loop confirmation. Whenever a confirm callback is
+            // available the loop ASKS (amber "awaiting confirmation" HUD) instead of
+            // hard-blocking the goal, so an autonomous run can finish a destructive submit once
+            // a human approves it. Approval proceeds with the CLICK; a refusal keeps the block.
+            // Only when there is nobody to ask does the refuse-by-default fail-safe apply, which
+            // is exactly the previous behaviour. (`confirmDestructive` no longer gates the ask:
+            // asking whenever it is possible is what makes the flag redundant rather than
+            // silently ignored - see the option's doc comment.)
             let approved = false;
-            if (confirmDestructive && confirm) {
+            if (confirm) {
               const targetName = String(target.name || target.role);
               const prompt = `About to click ${JSON.stringify(targetName)} - approve?`;
               await narrator.stateWithToast(
@@ -1293,6 +1367,46 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
               "info",
             );
           }
+        }
+      }
+
+      // (R4) An LLM-chosen NAVIGATE is still subject to the domain allow-list, under the same
+      // relaxed rule as the initial navigation: ask when there is somebody to ask, warn and
+      // proceed when there is not. Without this a planner could hop anywhere mid-run while the
+      // configured list only ever constrained the FIRST url.
+      if (decision.operation === "NAVIGATE") {
+        const verdict = checkDomainAllowed(decision.url, allowedDomains);
+        if (!verdict.allowed) {
+          let approved = true;
+          if (confirm) {
+            try {
+              approved = await confirm(
+                `Navigate off the allow-list to ${decision.url} - approve?`,
+              );
+            } catch {
+              approved = false;
+            }
+          }
+          if (!approved) {
+            const navRecord: StepRecord = {
+              step,
+              operation: "BLOCKED",
+              operationConfidence: 1,
+              targetConfidence: 1,
+              source: decision.source,
+              detail: "BLOCKED (navigation refused)",
+              note: verdict.reason ?? "Navigation refused by the domain allow-list.",
+            };
+            transcript.push(navRecord);
+            recentActions.push("BLOCKED (navigation refused)");
+            await narrator.log("BLOCKED (navigation refused)");
+            outcome = "blocked";
+            break;
+          }
+          const warning = verdict.reason ?? `Navigating off the allow-list to ${decision.url}.`;
+          await narrator.notice(warning, "uncertain");
+          recentActions.push(warning);
+          warnings.push(warning);
         }
       }
 
@@ -1436,8 +1550,6 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
     await narrator.setState("error", "Stopped on error");
     await narrator.toast(`Error: ${(err as Error).message}`, "error");
     await narrator.hideSpotlight();
-    // (Issue 4) Laya is no longer controlling the browser: clear the four-corner frame.
-    await narrator.sessionFrame(false);
     return {
       goal,
       outcome,
@@ -1454,6 +1566,7 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
       },
       message: `Autopilot stopped on error: ${(err as Error).message}`,
       ...(recordArtifacts ? { steps: artifacts } : {}),
+      ...(warnings.length > 0 ? { warnings } : {}),
     };
   }
 
@@ -1495,8 +1608,6 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
     );
   }
   await narrator.hideSpotlight();
-  // (Issue 4) Run is over: clear the four-corner "controlling" frame.
-  await narrator.sessionFrame(false);
 
   return {
     goal,
@@ -1507,5 +1618,6 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
     verification,
     message: `Autopilot finished (${summaryOutcome}) after ${transcript.length} step(s). ${verification.detail}`,
     ...(recordArtifacts ? { steps: artifacts } : {}),
+    ...(warnings.length > 0 ? { warnings } : {}),
   };
 }

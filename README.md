@@ -38,8 +38,10 @@ deciding whether it fits your use case:
 - **NOT a fully autonomous general web agent.** Do not deploy it unattended against sites
   where a wrong click matters. `DONE` is never trusted on its own: every run ends with an
   **independent final-page verification**.
-- **Works with no weights.** Assist mode is fully standalone (no model needed). Autopilot
-  degrades gracefully to an Assist-mode hint when weights are absent.
+- **Works with no weights.** Assist mode is fully standalone (no model needed), and so is the
+  goal command: with no local weights it plans every step through the client LLM (MCP
+  sampling). It only degrades to an Assist-mode hint when there is no planner at all, i.e. the
+  client does not support sampling either.
 
 ## Quick start (easy setup)
 
@@ -86,9 +88,10 @@ Point your MCP client at the built entry with a stdio server block:
   matching Playwright MCP. See [capability groups](#capability-groups-laya_caps).
 - **Cross-browser** with `LAYA_BROWSER`. Chromium is preinstalled; Firefox / WebKit need
   `pnpm exec playwright install firefox webkit` first.
-- Clients that intend to use Autopilot should advertise the `sampling` capability so the
-  low-confidence escalation path is available. Autopilot still runs without it (it degrades to
-  `BLOCKED` on low confidence).
+- Clients that intend to use Autopilot should advertise the `sampling` capability. With local
+  weights loaded it is the low-confidence escalation path; with no weights it is the ONLY
+  planner, so a client without sampling gets no autonomous run at all (the goal command returns
+  the Assist-mode hint without launching a browser).
 
 ## Tools
 
@@ -431,6 +434,11 @@ B1 redaction applied to the transcript also applies to everything exported or st
   small vanilla-JS player with a timeline scrubber (range slider + prev/next + arrow keys) that
   shows each step's screenshot, decision, confidence bars, timing, and snapshot text. It opens
   by double-clicking the file.
+- **One HUD for both modes.** The agentLens HUD looks the same whether you drive the page with
+  the Assist tools or with a goal run: the same pill (glass, ink, radius, shadow), the same
+  single-row shape (42px tall in both modes — the goal command's step counter, progress bar and
+  cost meter no longer wrap it onto a second row), and the four-corner gradient frame is armed
+  for every document the HUD is injected into instead of only during a goal run.
 - **Cursor trail + new overlay states (T3.2/T3.4).** The synthetic cursor leaves a fading
   breadcrumb trail between successive positions (`LAYA_BROWSER_OVERLAY_TRAIL`), so multi-field
   actions read as continuous motion; `browser_extract` shows a distinct "Reading page…" state,
@@ -495,6 +503,29 @@ narrow questions reliably but not the open "what next?"* — as a three-stage pi
 Every step in the returned transcript records its **source** (`rule` / `laya` / `llm` /
 `stub`) and confidences. After the loop, the **independent final-page verification** runs
 regardless of how the loop ended.
+
+### Running with no local weights
+
+The goal command is not gated on the ~1.7GB model bundle. When the local engine has no weights
+the loop asks the **client's** LLM for each undecided step through MCP sampling, and the
+deterministic rule layer still seeds the steps it can decide alone (a goal that states its own
+field value never spends an LLM round-trip on it). Only when there is no local engine **and**
+the client does not advertise `sampling` does `laya_run_goal` return the Assist-mode hint, and
+it does so without launching a browser. Every request the server sends to its client is bounded
+by `LAYA_CLIENT_REQUEST_TIMEOUT_MS` so a slow or stalled client model degrades to a clear
+`BLOCKED` instead of holding the tool call open until the client's own 60s request timeout
+fires as `-32001` RequestTimeout.
+
+### What a goal can do
+
+Autopilot offers the narrow operation set the local model was trained on
+(`CLICK`/`TYPE_TEXT`/`SELECT`/`HOVER`/`SCROLL_DOWN`/`WAIT`/`NAVIGATE_BACK`/`DONE`/`BLOCKED`)
+plus the payload operations the deterministic layer emits (`FILL_FORM`, `PRESS_KEY`) and the
+terminal ones (`SCREENSHOT`, `VERIFY`). `NAVIGATE` — go to an explicit http(s) URL mid-run — is
+a **planner-only** operation: it is reachable through the client-LLM planner, while the local
+model's choice question keeps exactly the options its checkpoint was trained on. An
+LLM-supplied URL is validated at the boundary (absolute `http(s)` only) and is subject to the
+domain allow-list.
 
 ### Reliability and self-healing
 
@@ -592,8 +623,13 @@ relevant controls without changing the `Snapshot` / `Control[]` contract:
 ### Safety guards (`src/safety.ts`)
 
 - **Domain allow-list.** When `LAYA_ALLOWED_DOMAINS` is set, `browser_navigate` and every
-  Autopilot navigation are restricted to those hosts and their subdomains; off-list
-  navigation is rejected with a reason (fail-closed).
+  Autopilot navigation are restricted to those hosts and their subdomains. The Assist tool
+  stays fail-closed (off-list navigation is rejected with a reason). Autopilot treats the list
+  as **advisory** so a goal can still finish: an off-list navigation (the initial `url` or a
+  planner-chosen `NAVIGATE`) is **confirmed** when a confirmation callback is wired, and
+  otherwise **proceeds with a warning** that is surfaced on the overlay, echoed into the
+  transcript's recent-actions log, and returned in `RunResult.warnings`. An explicit refusal
+  still blocks the run.
 - **Destructive-form guard.** This guard covers the **Autopilot auto-submit (`CLICK`) path
   only** — the human-driven Assist tools (`browser_click`, `browser_type`, …) apply no
   destructive check by design. Before Autopilot auto-submits, it inspects a **scoped** set of
@@ -615,14 +651,16 @@ relevant controls without changing the `Snapshot` / `Control[]` contract:
   output, and the on-page overlay log/toast/caption/status. The **real** value is still typed
   into the page and the independent final-page verification still runs against the real text, so
   automation is never weakened. Set `LAYA_REDACT_SECRETS=false` to disable masking.
-- **Confirmation hook for destructive submits (`LAYA_CONFIRM_DESTRUCTIVE`, default `false`).**
-  When on **and** the connected client supports MCP **elicitation**, a destructive auto-submit
-  `CLICK` that the guard would refuse instead triggers an inline human approval request (an
-  amber "awaiting confirmation" overlay state plus an `About to click "…" - approve?` prompt).
-  Approval proceeds with the click and records `approved via confirmation` on the step; a
-  decline, cancel, or a client that lacks elicitation resolves to a refusal. When
-  `LAYA_CONFIRM_DESTRUCTIVE` is off, or no confirmation callback is wired, the original
-  **refuse-by-default** fail-safe is preserved exactly.
+- **Confirmation hook for destructive submits.** When the connected client supports MCP
+  **elicitation**, a destructive auto-submit `CLICK` that the guard would refuse triggers an
+  inline human approval request (an amber "awaiting confirmation" overlay state plus an
+  `About to click "…" - approve?` prompt). Approval proceeds with the click and records
+  `approved via confirmation` on the step; a decline, cancel, or a client that lacks
+  elicitation resolves to a refusal, so the **refuse-by-default** fail-safe is preserved
+  whenever there is nobody to ask. The ask follows the confirmation callback alone;
+  `LAYA_CONFIRM_DESTRUCTIVE` is retained for compatibility but no longer gates it (requiring a
+  second flag turned a configurable confirmation into a hard block, which made the goal command
+  unable to finish a destructive submit autonomously even when the client could be asked).
 - **Assist-tool destructive guard (`LAYA_ASSIST_DESTRUCTIVE_GUARD`, default `false`).** Opt-in
   extension of the destructive guard to the human-driven `browser_click` Assist tool. When on,
   `browser_click` captures a snapshot, resolves the target control, runs the same pure
@@ -655,7 +693,7 @@ constructor options, then handed inward as typed config.
 | `LAYA_EXECUTION_PROVIDERS` | `cpu` | onnxruntime execution providers (comma-separated). |
 | `LAYA_CONFIDENCE_THRESHOLD` | `0.6` | Escalate below this operation/target confidence. |
 | `LAYA_MAX_STEPS` | `15` | Autopilot step budget. |
-| `LAYA_ALLOWED_DOMAINS` | — (allow all) | Comma-separated navigation allow-list. |
+| `LAYA_ALLOWED_DOMAINS` | — (allow all) | Comma-separated navigation allow-list. Fail-closed for `browser_navigate`; **advisory** for Autopilot, which confirms (when it can) or proceeds off-list with a warning recorded in `RunResult.warnings`. |
 | `LAYA_DESTRUCTIVE_GUARD` | `true` | `false` disables the destructive-form guard. |
 | `LAYA_CAPS` | (core-only) | Comma/space-separated tool capability groups to enable. |
 | `LAYA_BROWSER` | `chromium` | Browser engine: `chromium`, `firefox`, or `webkit`. |
@@ -665,7 +703,8 @@ constructor options, then handed inward as typed config.
 | `LAYA_LOOP_DETECTION` | `true` | `false` disables loop detection; when on, an Autopilot run that repeats the identical step stops early with the `stuck` outcome. |
 | `LAYA_LOOP_WINDOW` | `3` | How many recent steps the loop detector compares before declaring a run `stuck` (clamped `2..6`). |
 | `LAYA_REDACT_SECRETS` | `true` | `false` disables masking of secret values/patterns in the transcript, overlay, and rendered output. The real value is always typed into the page regardless. |
-| `LAYA_CONFIRM_DESTRUCTIVE` | `false` | `true` requests inline human approval (via MCP elicitation) before a destructive Autopilot auto-submit `CLICK`, instead of refusing outright. Falls back to refuse-by-default when the client lacks elicitation. |
+| `LAYA_CONFIRM_DESTRUCTIVE` | `false` | Retained for compatibility. The Autopilot confirmation hook now fires whenever the client supports MCP elicitation, so a destructive auto-submit `CLICK` the guard would refuse asks for inline approval instead of hard-blocking the run. Falls back to refuse-by-default when the client lacks elicitation. |
+| `LAYA_CLIENT_REQUEST_TIMEOUT_MS` | `20000` | **(R1)** Budget for a client-bound MCP request the server sends to its own client (the `sampling/createMessage` escalation and the `elicitation/create` confirmation) before degrading. The SDK's client-side request timeout is 60s and surfaces as `-32001` `RequestTimeout`, so bounding each request well inside it turns a stalled client model into a graceful `BLOCKED` instead of a lost run. Clamped `1000..30000`. |
 | `LAYA_ASSIST_DESTRUCTIVE_GUARD` | `false` | `true` applies the destructive guard to the Assist `browser_click` tool (refuses a destructive click); default `false` leaves Assist-tool behaviour unchanged. |
 | `LAYA_SNAPSHOT_BACKEND` | `domwalk` | Which backend enumerates page controls: `domwalk` (the in-house DOM walk) or `aria` (Playwright's accessibility tree). Both produce the same `Control[]` contract and stamp `data-laya-ref="eN"`, so ref resolution is identical either way. |
 | `LAYA_VIEWPORT_PRIORITY` | `true` | `true` orders captured controls so those in/near the viewport come first, so the ~20-control cap keeps the most relevant. `eN` refs stay in DOM order (ref resolution is unaffected); only the offered order changes. |
