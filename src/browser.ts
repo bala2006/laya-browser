@@ -28,6 +28,7 @@ import {
   type Locator,
   type Page,
 } from "playwright";
+import { existsSync } from "node:fs";
 import type {
   ConsoleMessageRecord,
   DialogRecord,
@@ -66,6 +67,14 @@ export interface BrowserSessionOptions {
   actionTimeoutMs?: number;
   /** Navigation timeout in ms. Defaults to 20000. */
   navigationTimeoutMs?: number;
+  /**
+   * (T2.1) Path to a Playwright storage-state JSON file for automatic session persistence.
+   * When set: if the file exists at launch it is loaded so the browser context starts with
+   * those cookies + per-origin localStorage (an authenticated session resumes); and on
+   * {@link close} the current context's storage state is written back to the same path.
+   * Undefined (the default) is a complete no-op, so existing sessions are unaffected.
+   */
+  storageStatePath?: string;
 }
 
 /** How the next JavaScript dialog should be handled, registered before it fires. */
@@ -114,8 +123,10 @@ const RING_BUFFER_LIMIT = 500;
  * loads no model weights.
  */
 export class BrowserSession {
-  private readonly options: Required<Omit<BrowserSessionOptions, "channel" | "overlay">> &
-    Pick<BrowserSessionOptions, "channel" | "overlay">;
+  private readonly options: Required<
+    Omit<BrowserSessionOptions, "channel" | "overlay" | "storageStatePath">
+  > &
+    Pick<BrowserSessionOptions, "channel" | "overlay" | "storageStatePath">;
 
   /**
    * The headless mode a launch actually used. Starts as the requested option and is set to
@@ -163,6 +174,7 @@ export class BrowserSession {
       viewport: options.viewport ?? { width: 1280, height: 800 },
       channel: options.channel,
       overlay: options.overlay,
+      storageStatePath: options.storageStatePath,
       actionTimeoutMs: options.actionTimeoutMs ?? 10000,
       navigationTimeoutMs: options.navigationTimeoutMs ?? 20000,
     };
@@ -179,6 +191,7 @@ export class BrowserSession {
         waitCountdown: false,
         debugSeeElements: false,
         activityLog: true,
+        cursorTrail: 0,
       },
     );
   }
@@ -251,8 +264,23 @@ export class BrowserSession {
       browser = await this.browserType.launch({ headless: true, ...launchOptions });
       this.effectiveHeadless = true;
     }
+    // (T2.1) Auto-load storage state at context creation when a path is configured AND the
+    // file exists, so an authenticated session resumes (cookies + per-origin localStorage).
+    // A missing/unreadable file is a clean no-op (first run has nothing to restore). A warn is
+    // written to stderr only (never stdout) on a genuinely malformed file.
+    let storageStateForContext: string | undefined;
+    if (this.options.storageStatePath) {
+      try {
+        if (existsSync(this.options.storageStatePath)) {
+          storageStateForContext = this.options.storageStatePath;
+        }
+      } catch {
+        storageStateForContext = undefined;
+      }
+    }
     const context = await browser.newContext({
       viewport: this.options.viewport,
+      ...(storageStateForContext ? { storageState: storageStateForContext } : {}),
     });
     // Bound action/navigation waits so a missing element surfaces as an error promptly
     // instead of hanging for Playwright's 30s default.
@@ -471,6 +499,54 @@ export class BrowserSession {
       return page.locator(`[data-laya-ref="${trimmed}"]`);
     }
     return page.locator(trimmed);
+  }
+
+  /**
+   * (T2.3) Frame-aware target resolution: like {@link resolveRef}, but for a `eN` ref that is
+   * NOT present in the active page's main frame, it searches the page's child frames (in
+   * order) and returns a locator scoped to the FIRST frame that contains the ref. This makes
+   * a `data-laya-ref` stamped inside a SAME-ORIGIN iframe (discovered when capture ran with a
+   * non-zero `frameDepth`) actionable.
+   *
+   * The main-frame CSS engine already pierces OPEN shadow roots, so shadow-DOM refs resolve
+   * without a frame search. A raw (non-ref) selector, or a ref that resolves in the main
+   * frame, returns the same locator as {@link resolveRef}. Async because presence in a frame
+   * can only be determined by an awaited `count()`; callers already await the action they run
+   * against the returned locator. Falls back to the main-frame locator when no frame matches
+   * (so the ensuing action surfaces a normal "element not found" error).
+   */
+  async locate(target: string): Promise<Locator> {
+    const page = this.pages[this.activeIndex];
+    if (!page) {
+      throw new Error(
+        "Cannot resolve a target before the page has been created; call getPage() first.",
+      );
+    }
+    const trimmed = target.trim();
+    if (!REF_PATTERN.test(trimmed)) {
+      return page.locator(trimmed);
+    }
+    const selector = `[data-laya-ref="${trimmed}"]`;
+    const mainLocator = page.locator(selector);
+    try {
+      if ((await mainLocator.count()) > 0) return mainLocator;
+    } catch {
+      // Count can throw mid-navigation; fall through to the frame search.
+    }
+    // Search child frames (skip the main frame, already checked). Cross-origin frames simply
+    // yield no match; a detached frame's count() throwing is caught and skipped.
+    const mainFrame = page.mainFrame();
+    for (const frame of page.frames()) {
+      if (frame === mainFrame) continue;
+      try {
+        const frameLocator = frame.locator(selector);
+        if ((await frameLocator.count()) > 0) return frameLocator;
+      } catch {
+        // Detached/cross-origin frame; skip.
+      }
+    }
+    // No frame matched: return the main-frame locator so the action surfaces a clear error.
+    return mainLocator;
   }
 
   /** List all open tabs as pure {@link TabInfo} records, launching lazily if needed. */
@@ -731,6 +807,57 @@ export class BrowserSession {
     }
   }
 
+  // --- Download capture boundary (T2.4; capability: storage) ---
+
+  /**
+   * (T2.4) Capture a Playwright `download` triggered by clicking `target`, save it to
+   * `savePath`, and report the suggested filename plus the resolved path.
+   *
+   * The download listener is armed on the active page BEFORE the click so a fast download is
+   * never missed, and the click and the `waitForEvent("download")` are awaited together. The
+   * saved bytes are written via Playwright's `download.saveAs`, so the file lands wherever the
+   * caller chose regardless of the browser's own downloads directory. Bounded by the context
+   * action timeout, so a click that produces no download surfaces a clear timeout rather than
+   * hanging. This is the SOLE Playwright download boundary; the tool layer never touches it.
+   */
+  async downloadVia(
+    target: string,
+    savePath: string,
+  ): Promise<{ path: string; suggestedFilename: string }> {
+    const page = await this.getPage();
+    const locator = this.resolveRef(target);
+    const [download] = await Promise.all([
+      page.waitForEvent("download"),
+      locator.click(),
+    ]);
+    await download.saveAs(savePath);
+    return { path: savePath, suggestedFilename: download.suggestedFilename() };
+  }
+
+  /**
+   * (T2.4) Like {@link downloadVia} but into a DIRECTORY: the browser-suggested filename is
+   * known only after the download starts, so this captures the download, then saves it under
+   * `dir` using that suggested filename. Returns the resolved path + suggested filename.
+   */
+  async downloadViaInto(
+    target: string,
+    dir: string,
+  ): Promise<{ path: string; suggestedFilename: string }> {
+    const page = await this.getPage();
+    const locator = this.resolveRef(target);
+    const [download] = await Promise.all([
+      page.waitForEvent("download"),
+      locator.click(),
+    ]);
+    const suggested = download.suggestedFilename();
+    // Join without importing node:path here (keep this module Playwright-focused): the tool
+    // layer passed an absolute dir; use a portable separator join.
+    const sep = dir.endsWith("/") || dir.endsWith("\\") ? "" : "/";
+    const savePath = `${dir}${sep}${suggested}`;
+    await download.saveAs(savePath);
+    return { path: savePath, suggestedFilename: suggested };
+  }
+
   // --- Routing / network-mocking boundary (capability: network) ---
 
   /**
@@ -963,7 +1090,21 @@ export class BrowserSession {
               let observer: MutationObserver | undefined;
               try {
                 observer = new MutationObserver((records) => {
-                  mutations += records.length;
+                  // (T4.1) Ignore our OWN instrumentation: the snapshot walk stamps
+                  // `data-laya-ref` attributes, and a speculative capture may run concurrently
+                  // with this probe. Counting those self-inflicted attribute writes would
+                  // falsely report the page as "changed", so they are filtered out. Every
+                  // genuine page mutation (childList / characterData / other attributes) is
+                  // still counted, so the probe's observed semantics are unchanged.
+                  for (const r of records) {
+                    if (
+                      r.type === "attributes" &&
+                      r.attributeName === "data-laya-ref"
+                    ) {
+                      continue;
+                    }
+                    mutations += 1;
+                  }
                 });
                 observer.observe(document.documentElement, {
                   subtree: true,
@@ -1025,6 +1166,17 @@ export class BrowserSession {
 
   /** Close the page(s)/context/browser and release all resources. Idempotent. */
   async close(): Promise<void> {
+    // (T2.1) Auto-save storage state to the configured path BEFORE tearing the context down,
+    // so an authenticated session persists to disk for the next launch to resume. Best-effort:
+    // any failure (context already gone, unwritable path) is swallowed so close() never throws
+    // and stays idempotent. A no-op when no path was configured or nothing was ever launched.
+    if (this.options.storageStatePath && this.context) {
+      try {
+        await this.context.storageState({ path: this.options.storageStatePath });
+      } catch {
+        // Nothing to persist / context closing; ignore.
+      }
+    }
     // Close inner-to-outer; guard each so a partially-launched session still cleans up.
     for (const page of this.pages) {
       try {

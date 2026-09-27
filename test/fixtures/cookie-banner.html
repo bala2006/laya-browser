@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Cookie banner page</title>
+    <style>
+      #consent {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 9999;
+        background: #222;
+        color: #fff;
+        padding: 20px;
+      }
+      #consent.hidden { display: none; }
+    </style>
+  </head>
+  <body>
+    <h1>Welcome</h1>
+    <p>Main content of the page.</p>
+    <button id="action" type="button" onclick="document.getElementById('outcome').textContent='action done'">
+      Do the thing
+    </button>
+    <div id="outcome" aria-live="polite"></div>
+
+    <!-- A cookie/consent banner that overlays the bottom of the page. -->
+    <div id="consent" role="dialog" aria-label="Cookie consent">
+      <span>We use cookies to improve your experience. Read our privacy policy.</span>
+      <button id="accept" type="button" onclick="document.getElementById('consent').classList.add('hidden')">
+        Accept all
+      </button>
+      <button id="reject" type="button" onclick="document.getElementById('consent').classList.add('hidden')">
+        Reject all
+      </button>
+    </div>
+  </body>
+</html>

@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Iframe + shadow DOM</title>
+  </head>
+  <body>
+    <h1>Host page</h1>
+    <button id="host-button" type="button">Host button</button>
+
+    <!-- An OPEN shadow root hosting a control that a top-document querySelectorAll misses. -->
+    <div id="shadow-host"></div>
+
+    <!-- A SAME-ORIGIN iframe (served by the fixture server) with its own control. -->
+    <iframe id="frame" src="iframe-inner.html" width="400" height="200"></iframe>
+
+    <script>
+      const host = document.getElementById("shadow-host");
+      const root = host.attachShadow({ mode: "open" });
+      const btn = document.createElement("button");
+      btn.id = "shadow-button";
+      btn.textContent = "Shadow button";
+      btn.addEventListener("click", () => {
+        btn.textContent = "Shadow clicked";
+      });
+      root.appendChild(btn);
+    </script>
+  </body>
+</html>
