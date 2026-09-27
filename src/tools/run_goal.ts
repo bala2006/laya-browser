@@ -15,6 +15,7 @@ import { runGoal, type ConfirmFn, type RunResult } from "../autopilot/loop.js";
 import type { SampleFn } from "../autopilot/escalation.js";
 import type { SnapshotBackend } from "../config.js";
 import type { LayaDecisionEngine } from "../types.js";
+import type { RunArtifactsHolder } from "./run_artifacts.js";
 
 /** Extra context the Autopilot tool needs beyond the shared browser session. */
 export interface RunGoalContext extends ToolContext {
@@ -57,6 +58,19 @@ export interface RunGoalContext extends ToolContext {
   viewportPriority?: boolean;
   /** (C2) Whether the escalation path may send a delta-only prompt when a diff exists. */
   deltaPrompt?: boolean;
+  /**
+   * (D1) Whether the loop records per-step observability artifacts (screenshot + snapshot +
+   * decision + confidence + timing) for the replay export. Defaults false so normal runs are
+   * not slowed. When a holder is supplied via {@link artifacts}, recording is enabled so the
+   * laya_export_run tool has something to write.
+   */
+  recordArtifacts?: boolean;
+  /**
+   * (D1) Shared holder for the most recent run's artifacts. When present, the run records
+   * artifacts and stores them here for the laya_export_run tool to read. Shared by reference
+   * with the export tool's context in src/server.ts.
+   */
+  artifacts?: RunArtifactsHolder;
 }
 
 export const inputSchema = {
@@ -74,6 +88,26 @@ export const inputSchema = {
 };
 
 type Args = { goal: string; url?: string; maxSteps?: number };
+
+/**
+ * (D2) The subset of the SDK's `RequestHandlerExtra` this handler uses: the optional
+ * `_meta.progressToken` and the `sendNotification` sink. Kept structural (not importing the
+ * SDK's generic type) so the handler stays easy to unit-test with a fake `extra`, while
+ * still being assignable from the real SDK extra at the call site. `sendNotification` is
+ * typed loosely for the same reason.
+ */
+export interface RunGoalExtra {
+  _meta?: { progressToken?: string | number };
+  sendNotification?: (notification: {
+    method: "notifications/progress";
+    params: {
+      progressToken: string | number;
+      progress: number;
+      total?: number;
+      message?: string;
+    };
+  }) => void | Promise<void>;
+}
 
 /** Render a {@link RunResult} as a compact, human-readable transcript block. */
 export function renderRunResult(result: RunResult): string {
@@ -127,8 +161,33 @@ export function renderRunResult(result: RunResult): string {
 }
 
 export function makeHandler(ctx: RunGoalContext) {
-  return async (args: Args): Promise<ToolResult> => {
+  // Signature is (args, extra), matching the SDK ToolCallback. `extra` is optional so the
+  // handler can also be called directly in tests without an MCP request context.
+  return async (args: Args, extra?: RunGoalExtra): Promise<ToolResult> => {
     try {
+      // (D2) When the client supplied a progressToken on the request meta, stream a
+      // notifications/progress per step. A no-op when absent (backward-compatible): no token
+      // or no sink means onProgress is never wired, so no notifications are emitted.
+      const progressToken = extra?._meta?.progressToken;
+      const sendNotification = extra?.sendNotification;
+      const onProgress =
+        progressToken !== undefined && sendNotification
+          ? async (info: { step: number; total: number; message: string }): Promise<void> => {
+              await sendNotification({
+                method: "notifications/progress",
+                params: {
+                  progressToken,
+                  progress: info.step,
+                  total: info.total,
+                  message: info.message,
+                },
+              });
+            }
+          : undefined;
+
+      // (D1) Record per-step artifacts only when a shared holder was wired in (the export
+      // tool needs them). Off by default so normal runs are not slowed.
+      const recordArtifacts = ctx.recordArtifacts === true || ctx.artifacts !== undefined;
       // Thread the session's visual overlay (agentLens HUD) and the active page into the loop
       // so each step is narrated on-page. Both are optional: the overlay is a guarded no-op
       // when disabled, and the loop treats a missing overlay as no narration at all.
@@ -181,7 +240,20 @@ export function makeHandler(ctx: RunGoalContext) {
           ? { viewportPriority: ctx.viewportPriority }
           : {}),
         ...(ctx.deltaPrompt !== undefined ? { deltaPrompt: ctx.deltaPrompt } : {}),
+        ...(recordArtifacts ? { recordArtifacts: true } : {}),
+        ...(onProgress !== undefined ? { onProgress } : {}),
       });
+      // (D1) Persist the most recent run's artifacts into the shared holder so the
+      // laya_export_run tool can write a replay. Only when recording was enabled and the run
+      // actually produced steps.
+      if (ctx.artifacts !== undefined && result.steps !== undefined) {
+        ctx.artifacts.last = {
+          goal: result.goal,
+          outcome: result.outcome,
+          finishedAt: new Date().toISOString(),
+          steps: result.steps,
+        };
+      }
       const isError = result.outcome === "error";
       return textResult(renderRunResult(result), isError);
     } catch (err) {

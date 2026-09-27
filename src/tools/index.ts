@@ -47,6 +47,7 @@ import * as pdf from "./pdf.js";
 import * as vision from "./vision.js";
 import * as getConfig from "./get_config.js";
 import * as devtools from "./devtools.js";
+import * as exportRun from "./export_run.js";
 
 /**
  * The full Assist toolset as a capability-gating table. Every entry today is CORE
@@ -140,6 +141,9 @@ export const REGISTRY: readonly RegisteredTool[] = [
   { module: devtools.stopRecordingModule, capability: "devtools" },
   { module: devtools.annotateModule, capability: "devtools" },
   { module: devtools.resumeModule, capability: "devtools" },
+  // (D1) Session trace / replay export: writes an HTML and/or JSON replay of the last
+  // Autopilot run. Complements the Playwright tracing tools above.
+  { module: exportRun.exportRunModule as unknown as ToolModule, capability: "devtools" },
 ];
 
 /** Whether a registry entry is enabled given the set of enabled capabilities. */
