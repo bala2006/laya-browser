@@ -21,6 +21,7 @@
  *   LAYA_BROWSER_OVERLAY_COUNTDOWN=false  opt-in WAIT countdown display
  *   LAYA_BROWSER_OVERLAY_DEBUG=false   outline "what the agent sees" elements
  *   LAYA_BROWSER_OVERLAY_LOG=true      collapsible activity-log panel
+ *   LAYA_BROWSER_OVERLAY_TRAIL=6       (T3.4) synthetic-cursor breadcrumb trail length (clamped 0..24; 0 = off)
  *   LAYA_AUTOPILOT_WAIT_MS=300         Autopilot WAIT-operation duration in ms (clamped 0..5000)
  *   LAYA_MODEL_DIR=/path/to/bundle     local ONNX bundle (skips download)
  *   LAYA_REPO / LAYA_SUBFOLDER / LAYA_REVISION   Hugging Face source coordinates
@@ -44,6 +45,12 @@
  *   LAYA_SNAPSHOT_BACKEND=domwalk|aria    snapshot capture backend (default: domwalk)
  *   LAYA_VIEWPORT_PRIORITY=true        order/cap controls by viewport visibility first (default: true)
  *   LAYA_RECORD_ARTIFACTS=false        record per-step replay artifacts for laya_export_run (default: false)
+ *   LAYA_STATE_TEXT_LIMIT=1200         (T1.3) max chars of visible text carried into Autopilot state/escalation prompt (clamped 200..8000)
+ *   LAYA_LOOP_SCREENSHOTS=false        (T1.4) capture a per-step screenshot in the Autopilot loop (default: false; artifacts recording is separate)
+ *   LAYA_STORAGE_STATE=/path/state.json (T2.1) auto-load storage state on launch (if it exists) and auto-save on close()
+ *   LAYA_AUTO_DISMISS=false            (T2.2) auto-dismiss cookie/consent/blocking-modal overlays during Autopilot (default: false)
+ *   LAYA_FRAME_DEPTH=0                 (T2.3) how many levels of same-origin iframe / open shadow root the DOM walk descends (clamped 0..5; 0 = top document only)
+ *   LAYA_DOWNLOAD_DIR=/path            (T2.4) default directory browser_download_file saves into when no explicit path is given
  */
 
 /** How the Autopilot engine is selected. `auto` decides from the presence of weights. */
@@ -109,6 +116,11 @@ export const OVERLAY_MODES: readonly OverlayMode[] = ["auto", "on", "off"] as co
 /** The default overlay brand accent (agentLens purple). */
 export const DEFAULT_OVERLAY_ACCENT = "#a855f7";
 
+/** (T3.4) Default synthetic-cursor trail length (breadcrumb dots), and its inclusive bounds. */
+export const DEFAULT_OVERLAY_TRAIL = 6;
+export const OVERLAY_TRAIL_MIN = 0;
+export const OVERLAY_TRAIL_MAX = 24;
+
 /**
  * The resolved visual-overlay configuration (agentLens HUD). The overlay is an on-page,
  * pointer-events:none set of nodes injected via `context.addInitScript`, so it never
@@ -131,6 +143,12 @@ export interface OverlayConfig {
   debugSeeElements: boolean;
   /** Whether the collapsible activity-log panel is shown. */
   activityLog: boolean;
+  /**
+   * (T3.4) How many fading breadcrumb dots the synthetic cursor leaves between successive
+   * positions, so multi-field actions read as continuous motion. `0` disables the trail.
+   * Clamped to `[0, 24]`. Defaults to {@link DEFAULT_OVERLAY_TRAIL}.
+   */
+  cursorTrail: number;
 }
 
 /** The fully-parsed, typed configuration handed inward to the rest of the server. */
@@ -252,6 +270,47 @@ export interface LayaBrowserConfig {
    * present without this being on; recording is gated on THIS flag, not on holder presence.
    */
   recordArtifacts: boolean;
+  /**
+   * (T1.3) Maximum characters of the page's visible text carried into the Autopilot page
+   * state (and thus into the escalation prompt). Bounding this explicitly keeps the token
+   * cost of a big page predictable; the model is pointed at the `extract` tool for large
+   * reads instead of receiving the whole page. Clamped to `[200, 8000]`. Defaults to
+   * {@link DEFAULT_STATE_TEXT_LIMIT} (1200), preserving the previous state-builder default.
+   */
+  stateTextLimit: number;
+  /**
+   * (T1.4) Whether the Autopilot loop captures a per-step PNG screenshot. Default OFF: the
+   * loop is a text-first, no-per-step-screenshot pipeline (vision is opt-in) so it stays
+   * fast and cheap. This is INDEPENDENT of {@link recordArtifacts}: turning on artifact
+   * recording implies capturing step screenshots for the replay, but this flag lets an
+   * operator force step screenshots on (or document the default off) on its own.
+   */
+  loopScreenshots: boolean;
+  /**
+   * (T2.1) Path to a Playwright storage-state JSON file for automatic session persistence.
+   * When set AND the file exists, it is loaded on launch (cookies + per-origin localStorage
+   * restored) so an authenticated session resumes; the same path is auto-saved on
+   * {@link close}. Unset (undefined) is a complete no-op — existing behaviour is unchanged.
+   */
+  storageStatePath?: string;
+  /**
+   * (T2.2) Whether the Autopilot loop runs a bounded, conservative heuristic to auto-dismiss
+   * cookie/consent banners and blocking modal overlays before deciding each step. Default
+   * OFF. Never clicks destructive controls; only accept/close/dismiss affordances on
+   * detected consent/modal containers.
+   */
+  autoDismiss: boolean;
+  /**
+   * (T2.3) How many levels of SAME-ORIGIN iframe and OPEN shadow root the in-page DOM walk
+   * descends into to discover controls. `0` (default) walks only the top document, exactly
+   * as before. Clamped to `[0, 5]`. Cross-origin iframes are skipped cleanly (never crash).
+   */
+  frameDepth: number;
+  /**
+   * (T2.4) Default directory the `browser_download_file` tool saves a captured download into
+   * when the caller gives no explicit path. Unset means the caller must supply a path.
+   */
+  downloadDir?: string;
 }
 
 /** Overrides supplied programmatically (constructor options / tool arguments). */
@@ -285,6 +344,12 @@ export interface ConfigOverrides {
   snapshotBackend?: SnapshotBackend;
   viewportPriority?: boolean;
   recordArtifacts?: boolean;
+  stateTextLimit?: number;
+  loopScreenshots?: boolean;
+  storageStatePath?: string;
+  autoDismiss?: boolean;
+  frameDepth?: number;
+  downloadDir?: string;
 }
 
 /** Built-in defaults, used when neither an override nor an env var is present. */
@@ -309,6 +374,16 @@ export const LOOP_WINDOW_MAX = 6;
 
 /** (C1) Default snapshot capture backend. */
 export const DEFAULT_SNAPSHOT_BACKEND: SnapshotBackend = "domwalk";
+
+/** (T1.3) Default visible-text budget carried into Autopilot state, and its inclusive bounds. */
+export const DEFAULT_STATE_TEXT_LIMIT = 1200;
+export const STATE_TEXT_LIMIT_MIN = 200;
+export const STATE_TEXT_LIMIT_MAX = 8000;
+
+/** (T2.3) Default same-origin iframe / open-shadow-root descent depth, and its inclusive bounds. */
+export const DEFAULT_FRAME_DEPTH = 0;
+export const FRAME_DEPTH_MIN = 0;
+export const FRAME_DEPTH_MAX = 5;
 
 /** Parse a boolean env var: only the literal string `"false"` disables a default-true flag. */
 function envBoolDefaultTrue(value: string | undefined): boolean {
@@ -511,6 +586,53 @@ export function loadConfig(
   const recordArtifacts =
     overrides.recordArtifacts ?? envBoolDefaultFalse(env.LAYA_RECORD_ARTIFACTS);
 
+  // (T1.3) Explicit, bounded visible-text budget for the Autopilot state / escalation prompt.
+  const stateTextLimit = clamp(
+    Math.trunc(
+      overrides.stateTextLimit ??
+        parseNumber(env.LAYA_STATE_TEXT_LIMIT, {
+          min: STATE_TEXT_LIMIT_MIN,
+          max: STATE_TEXT_LIMIT_MAX,
+        }) ??
+        DEFAULT_STATE_TEXT_LIMIT,
+    ),
+    STATE_TEXT_LIMIT_MIN,
+    STATE_TEXT_LIMIT_MAX,
+  );
+
+  // (T1.4) Per-step loop screenshots are off by default (text-first, screenshots opt-in).
+  const loopScreenshots =
+    overrides.loopScreenshots ?? envBoolDefaultFalse(env.LAYA_LOOP_SCREENSHOTS);
+
+  // (T2.1) Auto storage-state path. Trimmed; empty string is treated as unset.
+  const storageStatePathRaw = overrides.storageStatePath ?? env.LAYA_STORAGE_STATE;
+  const storageStatePath =
+    storageStatePathRaw && storageStatePathRaw.trim() !== ""
+      ? storageStatePathRaw.trim()
+      : undefined;
+
+  // (T2.2) Auto-dismiss cookie/consent/modal overlays. Off by default (conservative).
+  const autoDismiss = overrides.autoDismiss ?? envBoolDefaultFalse(env.LAYA_AUTO_DISMISS);
+
+  // (T2.3) Same-origin iframe / open shadow-root descent depth (0 = top document only).
+  const frameDepth = clamp(
+    Math.trunc(
+      overrides.frameDepth ??
+        parseNumber(env.LAYA_FRAME_DEPTH, {
+          min: FRAME_DEPTH_MIN,
+          max: FRAME_DEPTH_MAX,
+        }) ??
+        DEFAULT_FRAME_DEPTH,
+    ),
+    FRAME_DEPTH_MIN,
+    FRAME_DEPTH_MAX,
+  );
+
+  // (T2.4) Default directory for browser_download_file. Trimmed; empty string = unset.
+  const downloadDirRaw = overrides.downloadDir ?? env.LAYA_DOWNLOAD_DIR;
+  const downloadDir =
+    downloadDirRaw && downloadDirRaw.trim() !== "" ? downloadDirRaw.trim() : undefined;
+
   // Overlay: parse each knob once. `auto` resolves to enabled = !headless (on when headed);
   // `on`/`off` force it regardless. Overrides win per-field over the env-derived values.
   const overlayMode = overrides.overlay?.mode ?? parseOverlayMode(env.LAYA_BROWSER_OVERLAY);
@@ -535,6 +657,18 @@ export function loadConfig(
     activityLog:
       overrides.overlay?.activityLog ??
       envBoolDefaultTrue(env.LAYA_BROWSER_OVERLAY_LOG),
+    cursorTrail: clamp(
+      Math.trunc(
+        overrides.overlay?.cursorTrail ??
+          parseNumber(env.LAYA_BROWSER_OVERLAY_TRAIL, {
+            min: OVERLAY_TRAIL_MIN,
+            max: OVERLAY_TRAIL_MAX,
+          }) ??
+          DEFAULT_OVERLAY_TRAIL,
+      ),
+      OVERLAY_TRAIL_MIN,
+      OVERLAY_TRAIL_MAX,
+    ),
   };
 
   const autopilotWaitMs = clamp(
@@ -573,7 +707,13 @@ export function loadConfig(
     snapshotBackend,
     viewportPriority,
     recordArtifacts,
+    stateTextLimit,
+    loopScreenshots,
+    autoDismiss,
+    frameDepth,
   };
+  if (storageStatePath !== undefined) config.storageStatePath = storageStatePath;
+  if (downloadDir !== undefined) config.downloadDir = downloadDir;
   if (channel !== undefined) config.channel = channel;
   if (modelDir !== undefined) config.modelDir = modelDir;
   if (repo !== undefined) config.repo = repo;

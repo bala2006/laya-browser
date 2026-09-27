@@ -29,6 +29,7 @@ function overlayOn(overrides: Partial<OverlayConfig> = {}): OverlayConfig {
     waitCountdown: false,
     debugSeeElements: false,
     activityLog: true,
+    cursorTrail: 6,
     ...overrides,
   };
 }

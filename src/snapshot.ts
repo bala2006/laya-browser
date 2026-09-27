@@ -85,6 +85,15 @@ export interface CaptureOptions {
    * controls. Defaults to false, preserving pure DOM order for existing callers.
    */
   viewportPriority?: boolean;
+  /**
+   * (T2.3) How many levels of SAME-ORIGIN iframe and OPEN shadow root the in-page DOM walk
+   * descends into to discover controls. `0` (default) walks only the TOP document, exactly as
+   * before, so existing callers are unaffected. Cross-origin iframes (whose `contentDocument`
+   * is inaccessible) are skipped cleanly. Controls found inside a same-origin iframe still get
+   * a `data-laya-ref="eN"` stamp inside that frame's document; {@link BrowserSession.resolveRef}
+   * searches child frames so the stamped ref remains actionable.
+   */
+  frameDepth?: number;
 }
 
 /**
@@ -108,6 +117,7 @@ export async function capture(
   const raw = (await page.evaluate(domWalk, {
     visibleTextLimit: limit,
     viewportPriority: options.viewportPriority ?? false,
+    frameDepth: options.frameDepth ?? 0,
   })) as RawSnapshot;
 
   const controls: Control[] = raw.controls.map((c) => ({
@@ -411,8 +421,12 @@ function controlLine(c: Control): string {
  * headings (h1-h6), and labels. Each selected, visible element is stamped with a stable
  * `data-laya-ref="eN"` (monotonic in DOM order) and described as a raw control record.
  */
-function domWalk(args: { visibleTextLimit: number; viewportPriority: boolean }): unknown {
-  const { visibleTextLimit, viewportPriority } = args;
+function domWalk(args: {
+  visibleTextLimit: number;
+  viewportPriority: boolean;
+  frameDepth: number;
+}): unknown {
+  const { visibleTextLimit, viewportPriority, frameDepth } = args;
   const SELECTOR = [
     "a[href]",
     "button",
@@ -431,19 +445,26 @@ function domWalk(args: { visibleTextLimit: number; viewportPriority: boolean }):
     "label",
   ].join(",");
 
-  function isVisible(el: Element): boolean {
+  // Resolve the window that owns an element, so getComputedStyle uses the correct document
+  // view even for elements inside a same-origin iframe (T2.3). Falls back to the top window.
+  function viewOf(el: Element): Window {
+    return (el.ownerDocument && el.ownerDocument.defaultView) || window;
+  }
+
+  // (T4.3) Visibility check that REUSES a bounding rect the caller already read, so the DOM
+  // walk performs exactly ONE getBoundingClientRect per element even when it also needs the
+  // rect for viewport-proximity ordering. Cheap style reads still short-circuit first, so a
+  // display:none / hidden / transparent element never triggers a layout read at all. The
+  // selected visible/interactive set is identical to before (behaviour-preserving).
+  function isVisibleWithRect(el: Element, rect: DOMRect | null): boolean {
     const he = el as HTMLElement;
-    // Cheap style reads first, so a display:none / hidden / transparent element short-circuits
-    // BEFORE any layout read. Only then read the bounding rect, exactly once, to decide the
-    // zero-size case. This avoids the previous double forced reflow while selecting the same
-    // elements as before (identical behaviour, fewer layout flushes).
-    const style = window.getComputedStyle(he);
+    const style = viewOf(he).getComputedStyle(he);
     if (style.display === "none" || style.visibility === "hidden") return false;
     if (style.opacity === "0") return false;
-    const rect = he.getBoundingClientRect();
+    const r = rect ?? he.getBoundingClientRect();
     // Allow zero-size elements that are inputs (some are visually collapsed but usable),
     // but skip truly detached/hidden ones.
-    if (rect.width === 0 && rect.height === 0) {
+    if (r.width === 0 && r.height === 0) {
       const tag = el.tagName.toLowerCase();
       if (tag !== "input" && tag !== "select" && tag !== "textarea") return false;
     }
@@ -457,11 +478,15 @@ function domWalk(args: { visibleTextLimit: number; viewportPriority: boolean }):
     const ariaLabel = he.getAttribute("aria-label");
     if (ariaLabel && ariaLabel.trim()) return ariaLabel.trim();
 
+    // Use the element's OWN document for label lookups so refs inside a same-origin iframe
+    // (T2.3) resolve their <label for=...> / aria-labelledby targets in the right document.
+    const doc = he.ownerDocument || document;
+
     const labelledBy = he.getAttribute("aria-labelledby");
     if (labelledBy) {
       const names = labelledBy
         .split(/\s+/)
-        .map((id) => document.getElementById(id)?.textContent?.trim() ?? "")
+        .map((id) => doc.getElementById(id)?.textContent?.trim() ?? "")
         .filter(Boolean);
       if (names.length) return names.join(" ");
     }
@@ -470,7 +495,7 @@ function domWalk(args: { visibleTextLimit: number; viewportPriority: boolean }):
     if (tag === "input" || tag === "textarea" || tag === "select") {
       const id = he.getAttribute("id");
       if (id) {
-        const lbl = document.querySelector(`label[for="${CSS.escape(id)}"]`);
+        const lbl = doc.querySelector(`label[for="${CSS.escape(id)}"]`);
         if (lbl && lbl.textContent && lbl.textContent.trim()) {
           return lbl.textContent.trim();
         }
@@ -578,10 +603,11 @@ function domWalk(args: { visibleTextLimit: number; viewportPriority: boolean }):
   // (C3) Shortest gap in CSS pixels between an element's box and the viewport rectangle.
   // Returns 0 when the element intersects the viewport (fully or partially in view). Used to
   // rank in/near-viewport controls ahead of far-offscreen ones when viewportPriority is on.
-  function viewportDistance(el: Element): number {
-    const rect = (el as HTMLElement).getBoundingClientRect();
-    const vw = window.innerWidth || document.documentElement.clientWidth || 0;
-    const vh = window.innerHeight || document.documentElement.clientHeight || 0;
+  function viewportDistanceFromRect(el: Element, rect: DOMRect): number {
+    const win = viewOf(el);
+    const doc = el.ownerDocument || document;
+    const vw = win.innerWidth || doc.documentElement.clientWidth || 0;
+    const vh = win.innerHeight || doc.documentElement.clientHeight || 0;
     // Horizontal / vertical gaps: 0 when the element overlaps the viewport on that axis.
     const dx =
       rect.right < 0 ? -rect.right : rect.left > vw ? rect.left - vw : 0;
@@ -590,9 +616,57 @@ function domWalk(args: { visibleTextLimit: number; viewportPriority: boolean }):
     return Math.round(Math.hypot(dx, dy));
   }
 
+  // (T2.3) Collect matching elements from a root (Document or ShadowRoot), then descend into
+  // OPEN shadow roots and SAME-ORIGIN iframes up to `depth` levels. Cross-origin iframes
+  // (whose contentDocument throws / is null) are skipped cleanly so the walk never crashes.
+  // Elements are collected in document order; the caller stamps refs in that order so
+  // resolveRef stays deterministic. `frameDepth === 0` collects only the top document, exactly
+  // as before.
+  function collectElements(
+    root: Document | ShadowRoot,
+    depth: number,
+    out: Element[],
+  ): void {
+    let matched: Element[] = [];
+    try {
+      matched = Array.from(root.querySelectorAll(SELECTOR));
+    } catch {
+      matched = [];
+    }
+    for (const el of matched) out.push(el);
+
+    if (depth <= 0) return;
+
+    // Descend into OPEN shadow roots of every element under this root. querySelectorAll("*")
+    // is bounded by the DOM size; guard against closed shadow roots (shadowRoot === null).
+    let allNodes: Element[] = [];
+    try {
+      allNodes = Array.from(root.querySelectorAll("*"));
+    } catch {
+      allNodes = [];
+    }
+    for (const node of allNodes) {
+      const sr = (node as Element & { shadowRoot?: ShadowRoot | null }).shadowRoot;
+      if (sr) {
+        collectElements(sr, depth - 1, out);
+      }
+      // Descend into SAME-ORIGIN iframes. Accessing contentDocument throws for cross-origin
+      // frames; catch and skip so the walk degrades cleanly rather than crashing.
+      if (node.tagName === "IFRAME") {
+        try {
+          const doc = (node as HTMLIFrameElement).contentDocument;
+          if (doc) collectElements(doc, depth - 1, out);
+        } catch {
+          // Cross-origin frame: inaccessible by design; skip it.
+        }
+      }
+    }
+  }
+
   const results: RawControl[] = [];
   const seen = new Set<Element>();
-  const elements = Array.from(document.querySelectorAll(SELECTOR));
+  const elements: Element[] = [];
+  collectElements(document, frameDepth, elements);
   let counter = 0;
 
   for (const el of elements) {
@@ -601,8 +675,12 @@ function domWalk(args: { visibleTextLimit: number; viewportPriority: boolean }):
 
     const tag = el.tagName.toLowerCase();
     const role = roleFor(el);
+    // (T4.3) role is computed ONCE here (a hidden input short-circuits before any layout
+    // read). Read the bounding rect at most once per element and share it between the
+    // visibility test and the optional viewport-proximity measure, avoiding a second reflow.
     if (role === "hidden") continue;
-    if (!isVisible(el)) continue;
+    const rect = (el as HTMLElement).getBoundingClientRect();
+    if (!isVisibleWithRect(el, rect)) continue;
 
     // Skip <label> elements that are redundant with the field they name (via `for=`
     // or by wrapping it): the field itself is captured and already carries that name.
@@ -632,7 +710,7 @@ function domWalk(args: { visibleTextLimit: number; viewportPriority: boolean }):
     // (C3) Record viewport proximity so the returned list can be sorted nearest-first. The
     // `eN` ref was already stamped in DOM order above, so sorting the list does not affect
     // resolveRef: eN still maps to the element it was stamped on.
-    if (viewportPriority) control.viewportDistance = viewportDistance(el);
+    if (viewportPriority) control.viewportDistance = viewportDistanceFromRect(el, rect);
 
     if (tag === "input") {
       const input = el as HTMLInputElement;

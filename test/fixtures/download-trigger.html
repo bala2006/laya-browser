@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Download trigger</title>
+  </head>
+  <body>
+    <h1>Export</h1>
+    <p>Click to download a report file.</p>
+    <button id="download" type="button" onclick="triggerDownload()">Download report</button>
+
+    <script>
+      function triggerDownload() {
+        // Build an in-memory file and trigger a real browser download of it.
+        const blob = new Blob(["laya-report-contents\n"], { type: "text/plain" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "report.txt";
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => {
+          URL.revokeObjectURL(url);
+          a.remove();
+        }, 0);
+      }
+    </script>
+  </body>
+</html>

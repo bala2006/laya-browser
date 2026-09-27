@@ -48,6 +48,8 @@ import * as vision from "./vision.js";
 import * as getConfig from "./get_config.js";
 import * as devtools from "./devtools.js";
 import * as exportRun from "./export_run.js";
+import * as extract from "./extract.js";
+import * as download from "./download.js";
 
 /**
  * The full Assist toolset as a capability-gating table. Every entry today is CORE
@@ -123,6 +125,12 @@ export const REGISTRY: readonly RegisteredTool[] = [
   { module: vision.downModule, capability: "vision" },
   { module: vision.upModule, capability: "vision" },
   { module: vision.wheelModule, capability: "vision" },
+  // (T1.2) Scoped page-question extraction (ask_page). A read/perception aid, grouped with
+  // vision. Uses MCP sampling when available, else returns the most relevant text span.
+  { module: extract as unknown as ToolModule, capability: "vision" },
+
+  // (T2.4) Download capture: save a Playwright `download` event to a path and report it.
+  { module: download as unknown as ToolModule, capability: "storage" },
 
   // CONFIG capability group: report the resolved configuration.
   { module: getConfig as unknown as ToolModule, capability: "config" },

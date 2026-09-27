@@ -9,6 +9,7 @@ import { z } from "zod";
 import type { BrowserSession } from "../browser.js";
 import type { LayaBrowserConfig } from "../config.js";
 import type { RunArtifactsHolder } from "./run_artifacts.js";
+import type { SampleFn } from "../autopilot/escalation.js";
 import { capture } from "../snapshot.js";
 
 /** The context handed to every Assist tool handler. */
@@ -46,6 +47,20 @@ export interface ToolContext {
    * tools that do not need it can omit it.
    */
   artifacts?: RunArtifactsHolder;
+  /**
+   * (T1.2) Optional sampling callback used by the `extract`/`ask_page` tool to answer a
+   * natural-language question against a SCOPED slice of the current page text via MCP
+   * sampling. Mirrors how {@link ../autopilot/escalation.samplerFromServer} wires sampling
+   * for the Autopilot loop. When absent (the client lacks sampling, or a lightweight test
+   * context omitted it), the extract tool degrades to returning the most relevant text span
+   * WITHOUT sampling — it never throws or blocks on a missing sampler.
+   */
+  sample?: SampleFn;
+  /**
+   * (T2.4) Default directory `browser_download_file` saves into when the caller supplies no
+   * explicit path. Threaded from config (LAYA_DOWNLOAD_DIR). Optional.
+   */
+  downloadDir?: string;
 }
 
 /** MCP tool result content block (text). */

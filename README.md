@@ -110,7 +110,7 @@ registers **core-only**; unknown names are ignored.
 | `testing` | Playwright locator generation and `verify_*` assertions. |
 | `devtools` | Real tracing + element highlight; honest no-ops for the headed-only codegen/video features. |
 | `pdf` | Save the page as a PDF (Chromium-only). |
-| `vision` | Coordinate-based mouse primitives (move/click/drag/down/up/wheel). |
+| `vision` | Coordinate-based mouse primitives (move/click/drag/down/up/wheel) plus `browser_extract`/`ask_page` (scoped page-question reads). |
 | `config` | Report the resolved configuration. |
 
 ```sh
@@ -174,6 +174,7 @@ nor callable.
 | `browser_sessionstorage_clear` | Clear all `sessionStorage` entries. |
 | `browser_storage_state` | Save the context's cookies and per-origin `localStorage` to a JSON file (Playwright storageState format). |
 | `browser_set_storage_state` | Restore cookies and per-origin `localStorage` from a storage-state JSON file. |
+| `browser_download_file` | **(T2.4)** Click a target element that triggers a file download, capture the download, save it to a `path` (or the configured `LAYA_DOWNLOAD_DIR`), and report the saved path + suggested filename. |
 
 ### NETWORK tools (`LAYA_CAPS=network`)
 
@@ -210,6 +211,7 @@ nor callable.
 | `browser_mouse_down` | Press and hold a mouse button at the current cursor position. |
 | `browser_mouse_up` | Release a mouse button at the current cursor position. |
 | `browser_mouse_wheel` | Scroll the page by a wheel delta. |
+| `browser_extract` | **(T1.2)** Answer a natural-language question from the current page's readable text **without dumping the whole page**: reads a bounded text slice, ranks the most relevant passages, and (when the client supports MCP sampling) runs a scoped sampling call over just those passages; otherwise returns the most relevant text span. Also known as `ask_page`. Secrets in the output are redacted. |
 
 ### CONFIG tools (`LAYA_CAPS=config`)
 
@@ -420,6 +422,38 @@ B1 redaction applied to the transcript also applies to everything exported or st
   `step 3/15: clicking Sign in`, redacted), so the client UI mirrors the on-page overlay. When
   no `progressToken` is supplied, no progress notifications are emitted and behaviour is
   unchanged.
+- **Live token/step-cost meter in the HUD (T3.1).** When the overlay is active, the banner
+  shows a running meter — cumulative steps, LLM-escalation count, and an estimated token spend
+  for the run (estimated from the escalation prompt/response sizes at ~4 chars/token) — so the
+  cost of the automation is visible at a glance.
+- **Self-contained scrubbable replay (T3.3).** `laya_export_run`'s HTML output is a single
+  file with no external dependencies: it inlines the step data (screenshots as base64) and a
+  small vanilla-JS player with a timeline scrubber (range slider + prev/next + arrow keys) that
+  shows each step's screenshot, decision, confidence bars, timing, and snapshot text. It opens
+  by double-clicking the file.
+- **Cursor trail + new overlay states (T3.2/T3.4).** The synthetic cursor leaves a fading
+  breadcrumb trail between successive positions (`LAYA_BROWSER_OVERLAY_TRAIL`), so multi-field
+  actions read as continuous motion; `browser_extract` shows a distinct "Reading page…" state,
+  and an auto-dismissed overlay shows a "Closed cookie banner" toast.
+
+### Production robustness
+
+- **Automatic session persistence (`LAYA_STORAGE_STATE`; T2.1).** Point it at a JSON file and
+  an authenticated session is loaded on launch (when the file exists) and auto-saved on close,
+  so a run resumes cookies + per-origin `localStorage` without re-logging-in. Unset is a no-op.
+- **Auto-dismiss consent/modal overlays (`LAYA_AUTO_DISMISS`; T2.2).** A bounded, conservative
+  heuristic clears cookie/consent banners and blocking modals before each Autopilot step so
+  they do not hide the real controls. It clicks only affirmative dismissal affordances
+  (accept/agree/close/reject-all/…), **never** a destructive control, and surfaces each
+  dismissal on the overlay and in the transcript.
+- **Download capture (`browser_download_file`, `LAYA_DOWNLOAD_DIR`; T2.4).** Click an element
+  that triggers a download and the file is captured to disk (explicit `path` or the configured
+  directory + suggested filename), so file-producing flows (invoices, exports) are usable.
+- **Stateless-handle readiness (T4.2).** A `laya_run_goal` call is fully addressable from its
+  own arguments plus server-scoped resources (a lazily-built engine + the shared session), with
+  no per-connection protocol-session state required — compatible with the newer stateless MCP
+  model (the 2026-07-28 revision dropped protocol sessions). Audited in
+  `test/tier4-architecture.test.ts`.
 
 ## How it works
 
@@ -505,6 +539,40 @@ relevant controls without changing the `Snapshot` / `Control[]` contract:
   (added/removed/changed controls plus goal/url/title) instead of the full control list, cutting
   tokens; the full-snapshot prompt is always used on the first step or when there is no
   meaningful diff.
+- **KV-cache-friendly escalation prompts (T1.1).** Both the full and delta escalation prompts
+  put the **stable** role/instructions/response-format prefix FIRST and the **volatile** page
+  state (url/title/controls/diff) LAST, so an LLM/provider that caches by shared prompt prefix
+  can reuse the attention KV for the leading ~240 tokens across every step and run. Pure
+  reorder — the same information reaches the model and parsing is unchanged.
+- **Bounded state text (`LAYA_STATE_TEXT_LIMIT`, default `1200`; T1.3).** The visible text
+  carried into the Autopilot state (and the escalation prompt) is clamped to this budget so a
+  huge page has a predictable token cost. When the text is truncated the rendered state adds a
+  hint pointing the model at `browser_extract` for a full, scoped read instead of paging the
+  whole document.
+- **Scoped reads with `browser_extract`/`ask_page` (T1.2).** Instead of dumping the page to the
+  model, this tool reads a bounded text slice, ranks passages by relevance to the question, and
+  either runs a **scoped** MCP-sampling call over just the top passages or (no sampling)
+  returns the single most relevant span. Secrets in the output are redacted.
+- **No per-step screenshots by default (T1.4).** The loop is a text-first pipeline: it captures
+  **no** per-step screenshot unless `LAYA_LOOP_SCREENSHOTS=true` (or replay recording via
+  `LAYA_RECORD_ARTIFACTS`). Vision is opt-in, so a normal run pays only the text-perception
+  cost.
+- **iframe & shadow-DOM traversal (`LAYA_FRAME_DEPTH`, default `0`; T2.3).** With a non-zero
+  depth the DOM walk descends into **same-origin** iframes and **open** shadow roots (bounded
+  by the depth), stamping `data-laya-ref="eN"` on the controls it finds. `session.locate()`
+  searches child frames so an iframe-stamped ref remains actionable; open shadow roots are
+  pierced by the main-frame CSS engine. Cross-origin frames are skipped cleanly (no crash),
+  and the top-document-only default (`0`) is byte-for-byte the previous behaviour.
+- **Parallelized perception (T4.1).** At the end of a step the purely-observational settle
+  probe and a **speculative** capture for the next step run concurrently; the prefetched
+  snapshot is reused on the next step only when the probe observed no change (so it is
+  current), cutting a capture round-trip on the common already-settled path. The settle probe
+  ignores our own `data-laya-ref` attribute writes so the concurrent capture never pollutes its
+  observation — observed semantics are unchanged.
+- **`domWalk` micro-opt (T4.3).** The walk computes each element's role once and reads its
+  bounding rect **once**, sharing that rect between the visibility test and the
+  viewport-proximity measure (one reflow per element instead of two). The selected
+  visible/interactive set is unchanged.
 
 ### Safety guards (`src/safety.ts`)
 
@@ -587,6 +655,13 @@ constructor options, then handed inward as typed config.
 | `LAYA_SNAPSHOT_BACKEND` | `domwalk` | Which backend enumerates page controls: `domwalk` (the in-house DOM walk) or `aria` (Playwright's accessibility tree). Both produce the same `Control[]` contract and stamp `data-laya-ref="eN"`, so ref resolution is identical either way. |
 | `LAYA_VIEWPORT_PRIORITY` | `true` | `true` orders captured controls so those in/near the viewport come first, so the ~20-control cap keeps the most relevant. `eN` refs stay in DOM order (ref resolution is unaffected); only the offered order changes. |
 | `LAYA_RECORD_ARTIFACTS` | `false` | `true` records per-step replay artifacts (screenshot + snapshot + decision + confidence + timing) so `laya_export_run` can write a replay. Off by default so normal runs capture no per-step screenshots and are not slowed. |
+| `LAYA_BROWSER_OVERLAY_TRAIL` | `6` | **(T3.4)** Length of the synthetic-cursor breadcrumb trail drawn between successive positions (fading dots), so multi-field actions read as continuous motion. `0` disables it (clamped `0..24`). |
+| `LAYA_STATE_TEXT_LIMIT` | `1200` | **(T1.3)** Max characters of the page's visible text carried into the Autopilot state (and thus the escalation prompt). Bounds token cost on big pages; the model is pointed at `browser_extract` for large reads. Clamped `200..8000`. |
+| `LAYA_LOOP_SCREENSHOTS` | `false` | **(T1.4)** `true` captures a per-step screenshot in the Autopilot loop even without artifact recording. Default off keeps the loop a text-first, no-per-step-screenshot pipeline (vision is opt-in). Enabling `LAYA_RECORD_ARTIFACTS` implies step screenshots for the replay independently of this. |
+| `LAYA_STORAGE_STATE` | — | **(T2.1)** Path to a Playwright storage-state JSON file for automatic session persistence: if the file exists it is loaded on launch (cookies + per-origin `localStorage` restored, so an authenticated session resumes), and it is auto-saved on `browser_close`/shutdown. Unset is a complete no-op. |
+| `LAYA_AUTO_DISMISS` | `false` | **(T2.2)** `true` runs a bounded, conservative heuristic before each Autopilot step to auto-dismiss cookie/consent banners and blocking modal overlays (never clicks destructive controls). Each dismissal is surfaced on the overlay ("Closed cookie banner") and noted in the transcript. |
+| `LAYA_FRAME_DEPTH` | `0` | **(T2.3)** How many levels of **same-origin** iframe and **open** shadow root the DOM walk descends into to discover controls. `0` walks only the top document (unchanged). Cross-origin frames are skipped cleanly. Controls found deeper get `data-laya-ref` stamps that Autopilot can act on. Clamped `0..5`. |
+| `LAYA_DOWNLOAD_DIR` | — | **(T2.4)** Default directory `browser_download_file` saves into when no explicit `path` is given (the browser-suggested filename is appended). |
 
 ### Cross-browser (`LAYA_BROWSER`)
 

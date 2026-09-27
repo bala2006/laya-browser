@@ -32,11 +32,12 @@ import type {
 } from "../overlay.js";
 import { capture, type CaptureOptions, type Snapshot } from "../snapshot.js";
 import { diffSnapshots, hasChanges } from "../snapshot-diff.js";
-import { buildState, type BuildStateOptions } from "../state-builder.js";
+import { buildState, renderState, type BuildStateOptions } from "../state-builder.js";
 import { fieldValueFromGoal, goalSuccessMarkers } from "../laya/goal.js";
 import { applyFieldValue, type FieldKind } from "../tools/fill.js";
 import { policySeed, refineWithGoalValue } from "./policy.js";
 import { escalate, type EscalationOptions, type SampleFn } from "./escalation.js";
+import { autoDismissOverlays } from "./dismiss.js";
 import { checkDestructiveSubmit, checkDomainAllowed } from "../safety.js";
 import { isSecretField, redactText } from "../redact.js";
 import {
@@ -296,6 +297,27 @@ export interface RunGoalOptions {
    */
   recordArtifacts?: boolean;
   /**
+   * (T1.4) Whether to capture a per-step PNG screenshot even when {@link recordArtifacts} is
+   * off. Default false: the loop is a text-first, no-per-step-screenshot pipeline (vision is
+   * opt-in) to stay fast/cheap. Recording artifacts implies a screenshot for the replay;
+   * this independent flag lets an operator force step screenshots (or documents the default
+   * off). When false AND recordArtifacts is false, no screenshot is ever captured.
+   */
+  loopScreenshots?: boolean;
+  /**
+   * (T2.2) Whether to run a bounded, conservative auto-dismiss of cookie/consent banners and
+   * blocking modal overlays before deciding each step. Default false. Never clicks
+   * destructive controls; only accept/close/dismiss affordances on detected consent/modal
+   * containers. Each dismissal is surfaced on the overlay and noted in the transcript.
+   */
+  autoDismiss?: boolean;
+  /**
+   * (T2.3) How many levels of same-origin iframe / open shadow root the per-step capture
+   * descends into. `0` (default) is the top document only. Threaded into every capture this
+   * run makes so self-heal and final verification agree.
+   */
+  frameDepth?: number;
+  /**
    * (D2) Optional per-step progress callback, invoked once per step at the same place the
    * loop narrates progress on the overlay. Given `{ step, total, message }` where `message`
    * is a redacted, human-readable line like `step 3/15: clicking Sign in`. Wired in
@@ -554,6 +576,11 @@ class Narrator {
     await this.overlay!.scrollIndicator(this.page, direction, pos);
   }
 
+  async meter(steps: number, escalations: number, tokens: number): Promise<void> {
+    if (!this.on) return;
+    await this.overlay!.meter(this.page, steps, escalations, tokens);
+  }
+
   async hideSpotlight(): Promise<void> {
     if (!this.on) return;
     await this.overlay!.hideSpotlight(this.page);
@@ -639,7 +666,7 @@ async function execute(
         { ref: decision.target, name: c ? String(c.name) : "", role: c ? c.role : "" },
         options.selfHealRetries,
         async (ref) => {
-          await session.resolveRef(ref).click();
+          await (await session.locate(ref)).click();
         },
         options.captureOptions,
       );
@@ -665,7 +692,7 @@ async function execute(
         { ref: decision.target, name: c ? String(c.name) : "", role: c ? c.role : "" },
         options.selfHealRetries,
         async (ref) => {
-          await session.resolveRef(ref).fill(value);
+          await (await session.locate(ref)).fill(value);
         },
         options.captureOptions,
       );
@@ -685,7 +712,7 @@ async function execute(
         { ref: decision.target, name: c ? String(c.name) : "", role: c ? c.role : "" },
         options.selfHealRetries,
         async (ref) => {
-          const locator = session.resolveRef(ref);
+          const locator = await session.locate(ref);
           await locator.selectOption({ label: value }).catch(async () => {
             await locator.selectOption(value);
           });
@@ -707,7 +734,7 @@ async function execute(
         { ref: decision.target, name: c ? String(c.name) : "", role: c ? c.role : "" },
         options.selfHealRetries,
         async (ref) => {
-          await session.resolveRef(ref).hover();
+          await (await session.locate(ref)).hover();
         },
         options.captureOptions,
       );
@@ -735,7 +762,7 @@ async function execute(
         }
         // Tier 1: spotlight/cursor each field in turn as it is filled.
         await narrator.focusTarget(field.target, `Filling ${label}\u2026`);
-        const locator = session.resolveRef(field.target);
+        const locator = await session.locate(field.target);
         const kind = fieldKindFor(control);
         await applyFieldValue(locator, field.value, kind);
         filled.push(`${field.target}=${JSON.stringify(field.value)}`);
@@ -881,15 +908,23 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
     overlay,
     overlayPage,
     recordArtifacts = false,
+    loopScreenshots = false,
+    autoDismiss = false,
+    frameDepth = 0,
     onProgress,
   } = options;
 
-  // (C1/C3) The capture options used for EVERY snapshot this run takes, so the per-step
-  // capture, the self-healing re-capture, and the final verification all agree on backend and
-  // ordering.
+  // (T1.4) Whether ANY per-step screenshot is captured. Recording artifacts implies a
+  // screenshot (the replay needs it); the independent loopScreenshots flag can also force it.
+  const captureStepScreenshot = recordArtifacts || loopScreenshots;
+
+  // (C1/C3/T2.3) The capture options used for EVERY snapshot this run takes, so the per-step
+  // capture, the self-healing re-capture, and the final verification all agree on backend,
+  // ordering, and frame-descent depth.
   const captureOptions: CaptureOptions = {
     backend: snapshotBackend,
     viewportPriority,
+    frameDepth,
   };
 
   // (B1) The run-scoped set of ACTUAL secret values the loop typed into secret-looking
@@ -950,6 +985,10 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
   const artifacts: RunStepArtifact[] = [];
   let outcome: RunOutcome = "max_steps";
   let lastSnapshot: Snapshot | undefined;
+  // (T4.1) A snapshot captured concurrently WITH the previous step's settle probe. Reused at
+  // the top of the next iteration only when the probe observed no change (so it is current),
+  // saving a capture round-trip on the common already-settled path. Undefined otherwise.
+  let prefetchedSnapshot: Snapshot | undefined;
   // (C2) The snapshot captured on the PREVIOUS step, kept so each step can diff against it
   // (surface "N new controls appeared") and the escalation path can send only the delta.
   let prevSnapshot: Snapshot | undefined;
@@ -957,6 +996,14 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
   // the sorted set of control name+role pairs + the decision (operation/target/value). When
   // the last `loopWindow` signatures are all identical the run has made no progress.
   const signatures: string[] = [];
+
+  // (T3.1) Running cost counters surfaced on the HUD meter: how many escalations to the client
+  // LLM happened, and a rough token estimate for the run. Tokens are estimated from the sizes
+  // of the escalation prompt (~the page-state text) and its reply at ~4 chars/token (a common
+  // English heuristic); local-only steps add no LLM tokens. Purely observational.
+  let escalationCount = 0;
+  let estimatedTokens = 0;
+  const estimateTokens = (chars: number): number => Math.ceil(Math.max(0, chars) / 4);
 
   try {
     for (let step = 1; step <= maxSteps; step++) {
@@ -968,14 +1015,43 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
       // (D1) Start-of-step wall clock, used for the per-step timing artifact.
       const stepStart = Date.now();
 
-      const snapshot = await capture(page, captureOptions);
+      // (T4.1) Reuse a snapshot prefetched during the previous step's settle probe, but ONLY
+      // when that probe observed NO change (so the prefetched DOM is still current) AND no
+      // auto-dismiss will mutate the page this step. This cuts a capture round-trip on the
+      // common "page already settled" path WITHOUT changing observed semantics: on any change
+      // (or when auto-dismiss might click something) we discard it and capture fresh below.
+      const prefetched = prefetchedSnapshot;
+      prefetchedSnapshot = undefined;
+
+      // (T2.2) Before capturing/deciding, optionally auto-dismiss cookie/consent banners and
+      // blocking modal overlays so they do not hide the real controls. Conservative + bounded
+      // (never clicks destructive controls). Each dismissal is surfaced on the overlay with a
+      // distinct toast (T3.2) and noted in the transcript's recent-actions log. Best-effort.
+      if (autoDismiss) {
+        const dismissed = await autoDismissOverlays(page);
+        for (const d of dismissed) {
+          const label =
+            d.kind === "consent"
+              ? `Closed cookie banner (${d.clicked})`
+              : `Closed modal (${d.clicked})`;
+          await narrator.toast(label, "info");
+          await narrator.log(label);
+          recentActions.push(label);
+        }
+      }
+
+      // (T4.1) Use the prefetched snapshot when it is safe (settled + no auto-dismiss); this
+      // is byte-identical to capturing here because the probe confirmed the page did not
+      // change between the prefetch and now. Otherwise capture fresh (unchanged behaviour).
+      const canReusePrefetch = prefetched !== undefined && !autoDismiss;
+      const snapshot = canReusePrefetch ? prefetched! : await capture(page, captureOptions);
       lastSnapshot = snapshot;
 
       // (D1) Optional per-step PNG screenshot, captured only when recording is enabled so
       // normal runs are not slowed. Best-effort: any failure leaves the artifact without an
       // image rather than failing the run.
       let stepScreenshot: string | undefined;
-      if (recordArtifacts) {
+      if (captureStepScreenshot) {
         try {
           const png = await page.screenshot({ type: "png" });
           stepScreenshot = png.toString("base64");
@@ -1033,7 +1109,18 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
         const result = await escalate(state, sample, escalationOptions);
         decision = refineWithGoalValue(result.decision, state);
         note = result.note;
+        // (T3.1) Count a real escalation (the client produced a decision) and estimate its
+        // token cost from the state text sent plus a small allowance for the reply. Only
+        // counts when the client actually answered (result.escalated), not the degraded path.
+        if (result.escalated) {
+          escalationCount += 1;
+          estimatedTokens += estimateTokens(renderState(state).length) + 64;
+        }
       }
+
+      // (T3.1) Refresh the HUD cost meter after the decision pipeline so the step count and
+      // escalation/token spend stay current as the run progresses.
+      await narrator.meter(step, escalationCount, estimatedTokens);
 
       if (decision.operation === "DONE" || decision.operation === "BLOCKED") {
         const terminalRecord: StepRecord = {
@@ -1197,8 +1284,18 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
       // out above, so this runs only for the continuing loop.
       if (settleProbe) {
         await narrator.setState("acting", "Waiting for page to settle\u2026");
-        const probe = await session.probeSettle(page, { beforeUrl });
+        // (T4.1) Overlap the settle probe with a speculative capture for the NEXT step. Both
+        // are independent reads against the page; running them together hides the capture cost
+        // inside the probe's wait window. We only KEEP the speculative snapshot when the probe
+        // reports NO change (page already settled, so the snapshot is current) — on any change
+        // we discard it and the next iteration captures fresh, preserving observed semantics.
+        const [probe, speculative] = await Promise.all([
+          session.probeSettle(page, { beforeUrl }),
+          capture(page, captureOptions).catch(() => undefined),
+        ]);
         record.settled = probe.changed;
+        prefetchedSnapshot =
+          !probe.changed && speculative !== undefined ? speculative : undefined;
         if (!probe.changed) {
           await narrator.toast("No change detected", "uncertain");
         }

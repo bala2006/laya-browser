@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Big text document</title>
+  </head>
+  <body>
+    <h1>Company handbook</h1>
+
+    <section>
+      <h2>Introduction</h2>
+      <p>
+        This handbook describes general policies. It contains a lot of filler text so that
+        the page is long and the visible text exceeds the state budget many times over.
+      </p>
+    </section>
+
+    <section id="filler">
+      <!-- Filler paragraphs are injected by script to make the page large. -->
+    </section>
+
+    <section>
+      <h2>Return policy</h2>
+      <p id="answer">
+        Our return policy allows returns within 30 days of purchase with a valid receipt.
+        Refunds are issued to the original payment method within five business days.
+      </p>
+    </section>
+
+    <section>
+      <h2>Contact</h2>
+      <p>Reach support at the help desk during business hours.</p>
+    </section>
+
+    <script>
+      const filler = document.getElementById("filler");
+      let html = "";
+      for (let i = 0; i < 90; i++) {
+        html +=
+          "<p>Section " +
+          i +
+          ": lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.</p>";
+      }
+      filler.innerHTML = html;
+    </script>
+  </body>
+</html>

@@ -200,3 +200,51 @@ describe("loadConfig reliability/trust/perf knobs (A1/A2/A3/B1/B2/B3/C1/C3)", ()
     expect(loadConfig({ recordArtifacts: true }, {}).recordArtifacts).toBe(true);
   });
 });
+
+
+describe("loadConfig Tier 1-4 knobs (token/latency, robustness, UX)", () => {
+  it("defaults the new knobs to safe/off values", () => {
+    const c = loadConfig({}, {});
+    expect(c.stateTextLimit).toBe(1200);
+    expect(c.loopScreenshots).toBe(false);
+    expect(c.autoDismiss).toBe(false);
+    expect(c.frameDepth).toBe(0);
+    expect(c.storageStatePath).toBeUndefined();
+    expect(c.downloadDir).toBeUndefined();
+    expect(c.overlay.cursorTrail).toBe(6);
+  });
+
+  it("parses and clamps LAYA_STATE_TEXT_LIMIT", () => {
+    expect(loadConfig({}, { LAYA_STATE_TEXT_LIMIT: "3000" }).stateTextLimit).toBe(3000);
+    // Out-of-range values fall back to the default (parseNumber returns undefined).
+    expect(loadConfig({}, { LAYA_STATE_TEXT_LIMIT: "10" }).stateTextLimit).toBe(1200);
+    expect(loadConfig({}, { LAYA_STATE_TEXT_LIMIT: "999999" }).stateTextLimit).toBe(1200);
+  });
+
+  it("parses LAYA_LOOP_SCREENSHOTS / LAYA_AUTO_DISMISS as default-false booleans", () => {
+    expect(loadConfig({}, { LAYA_LOOP_SCREENSHOTS: "true" }).loopScreenshots).toBe(true);
+    expect(loadConfig({}, { LAYA_LOOP_SCREENSHOTS: "1" }).loopScreenshots).toBe(false);
+    expect(loadConfig({}, { LAYA_AUTO_DISMISS: "true" }).autoDismiss).toBe(true);
+  });
+
+  it("parses and clamps LAYA_FRAME_DEPTH into [0,5]", () => {
+    expect(loadConfig({}, { LAYA_FRAME_DEPTH: "2" }).frameDepth).toBe(2);
+    // Out-of-range falls back to the default 0.
+    expect(loadConfig({}, { LAYA_FRAME_DEPTH: "9" }).frameDepth).toBe(0);
+  });
+
+  it("reads LAYA_STORAGE_STATE / LAYA_DOWNLOAD_DIR, treating empty as unset", () => {
+    expect(loadConfig({}, { LAYA_STORAGE_STATE: "/tmp/s.json" }).storageStatePath).toBe(
+      "/tmp/s.json",
+    );
+    expect(loadConfig({}, { LAYA_STORAGE_STATE: "   " }).storageStatePath).toBeUndefined();
+    expect(loadConfig({}, { LAYA_DOWNLOAD_DIR: "/tmp/dl" }).downloadDir).toBe("/tmp/dl");
+  });
+
+  it("parses and clamps LAYA_BROWSER_OVERLAY_TRAIL into [0,24]", () => {
+    expect(loadConfig({}, { LAYA_BROWSER_OVERLAY_TRAIL: "10" }).overlay.cursorTrail).toBe(10);
+    expect(loadConfig({}, { LAYA_BROWSER_OVERLAY_TRAIL: "0" }).overlay.cursorTrail).toBe(0);
+    // Out-of-range falls back to the default 6.
+    expect(loadConfig({}, { LAYA_BROWSER_OVERLAY_TRAIL: "100" }).overlay.cursorTrail).toBe(6);
+  });
+});

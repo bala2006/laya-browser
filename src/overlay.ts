@@ -55,6 +55,8 @@ interface OverlayClientOptions {
   waitCountdown: boolean;
   debugSeeElements: boolean;
   activityLog: boolean;
+  /** (T3.4) Default breadcrumb-trail length for the synthetic cursor (0 disables). */
+  cursorTrail: number;
 }
 
 /** The uncertainty accent (amber), shared client/server. */
@@ -142,6 +144,16 @@ function buildClientScript(optsJson: string): string {
     banner.appendChild(barWrap);
     root.appendChild(banner);
 
+    // --- Token / step-cost meter (T3.1): a compact pill in the banner showing cumulative
+    // steps, LLM escalation count, and an estimated token spend for the run so the user sees
+    // the running cost of the automation at a glance.
+    const meter = mkDiv({
+      display: "none", alignItems: "center", gap: "8px", color: "#94a3b8",
+      fontSize: "11px", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap",
+      borderLeft: "1px solid rgba(148,163,184,0.3)", paddingLeft: "8px", marginLeft: "2px",
+    });
+    banner.appendChild(meter);
+
     // --- Esc-to-release hint (T4) ---
     const hint = mkDiv({
       position: "fixed", top: "48px", left: "50%", transform: "translateX(-50%)",
@@ -226,12 +238,13 @@ function buildClientScript(optsJson: string): string {
     const seen = mkDiv({ position: "fixed", left: "0", top: "0", width: "0", height: "0", display: "none" });
     root.appendChild(seen);
 
-    els = { banner, dot, title, stateLabel, status, progress, barWrap, barFill,
+    els = { banner, dot, title, stateLabel, status, progress, meter, barWrap, barFill,
       hint, cursor, caption, spotlight, scroll, toasts, countdown, logPanel, logBody, seen };
   }
 
   const api = {
     enabled: true,
+    __lastCursor: null,
     setStatus(text) {
       if (!ensureRoot()) return;
       els.status.textContent = text == null ? "" : String(text);
@@ -265,8 +278,44 @@ function buildClientScript(optsJson: string): string {
         els.barWrap.style.display = "none";
       }
     },
-    moveCursor(x, y, caption) {
+    meter(steps, escalations, tokens) {
       if (!ensureRoot()) return;
+      const s = Number(steps) || 0;
+      const e = Number(escalations) || 0;
+      const t = Number(tokens) || 0;
+      // Compact human-friendly token count (e.g. 1.2k) so the pill stays narrow.
+      const tok = t >= 1000 ? (t / 1000).toFixed(1) + "k" : String(t);
+      els.meter.style.display = "flex";
+      els.meter.setAttribute("data-laya-meter", "1");
+      els.meter.textContent = "\u{1F9EE} " + s + " steps \u00B7 " + e + " LLM \u00B7 ~" + tok + " tok";
+    },
+    moveCursor(x, y, caption, trailLength) {
+      if (!ensureRoot()) return;
+      // (T3.4) Draw a fading breadcrumb trail from the previous cursor position to the new one
+      // so multi-field actions (e.g. FILL_FORM moving between fields) read as continuous
+      // motion rather than a teleport. Bounded by trailLength (default 6); each dot fades out
+      // and self-removes, and the trail is pointer-events:none like everything in the HUD.
+      const requested = trailLength == null ? OPTS.cursorTrail : trailLength;
+      const n = Math.max(0, Math.min(24, Number(requested) || 0));
+      const prev = api.__lastCursor;
+      if (n > 0 && prev && (prev.x !== x || prev.y !== y)) {
+        for (let i = 1; i <= n; i++) {
+          const f = i / (n + 1);
+          const tx = prev.x + (x - prev.x) * f;
+          const ty = prev.y + (y - prev.y) * f;
+          const dot = mkDiv({
+            position: "fixed", left: tx + "px", top: ty + "px", width: "6px", height: "6px",
+            marginLeft: "-3px", marginTop: "-3px", borderRadius: "50%",
+            background: OPTS.accent, opacity: String(0.5 * (1 - f) + 0.1),
+            transition: "opacity 500ms ease-out",
+          });
+          root.appendChild(dot);
+          const node = dot;
+          requestAnimationFrame(() => { node.style.opacity = "0"; });
+          setTimeout(() => { if (node.parentNode) node.parentNode.removeChild(node); }, 560);
+        }
+      }
+      api.__lastCursor = { x: x, y: y };
       els.cursor.style.display = "block";
       els.cursor.style.left = x + "px";
       els.cursor.style.top = y + "px";
@@ -428,6 +477,7 @@ export class BrowserOverlay {
       waitCountdown: config.waitCountdown,
       debugSeeElements: config.debugSeeElements,
       activityLog: config.activityLog,
+      cursorTrail: config.cursorTrail,
     };
     this.clientScript = buildClientScript(JSON.stringify(opts));
   }
@@ -509,14 +559,32 @@ export class BrowserOverlay {
     await this.call(page, "progress", step, max);
   }
 
-  /** Move the synthetic cursor to a viewport coordinate, optionally with a caption. */
+  /**
+   * Move the synthetic cursor to a viewport coordinate, optionally with a caption and a
+   * breadcrumb-trail length (T3.4). Omitting `trailLength` uses the configured default; pass
+   * `0` to suppress the trail for a single move.
+   */
   async moveCursor(
     page: Page | undefined,
     x: number,
     y: number,
     caption?: string,
+    trailLength?: number,
   ): Promise<void> {
-    await this.call(page, "moveCursor", x, y, caption ?? "");
+    await this.call(page, "moveCursor", x, y, caption ?? "", trailLength ?? null);
+  }
+
+  /**
+   * (T3.1) Update the token/step-cost meter pill: cumulative step count, LLM escalation
+   * count, and an estimated token spend for the run. A guarded no-op like every overlay call.
+   */
+  async meter(
+    page: Page | undefined,
+    steps: number,
+    escalations: number,
+    tokens: number,
+  ): Promise<void> {
+    await this.call(page, "meter", steps, escalations, tokens);
   }
 
   /** Play a click-ripple at a viewport coordinate. */
