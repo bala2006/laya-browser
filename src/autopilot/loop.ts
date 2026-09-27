@@ -109,6 +109,41 @@ export interface StepRecord {
   settled?: boolean;
 }
 
+/**
+ * (D1) A per-step observability artifact captured during a run for the replay export.
+ *
+ * These records are ADDITIVE and are only populated when {@link RunGoalOptions.recordArtifacts}
+ * is true (default false), so normal runs are not slowed by the screenshot capture. Any text
+ * carried here (detail/target/snapshot) is already redacted per B1 before it is stored.
+ */
+export interface RunStepArtifact {
+  /** 1-based step number, matching the transcript. */
+  step: number;
+  /** The operation the engine chose. */
+  operation: Decision["operation"];
+  /** The target ref, when the operation was targeted. */
+  target?: string;
+  /** Model confidence in the operation choice, in [0, 1]. */
+  operationConfidence: number;
+  /** Model confidence in the target choice, in [0, 1]. */
+  targetConfidence: number;
+  /** Where the decision came from (`laya` / `stub` / `rule` / `llm`). */
+  source: Decision["source"];
+  /** A short human-readable summary of what was executed (already redacted per B1). */
+  detail: string;
+  /** Optional note explaining how the decision was reached (already redacted per B1). */
+  note?: string;
+  /** Wall-clock milliseconds spent on this step (decision + execution + settle probe). */
+  durationMs: number;
+  /** The compact snapshot text captured at the start of the step (already redacted per B1). */
+  snapshot: string;
+  /**
+   * A base64-encoded PNG screenshot of the page at the start of the step. Present only when
+   * recording was enabled AND the capture succeeded (best-effort; never fails a run).
+   */
+  screenshotPng?: string;
+}
+
 /** Independent, post-hoc verification of the final page. */
 export interface Verification {
   /** Whether an explicit success marker was checked (vs. no marker declared). */
@@ -135,6 +170,12 @@ export interface RunResult {
   verification: Verification;
   /** A human-readable summary / degradation message. */
   message: string;
+  /**
+   * (D1) Per-step observability artifacts (screenshot + snapshot + decision + confidence +
+   * timing) for the replay export. ADDITIVE and OPTIONAL: only populated when
+   * {@link RunGoalOptions.recordArtifacts} is true; absent (and behaviour unchanged) otherwise.
+   */
+  steps?: RunStepArtifact[];
 }
 
 /** Options for {@link runGoal}. */
@@ -246,6 +287,24 @@ export interface RunGoalOptions {
    * alongside {@link overlay}. When absent the loop resolves the page for IO on its own.
    */
   overlayPage?: Page;
+  /**
+   * (D1) Whether to accumulate per-step {@link RunStepArtifact} records (screenshot +
+   * snapshot + decision + confidence + timing) on {@link RunResult.steps} for the replay
+   * export. Defaults to false so normal runs are NOT slowed by the extra screenshot capture;
+   * the laya_export_run tool enables it. When false, no artifacts are recorded and behaviour
+   * is unchanged.
+   */
+  recordArtifacts?: boolean;
+  /**
+   * (D2) Optional per-step progress callback, invoked once per step at the same place the
+   * loop narrates progress on the overlay. Given `{ step, total, message }` where `message`
+   * is a redacted, human-readable line like `step 3/15: clicking Sign in`. Wired in
+   * src/tools/run_goal.ts to MCP `notifications/progress` when the caller supplied a
+   * progressToken. A no-op when omitted, so existing behaviour is unchanged. Must not throw
+   * in a way that breaks the run (the loop awaits it but any streaming failure is the
+   * caller's concern; keep it defensive).
+   */
+  onProgress?: (info: { step: number; total: number; message: string }) => void | Promise<void>;
 }
 
 const DEFAULT_WAIT_MS = 500;
@@ -259,6 +318,11 @@ export const DEGRADED_MESSAGE =
 /** Look up a control by its ref within a page state. */
 function findControl(state: PageState, ref: string): Control | undefined {
   return state.controls.find((c) => c.ref === ref);
+}
+
+/** Lower-case the first character of a string (for 'step N/M: clicking ...' messages). */
+function lowerFirst(text: string): string {
+  return text.length > 0 ? text[0]!.toLowerCase() + text.slice(1) : text;
 }
 
 /**
@@ -737,6 +801,33 @@ async function execute(
  * field carries its real value on the live page, so this masks that echo without touching the
  * page. `redact` is the run-scoped redactor; when redaction is off the caller passes identity.
  */
+/**
+ * (D1) Build a per-step observability artifact from the step's recorded transcript entry,
+ * the start-of-step snapshot text, the captured screenshot, and the elapsed step time. All
+ * text on the {@link StepRecord} is already redacted per B1, and `snapshotText` is passed in
+ * already redacted, so the artifact carries no secrets.
+ */
+function buildArtifact(
+  record: StepRecord,
+  snapshotText: string,
+  screenshotPng: string | undefined,
+  durationMs: number,
+): RunStepArtifact {
+  return {
+    step: record.step,
+    operation: record.operation,
+    ...(record.target !== undefined ? { target: record.target } : {}),
+    operationConfidence: record.operationConfidence,
+    targetConfidence: record.targetConfidence,
+    source: record.source,
+    detail: record.detail,
+    ...(record.note !== undefined ? { note: record.note } : {}),
+    durationMs,
+    snapshot: snapshotText,
+    ...(screenshotPng !== undefined ? { screenshotPng } : {}),
+  };
+}
+
 function redactSnapshot(snapshot: Snapshot, redact: (text: string) => string): Snapshot {
   return {
     ...snapshot,
@@ -781,6 +872,8 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
     deltaPrompt = false,
     overlay,
     overlayPage,
+    recordArtifacts = false,
+    onProgress,
   } = options;
 
   // (C1/C3) The capture options used for EVERY snapshot this run takes, so the per-step
@@ -845,6 +938,8 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
 
   const recentActions: string[] = [];
   const transcript: StepRecord[] = [];
+  // (D1) Per-step observability artifacts, accumulated only when recordArtifacts is on.
+  const artifacts: RunStepArtifact[] = [];
   let outcome: RunOutcome = "max_steps";
   let lastSnapshot: Snapshot | undefined;
   // (C2) The snapshot captured on the PREVIOUS step, kept so each step can diff against it
@@ -862,8 +957,24 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
       await narrator.progress(step, maxSteps);
       await narrator.setState("thinking", "Deciding\u2026");
 
+      // (D1) Start-of-step wall clock, used for the per-step timing artifact.
+      const stepStart = Date.now();
+
       const snapshot = await capture(page, captureOptions);
       lastSnapshot = snapshot;
+
+      // (D1) Optional per-step PNG screenshot, captured only when recording is enabled so
+      // normal runs are not slowed. Best-effort: any failure leaves the artifact without an
+      // image rather than failing the run.
+      let stepScreenshot: string | undefined;
+      if (recordArtifacts) {
+        try {
+          const png = await page.screenshot({ type: "png" });
+          stepScreenshot = png.toString("base64");
+        } catch {
+          stepScreenshot = undefined;
+        }
+      }
       const state = buildState(goal, snapshot, recentActions, stateOptions);
 
       // (C2) Diff this snapshot against the previous step's snapshot. When new controls
@@ -917,7 +1028,7 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
       }
 
       if (decision.operation === "DONE" || decision.operation === "BLOCKED") {
-        transcript.push({
+        const terminalRecord: StepRecord = {
           step,
           operation: decision.operation,
           operationConfidence: decision.operationConfidence,
@@ -925,7 +1036,18 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
           source: decision.source,
           detail: decision.operation,
           ...(note ? { note } : {}),
-        });
+        };
+        transcript.push(terminalRecord);
+        if (recordArtifacts) {
+          artifacts.push(
+            buildArtifact(
+              terminalRecord,
+              redact(snapshot.text),
+              stepScreenshot,
+              Date.now() - stepStart,
+            ),
+          );
+        }
         recentActions.push(decision.operation);
         await narrator.log(decision.operation);
         outcome = decision.operation === "DONE" ? "done" : "blocked";
@@ -959,7 +1081,7 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
               }
             }
             if (!approved) {
-              transcript.push({
+              const guardRecord: StepRecord = {
                 step,
                 operation: "BLOCKED",
                 operationConfidence: 1,
@@ -967,7 +1089,18 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
                 source: decision.source,
                 detail: "BLOCKED (destructive-form guard)",
                 note: guard.reason ?? "Destructive-form guard refused the auto-submit.",
-              });
+              };
+              transcript.push(guardRecord);
+              if (recordArtifacts) {
+                artifacts.push(
+                  buildArtifact(
+                    guardRecord,
+                    redact(snapshot.text),
+                    stepScreenshot,
+                    Date.now() - stepStart,
+                  ),
+                );
+              }
               recentActions.push("BLOCKED (destructive-form guard)");
               await narrator.log("BLOCKED (destructive-form guard)");
               outcome = "blocked";
@@ -987,7 +1120,15 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
       // Tier 2: switch to the acting state with an op-appropriate caption just before IO.
       // Targeted ops (CLICK/TYPE_TEXT/SELECT/HOVER/FILL_FORM) render their own cursor/spotlight
       // caption inside execute(); non-targeted ops get a status here.
-      await narrator.setState("acting", actionCaption(decision, state));
+      const acting = actionCaption(decision, state);
+      await narrator.setState("acting", acting);
+      // (D2) Mirror the on-page progress on the MCP protocol. The message is redacted (the
+      // acting caption may name a control) and formatted like 'step 3/15: clicking Sign in'.
+      // A no-op when no onProgress was supplied, preserving existing behaviour.
+      if (onProgress) {
+        const message = redact(`step ${step}/${maxSteps}: ${lowerFirst(acting)}`);
+        await onProgress({ step, total: maxSteps, message });
+      }
       // Capture the pre-action URL so the settle probe can tell whether we navigated.
       const beforeUrl = page.url();
       const executed = await execute(
@@ -1034,6 +1175,11 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
       // SCREENSHOT and VERIFY are terminal/verification steps: once one runs, the goal-run
       // ends (a VERIFY reports its result; a SCREENSHOT captures the final page).
       if (decision.operation === "VERIFY" || decision.operation === "SCREENSHOT") {
+        if (recordArtifacts) {
+          artifacts.push(
+            buildArtifact(record, redact(snapshot.text), stepScreenshot, Date.now() - stepStart),
+          );
+        }
         outcome = "done";
         break;
       }
@@ -1048,6 +1194,14 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
         if (!probe.changed) {
           await narrator.toast("No change detected", "uncertain");
         }
+      }
+
+      // (D1) Record the per-step artifact for a continuing step (terminal steps recorded
+      // above). Timing spans decision + execution + settle probe.
+      if (recordArtifacts) {
+        artifacts.push(
+          buildArtifact(record, redact(snapshot.text), stepScreenshot, Date.now() - stepStart),
+        );
       }
 
       // A3: loop-detection / stuck guard. Signature = URL + sorted control name+role set +
@@ -1108,6 +1262,7 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
         detail: `Run errored: ${(err as Error).message}`,
       },
       message: `Autopilot stopped on error: ${(err as Error).message}`,
+      ...(recordArtifacts ? { steps: artifacts } : {}),
     };
   }
 
@@ -1158,5 +1313,6 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
     finalSnapshot,
     verification,
     message: `Autopilot finished (${summaryOutcome}) after ${transcript.length} step(s). ${verification.detail}`,
+    ...(recordArtifacts ? { steps: artifacts } : {}),
   };
 }

@@ -223,6 +223,7 @@ nor callable.
 | --- | --- |
 | `browser_start_tracing` | Start Playwright context tracing (screenshots + snapshots + sources). |
 | `browser_stop_tracing` | Stop tracing and write the trace zip (open with `npx playwright show-trace`). |
+| `laya_export_run` | Export a replay of the most recent `laya_run_goal` run to a path: a JSON file (per-step decision, confidence, timing, snapshot + embedded base64 screenshots) and/or a self-contained HTML replay page. `format`: `html` \| `json` \| `both` (default `both`). Complements the tracing tools; captures the Laya decision trail rather than the raw Playwright action trace. |
 | `browser_highlight` | Draw a visible outline around an element via an injected style. |
 | `browser_hide_highlight` | Remove any outlines added by `browser_highlight`. |
 | `browser_start_video` | Honest no-op: video capture needs `recordVideo` set at context creation (see divergence notes). |
@@ -394,6 +395,29 @@ choosing the role option, so it does not satisfy the stricter Assist-mode verify
 honestly as **FAIL**. This reflects the deterministic rule layer with **no model weights**, not
 a web-tuned model. `DONE` is never trusted on its own: after the loop, the independent
 final-page verification runs regardless of how the loop ended.
+
+### Observability (replay export + progress streaming)
+
+Autopilot is observable in two additive ways, both of which keep secret text masked (the same
+B1 redaction applied to the transcript also applies to everything exported or streamed):
+
+- **Per-step replay export (`laya_export_run`, DEVTOOLS capability).** When the export tool is
+  used, the loop records a per-step artifact for the run: step number, operation, target, the
+  operation/target confidences, the decision source, the (redacted) detail, the per-step timing
+  in milliseconds, a PNG screenshot, and the compact snapshot text. `laya_export_run` then
+  writes a **JSON replay** (per-step decision / confidence / timing / snapshot with the
+  screenshots embedded as base64) and/or a **self-contained HTML replay page** (inline
+  screenshots + a per-step list) to a path you choose, returning the written path(s) and byte
+  sizes. It **complements** `browser_start_tracing` / `browser_stop_tracing`: those write a raw
+  Playwright trace zip, while this captures the Laya *decision* trail. Artifact recording is
+  **off by default** so normal runs are not slowed; the export tool enables it, so run
+  `laya_run_goal` first, then `laya_export_run`.
+- **Structured MCP progress notifications (step N/max).** When a client sends a
+  `progressToken` on the `laya_run_goal` request, the loop emits an MCP `notifications/progress`
+  for each step (`progress` = step, `total` = maxSteps, `message` like
+  `step 3/15: clicking Sign in`, redacted), so the client UI mirrors the on-page overlay. When
+  no `progressToken` is supplied, no progress notifications are emitted and behaviour is
+  unchanged.
 
 ## How it works
 

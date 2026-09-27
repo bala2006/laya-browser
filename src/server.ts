@@ -18,6 +18,7 @@ import * as runGoalTool from "./tools/run_goal.js";
 import { UnavailableEngine } from "./laya/index.js";
 import { samplerFromServer } from "./autopilot/escalation.js";
 import { loadConfig, type LayaBrowserConfig } from "./config.js";
+import { createRunArtifactsHolder } from "./tools/run_artifacts.js";
 import type { LayaDecisionEngine } from "./types.js";
 
 /** Result of {@link createServer}: the server plus the session it drives. */
@@ -113,6 +114,12 @@ export function createServer(options: CreateServerOptions = {}): CreatedServer {
   const session = options.session ?? new BrowserSession(browserOptions);
   const engine = options.engine ?? new UnavailableEngine();
 
+  // (D1) The shared holder for the most recent Autopilot run's observability artifacts. It is
+  // passed BY REFERENCE into both the laya_run_goal tool context (which records into it when a
+  // run enables artifact recording) and the laya_export_run tool context (which reads it to
+  // write a replay). One session -> one "current" run, so a single holder suffices.
+  const artifacts = createRunArtifactsHolder();
+
   const server = new McpServer(
     {
       name: "laya-browser-mcp",
@@ -136,6 +143,8 @@ export function createServer(options: CreateServerOptions = {}): CreatedServer {
       // behave exactly as before; when on, browser_click refuses a destructive click.
       assistDestructiveGuard: config.assistDestructiveGuard,
       config,
+      // (D1) Share the last-run artifacts holder so laya_export_run can write a replay.
+      artifacts,
     },
     config.capabilities,
   );
@@ -167,6 +176,9 @@ export function createServer(options: CreateServerOptions = {}): CreatedServer {
       viewportPriority: config.viewportPriority,
       // (C2) Send only the snapshot delta to the LLM on escalation when a diff exists.
       deltaPrompt: true,
+      // (D1) Share the artifacts holder so the run records per-step artifacts for the
+      // laya_export_run replay tool. Presence of the holder enables recording.
+      artifacts,
       // (B2) Wire the real confirmation via MCP elicitation, resolved lazily at call time
       // (the client's `elicitation` capability is only known after it connects/initializes,
       // which happens after createServer). Mirrors how `sample` is wired for sampling. When

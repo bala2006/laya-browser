@@ -8,6 +8,7 @@
 import { z } from "zod";
 import type { BrowserSession } from "../browser.js";
 import type { LayaBrowserConfig } from "../config.js";
+import type { RunArtifactsHolder } from "./run_artifacts.js";
 import { capture } from "../snapshot.js";
 
 /** The context handed to every Assist tool handler. */
@@ -38,6 +39,13 @@ export interface ToolContext {
    * Assist tools remain unguarded by design.
    */
   assistDestructiveGuard?: boolean;
+  /**
+   * (D1) Shared holder for the most recent Autopilot run's observability artifacts, used by
+   * the laya_export_run tool to write a replay. Created once in src/server.ts and shared by
+   * reference with the laya_run_goal tool context. Optional so lightweight test contexts and
+   * tools that do not need it can omit it.
+   */
+  artifacts?: RunArtifactsHolder;
 }
 
 /** MCP tool result content block (text). */
