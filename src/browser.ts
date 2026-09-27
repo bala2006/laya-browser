@@ -36,7 +36,7 @@ import type {
   RouteRule,
   TabInfo,
 } from "./types.js";
-import type { OverlayConfig } from "./config.js";
+import { DEFAULT_OVERLAY_ACCENT, type OverlayConfig } from "./config.js";
 import { BrowserOverlay } from "./overlay.js";
 
 /** The Playwright engine a {@link BrowserSession} drives. */
@@ -186,7 +186,7 @@ export class BrowserSession {
       this.options.overlay ?? {
         enabled: false,
         mode: "off",
-        accent: "#a855f7",
+        accent: DEFAULT_OVERLAY_ACCENT,
         typingEffect: false,
         waitCountdown: false,
         debugSeeElements: false,
@@ -244,11 +244,26 @@ export class BrowserSession {
     const launchOptions = {
       ...(useChannel ? { channel: this.options.channel } : {}),
     };
+    // (Issue 1) A HEADED Chromium launch opens a real OS window whose size is independent of
+    // the context viewport, so a larger window renders the fixed-viewport page smaller than
+    // the window (a grey strip on the right). Match the OS window to the viewport via
+    // `--window-size` for CHROMIUM + HEADED only. Headless ignores/does not need it, and
+    // firefox/webkit do not honour Chromium switches, so they never receive the arg. The
+    // headed->headless fallback below re-launches WITHOUT this arg.
+    const headedWindowArgs =
+      this.options.engine === "chromium" && !this.options.headless
+        ? {
+            args: [
+              `--window-size=${this.options.viewport.width},${this.options.viewport.height}`,
+            ],
+          }
+        : {};
     let browser: Browser;
     try {
       browser = await this.browserType.launch({
         headless: this.options.headless,
         ...launchOptions,
+        ...headedWindowArgs,
       });
       this.effectiveHeadless = this.options.headless;
     } catch (err) {

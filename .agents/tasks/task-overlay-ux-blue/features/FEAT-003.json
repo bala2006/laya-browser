@@ -1,0 +1,27 @@
+{
+  "id": "FEAT-003",
+  "type": "test",
+  "description": "Update and extend the real-headless overlay tests to match the new blue accent, the bottom-center frosted banner, the always-visible cursor, and the new four-corner session frame - WITHOUT weakening the meaningful invariants. The overlay tests drive REAL headless Chromium (overlay forced ON) and read the real DOM, so new assertions must exercise the injected client script the same way. Existing tests that must KEEP passing unchanged: pointer-events:none on every node, high z-index, re-injection after navigation, 'never intercepts a real click', and the success/error/uncertain state colours (#22c55e/#ef4444/#f59e0b are state colours, not the accent, so they are unaffected).",
+  "status": "completed",
+  "steps": [
+    "In test/overlay.test.ts and test/tier3-ux.test.ts, update the overlayOn() helper's accent literal from '#a855f7' to the new blue '#3b82f6' (the tests construct their own config, so they set accent explicitly).",
+    "If test/config.test.ts asserts DEFAULT_OVERLAY_ACCENT equals '#a855f7', update it to the new blue value; keep any assertion that a malformed accent falls back to the default (just update the expected default).",
+    "In test/overlay.test.ts add an assertion that the banner is BOTTOM-anchored: read the banner element's computed style and assert getComputedStyle(banner).bottom is not 'auto' (it has a bottom offset) OR that its bounding rect sits in the lower portion of the viewport (rect.top > viewportHeight/2). Do not assert an exact pixel unless stable.",
+    "In test/overlay.test.ts add an assertion that the synthetic cursor is VISIBLE (display !== 'none') after the overlay is installed and BEFORE any explicit moveCursor - i.e. drive session.getOverlay().showCursor(page) (or rely on the loop path) then assert the cursor node's computed display is 'block'. Reuse the existing technique of locating the cursor as the child containing an <svg>.",
+    "In test/overlay.test.ts add an assertion for the four-corner frame: call session.getOverlay().sessionFrame(page, true), then assert the frame element is display:'block' and that it (and all its children) are pointer-events:none; call sessionFrame(page, false) and assert it hides (display:'none'). Confirm the frame border/glow colour reflects the blue accent (getComputedStyle borderColor or boxShadow contains the blue rgb components 59,130,246).",
+    "Keep the existing 'renders each overlay API node it is driven with' test working: it indexes banner.children by position (dot=0,title=1,stateLabel=2,status=3,progress=4,barWrap=5) - since FEAT-002 preserves child order, only update any position-based assertion if a child was genuinely added; if the frosted restyle kept the same children, no change is needed there beyond the accent.",
+    "Run the overlay suites and confirm green; then run the FULL suite."
+  ],
+  "acceptance_criteria": [
+    "test/overlay.test.ts and test/tier3-ux.test.ts overlayOn() use '#3b82f6'.",
+    "New assertions verify: banner is bottom-anchored, cursor is visible before first moveCursor, and the four-corner frame toggles on/off with blue accent and stays pointer-events:none.",
+    "All pre-existing invariant tests (pointer-events:none on every node, z-index, re-injection, no-click-intercept, state colours) still pass unchanged.",
+    "pnpm test is fully green (only the documented webkit/host-limited skips remain)."
+  ],
+  "verification": [
+    "pnpm test test/overlay.test.ts test/tier3-ux.test.ts test/config.test.ts",
+    "pnpm test"
+  ],
+  "blocked_reason": null,
+  "findings": "Most of FEAT-003 was already delivered in the FEAT-002 commit (9bbdb6f): overlayOn() in test/overlay.test.ts and test/tier3-ux.test.ts already use accent '#3b82f6'; test/config.test.ts already asserts the blue default; test/overlay.test.ts already asserts the bottom-anchored frosted banner+hint, the visible cursor via showCursor(), and the four-corner sessionFrame toggling on/off with every node pointer-events:none. The only remaining gap was that the four-corner frame test did not assert the frame's highlight COLOUR is the blue accent. Closed it by concatenating each corner's computed borderTop/Left/Right/BottomColor + boxShadow and asserting the result contains '59, 130, 246' (the rgb components of #3b82f6). No source bug: src/overlay.ts build() already draws the corner brackets with borders set to OPTS.accent and a boxShadow glow via accentRgba(0.55), so the corners are already blue; no src/overlay.ts change was needed. No existing assertion was weakened (pointer-events:none on all nodes, z-index, re-injection, no-click-intercept, and the state colours #22c55e/#ef4444/#f59e0b remain intact). Verified: pnpm typecheck clean; pnpm test test/overlay.test.ts = 11 passed; full pnpm test = 247 passed / 3 skipped (webkit host-lib skips + documented). Headed launch auto-falls-back to headless (no X server) as expected."
+}

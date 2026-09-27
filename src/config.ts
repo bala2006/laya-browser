@@ -16,7 +16,7 @@
  *   LAYA_BROWSER_CHANNEL=chrome        Chromium channel
  *   LAYA_BROWSER_VIEWPORT=1440x900     viewport WIDTHxHEIGHT
  *   LAYA_BROWSER_OVERLAY=auto|on|off   agentLens visual overlay (default: auto = on when headed)
- *   LAYA_BROWSER_OVERLAY_ACCENT=#a855f7   overlay brand accent (hex; default #a855f7)
+ *   LAYA_BROWSER_OVERLAY_ACCENT=#3b82f6   overlay brand accent (hex; default #3b82f6)
  *   LAYA_BROWSER_OVERLAY_TYPING=false  opt-in per-character typing effect
  *   LAYA_BROWSER_OVERLAY_COUNTDOWN=false  opt-in WAIT countdown display
  *   LAYA_BROWSER_OVERLAY_DEBUG=false   outline "what the agent sees" elements
@@ -113,8 +113,8 @@ export type OverlayMode = "auto" | "on" | "off";
 /** All valid overlay modes, used to validate LAYA_BROWSER_OVERLAY. */
 export const OVERLAY_MODES: readonly OverlayMode[] = ["auto", "on", "off"] as const;
 
-/** The default overlay brand accent (agentLens purple). */
-export const DEFAULT_OVERLAY_ACCENT = "#a855f7";
+/** The default overlay brand accent (agentLens blue, Tailwind blue-500). */
+export const DEFAULT_OVERLAY_ACCENT = "#3b82f6";
 
 /** (T3.4) Default synthetic-cursor trail length (breadcrumb dots), and its inclusive bounds. */
 export const DEFAULT_OVERLAY_TRAIL = 6;

@@ -85,6 +85,25 @@ function buildClientScript(optsJson: string): string {
 
   function css(node, styles) { for (const k in styles) node.style[k] = styles[k]; }
 
+  // Turn OPTS.accent (#rgb or #rrggbb) into an "rgba(r,g,b,a)" string so accent-tinted
+  // glows/fills track the brand accent instead of hardcoding a colour. Falls back to a
+  // neutral blue-grey if the hex is somehow malformed.
+  function accentRgba(alpha) {
+    const hex = String(OPTS.accent || "").replace("#", "");
+    let r = 59, g = 130, b = 246;
+    if (hex.length === 3) {
+      r = parseInt(hex[0] + hex[0], 16);
+      g = parseInt(hex[1] + hex[1], 16);
+      b = parseInt(hex[2] + hex[2], 16);
+    } else if (hex.length === 6) {
+      r = parseInt(hex.slice(0, 2), 16);
+      g = parseInt(hex.slice(2, 4), 16);
+      b = parseInt(hex.slice(4, 6), 16);
+    }
+    if (isNaN(r) || isNaN(g) || isNaN(b)) { r = 59; g = 130; b = 246; }
+    return "rgba(" + r + "," + g + "," + b + "," + alpha + ")";
+  }
+
   function mkDiv(styles) {
     const d = document.createElement("div");
     css(d, Object.assign({ pointerEvents: "none" }, styles || {}));
@@ -110,30 +129,47 @@ function buildClientScript(optsJson: string): string {
   }
 
   function build() {
-    // --- Banner (T1): dark HUD bar top-centre ---
+    // --- Feedback pill (T1 / issue 3): a LIGHT, glassy, frosted-blue rounded PILL anchored in
+    // the LOWER-RIGHT of the viewport with a soft blue glow/halo. It reads as part of the page
+    // rather than a heavy dark HUD bar. Layout (child order is load-bearing for the tests):
+    //   0 icon   1 title   2 stateLabel   3 status   4 progress   5 barWrap   6 meter
+    // A small square icon (rounded-square glyph with a pointer/cursor mark) sits on the left,
+    // then the concise "Laya is working…" phrase, with the live status/state/progress/meter
+    // surfaced inline. Fully rounded (pill) via a large borderRadius.
     const banner = mkDiv({
-      position: "fixed", top: "10px", left: "50%", transform: "translateX(-50%)",
+      position: "fixed", bottom: "36px", right: "32px",
       display: "flex", alignItems: "center", gap: "10px",
-      background: "rgba(17,17,23,0.92)", color: "#e5e7eb",
-      padding: "8px 14px", borderRadius: "10px", fontSize: "13px", lineHeight: "1.3",
-      boxShadow: "0 4px 18px rgba(0,0,0,0.45)",
-      border: "1px solid " + OPTS.accent, maxWidth: "80vw",
+      background: "rgba(255,255,255,0.16)",
+      backgroundImage: "linear-gradient(135deg, " + accentRgba(0.42) + ", " + accentRgba(0.16) + ")",
+      backdropFilter: "blur(16px) saturate(140%)", webkitBackdropFilter: "blur(16px) saturate(140%)",
+      color: "#ffffff",
+      padding: "9px 18px 9px 11px", borderRadius: "999px", fontSize: "13px", lineHeight: "1.3",
+      boxShadow: "0 10px 34px " + accentRgba(0.45) + ", 0 0 0 1px " + accentRgba(0.35) + " inset, 0 0 22px " + accentRgba(0.4),
+      border: "1px solid " + accentRgba(0.55), maxWidth: "min(520px, 78vw)",
+      textShadow: "0 1px 2px rgba(15,23,42,0.35)",
       transition: "border-color 200ms ease, box-shadow 300ms ease",
     });
+    // Left icon: a rounded-square glyph containing a pointer/cursor mark. The dot handle is
+    // kept (tests + setState pulse reference the pill's leading marker); it now IS this icon
+    // square, whose background tints with the current state colour.
     const dot = mkDiv({
-      width: "9px", height: "9px", borderRadius: "50%", background: OPTS.accent,
-      flex: "0 0 auto", transition: "transform 300ms ease, background 200ms ease",
+      width: "22px", height: "22px", borderRadius: "7px",
+      background: accentRgba(0.9),
+      boxShadow: "0 0 10px " + accentRgba(0.6) + ", 0 1px 3px rgba(15,23,42,0.4)",
+      flex: "0 0 auto", display: "flex", alignItems: "center", justifyContent: "center",
+      transition: "transform 300ms ease, background 200ms ease, box-shadow 200ms ease",
     });
+    dot.innerHTML = "<svg width='13' height='13' viewBox='0 0 24 24' fill='#ffffff' stroke='#ffffff' stroke-width='0.5'><path d='M4 2 L4 20 L9 15 L12 22 L15 21 L12 14 L19 14 Z'/></svg>";
     const title = mkDiv({ fontWeight: "600", whiteSpace: "nowrap" });
-    title.textContent = "\u{1F916} Laya is controlling this browser";
-    const stateLabel = mkDiv({ color: OPTS.accent, fontWeight: "600", whiteSpace: "nowrap" });
+    title.textContent = "Laya is working\u2026";
+    const stateLabel = mkDiv({ color: "#ffffff", fontWeight: "600", whiteSpace: "nowrap" });
     stateLabel.textContent = "";
-    const status = mkDiv({ color: "#cbd5e1", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "40vw" });
-    const progress = mkDiv({ color: "#94a3b8", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" });
+    const status = mkDiv({ color: "rgba(255,255,255,0.82)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "40vw" });
+    const progress = mkDiv({ color: "rgba(255,255,255,0.7)", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" });
 
-    // progress bar under the banner text
-    const barWrap = mkDiv({ position: "relative", width: "70px", height: "4px", background: "rgba(148,163,184,0.3)", borderRadius: "3px", overflow: "hidden", display: "none" });
-    const barFill = mkDiv({ position: "absolute", left: "0", top: "0", bottom: "0", width: "0%", background: OPTS.accent, transition: "width 250ms ease" });
+    // progress bar inside the pill
+    const barWrap = mkDiv({ position: "relative", width: "70px", height: "4px", background: "rgba(255,255,255,0.28)", borderRadius: "3px", overflow: "hidden", display: "none" });
+    const barFill = mkDiv({ position: "absolute", left: "0", top: "0", bottom: "0", width: "0%", background: "#ffffff", transition: "width 250ms ease" });
     barWrap.appendChild(barFill);
 
     banner.appendChild(dot);
@@ -148,29 +184,35 @@ function buildClientScript(optsJson: string): string {
     // steps, LLM escalation count, and an estimated token spend for the run so the user sees
     // the running cost of the automation at a glance.
     const meter = mkDiv({
-      display: "none", alignItems: "center", gap: "8px", color: "#94a3b8",
+      display: "none", alignItems: "center", gap: "8px", color: "rgba(255,255,255,0.75)",
       fontSize: "11px", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap",
-      borderLeft: "1px solid rgba(148,163,184,0.3)", paddingLeft: "8px", marginLeft: "2px",
+      borderLeft: "1px solid rgba(255,255,255,0.35)", paddingLeft: "8px", marginLeft: "2px",
     });
     banner.appendChild(meter);
 
-    // --- Esc-to-release hint (T4) ---
+    // --- Esc-to-release hint (T4): a light frosted-blue chip sitting just above the pill in
+    // the lower-right, matching the pill's glassy look. ---
     const hint = mkDiv({
-      position: "fixed", top: "48px", left: "50%", transform: "translateX(-50%)",
-      background: "rgba(17,17,23,0.75)", color: "#94a3b8", padding: "3px 8px",
-      borderRadius: "6px", fontSize: "11px", whiteSpace: "nowrap",
+      position: "fixed", bottom: "72px", right: "32px",
+      background: accentRgba(0.28),
+      backdropFilter: "blur(10px)", webkitBackdropFilter: "blur(10px)",
+      color: "rgba(255,255,255,0.9)", padding: "3px 10px",
+      borderRadius: "999px", fontSize: "11px", whiteSpace: "nowrap",
+      border: "1px solid " + accentRgba(0.4), textShadow: "0 1px 2px rgba(15,23,42,0.35)",
     });
     hint.textContent = "controlled by Laya \u2014 press Esc to release";
     root.appendChild(hint);
 
-    // --- Synthetic cursor (T1) ---
+    // --- Synthetic cursor (T1): a realistic BLUE arrow pointer with a soft blue glow/shadow so
+    // it reads clearly against any page yet stays inert (pointer-events:none). ---
     const cursor = mkDiv({
-      position: "fixed", left: "0", top: "0", width: "20px", height: "20px",
+      position: "fixed", left: "0", top: "0", width: "24px", height: "24px",
       transform: "translate(-4px,-2px)",
+      filter: "drop-shadow(0 0 6px " + accentRgba(0.8) + ") drop-shadow(0 2px 4px rgba(15,23,42,0.4))",
       transition: "left 450ms cubic-bezier(.22,.61,.36,1), top 450ms cubic-bezier(.22,.61,.36,1)",
       display: "none",
     });
-    cursor.innerHTML = "<svg width='20' height='20' viewBox='0 0 24 24' fill='" + OPTS.accent + "' stroke='white' stroke-width='1'><path d='M4 2 L4 20 L9 15 L12 22 L15 21 L12 14 L19 14 Z'/></svg>";
+    cursor.innerHTML = "<svg width='24' height='24' viewBox='0 0 24 24' fill='" + OPTS.accent + "' stroke='white' stroke-width='1.4'><path d='M4 2 L4 20 L9 15 L12 22 L15 21 L12 14 L19 14 Z'/></svg>";
     root.appendChild(cursor);
 
     // --- Caption/popover near the cursor (T2) ---
@@ -186,7 +228,7 @@ function buildClientScript(optsJson: string): string {
     const spotlight = mkDiv({
       position: "fixed", left: "0", top: "0", width: "0", height: "0",
       border: "2px solid " + OPTS.accent, borderRadius: "6px",
-      boxShadow: "0 0 0 3px rgba(168,85,247,0.25)",
+      boxShadow: "0 0 0 3px " + accentRgba(0.25),
       transition: "left 300ms ease, top 300ms ease, width 300ms ease, height 300ms ease, opacity 200ms ease",
       display: "none",
     });
@@ -238,8 +280,41 @@ function buildClientScript(optsJson: string): string {
     const seen = mkDiv({ position: "fixed", left: "0", top: "0", width: "0", height: "0", display: "none" });
     root.appendChild(seen);
 
+    // --- Session frame (issue 4): a RESTRAINED page-edge presence treatment shown for the
+    // duration of an autopilot run, so Laya's control reads as a subtle blue tint rather than a
+    // dominating four-corner bracket frame. The container carries a soft inset blue glow (a
+    // faint page-edge halo); it still holds FOUR pointer-events:none corner nodes, but they are
+    // now thin, small, low-opacity accents (a gentle hint at the corners) instead of sharp,
+    // bright brackets. Keeping four corner children + the blue accent preserves the overlay
+    // invariant and the API/test surface. ---
+    const sessionFrame = mkDiv({
+      position: "fixed", top: "0", left: "0", right: "0", bottom: "0",
+      display: "none", pointerEvents: "none", borderRadius: "10px",
+      boxShadow: "inset 0 0 0 1px " + accentRgba(0.16) + ", inset 0 0 60px " + accentRgba(0.1),
+    });
+    const cornerLen = "18px";
+    const cornerThick = "1.5px";
+    const cornerInset = "12px";
+    const cornerGlow = "0 0 6px " + accentRgba(0.28);
+    const cornerColor = accentRgba(0.55);
+    const corners = [
+      { top: cornerInset, left: cornerInset, borderTop: cornerThick + " solid " + cornerColor, borderLeft: cornerThick + " solid " + cornerColor, borderTopLeftRadius: "8px" },
+      { top: cornerInset, right: cornerInset, borderTop: cornerThick + " solid " + cornerColor, borderRight: cornerThick + " solid " + cornerColor, borderTopRightRadius: "8px" },
+      { bottom: cornerInset, left: cornerInset, borderBottom: cornerThick + " solid " + cornerColor, borderLeft: cornerThick + " solid " + cornerColor, borderBottomLeftRadius: "8px" },
+      { bottom: cornerInset, right: cornerInset, borderBottom: cornerThick + " solid " + cornerColor, borderRight: cornerThick + " solid " + cornerColor, borderBottomRightRadius: "8px" },
+    ];
+    for (const c of corners) {
+      const corner = mkDiv(Object.assign({
+        position: "fixed", width: cornerLen, height: cornerLen,
+        boxShadow: cornerGlow, opacity: "0.85", pointerEvents: "none",
+      }, c));
+      sessionFrame.appendChild(corner);
+    }
+    root.appendChild(sessionFrame);
+
     els = { banner, dot, title, stateLabel, status, progress, meter, barWrap, barFill,
-      hint, cursor, caption, spotlight, scroll, toasts, countdown, logPanel, logBody, seen };
+      hint, cursor, caption, spotlight, scroll, toasts, countdown, logPanel, logBody, seen,
+      sessionFrame };
   }
 
   const api = {
@@ -289,6 +364,19 @@ function buildClientScript(optsJson: string): string {
       els.meter.setAttribute("data-laya-meter", "1");
       els.meter.textContent = "\u{1F9EE} " + s + " steps \u00B7 " + e + " LLM \u00B7 ~" + tok + " tok";
     },
+    showCursor(x, y) {
+      if (!ensureRoot()) return;
+      const cx = x == null ? Math.round(window.innerWidth / 2) : Number(x);
+      const cy = y == null ? Math.round(window.innerHeight / 2) : Number(y);
+      api.__lastCursor = { x: cx, y: cy };
+      els.cursor.style.display = "block";
+      els.cursor.style.left = cx + "px";
+      els.cursor.style.top = cy + "px";
+    },
+    sessionFrame(on) {
+      if (!ensureRoot()) return;
+      els.sessionFrame.style.display = on ? "block" : "none";
+    },
     moveCursor(x, y, caption, trailLength) {
       if (!ensureRoot()) return;
       // (T3.4) Draw a fading breadcrumb trail from the previous cursor position to the new one
@@ -333,7 +421,7 @@ function buildClientScript(optsJson: string): string {
       const r = mkDiv({
         position: "fixed", left: x + "px", top: y + "px", width: "8px", height: "8px",
         marginLeft: "-4px", marginTop: "-4px", borderRadius: "50%",
-        background: "rgba(168,85,247,0.5)", border: "2px solid " + OPTS.accent,
+        background: accentRgba(0.5), border: "2px solid " + OPTS.accent,
         transition: "transform 500ms ease-out, opacity 500ms ease-out", transform: "scale(1)", opacity: "1",
       });
       root.appendChild(r);
@@ -572,6 +660,24 @@ export class BrowserOverlay {
     trailLength?: number,
   ): Promise<void> {
     await this.call(page, "moveCursor", x, y, caption ?? "", trailLength ?? null);
+  }
+
+  /**
+   * Make the synthetic cursor visible (default: viewport centre) so it is present from the
+   * start of a run rather than only appearing on the first {@link moveCursor}. A guarded
+   * best-effort no-op like every overlay call.
+   */
+  async showCursor(page: Page | undefined, x?: number, y?: number): Promise<void> {
+    await this.call(page, "showCursor", x ?? null, y ?? null);
+  }
+
+  /**
+   * Toggle the subtle page-edge "Laya is in control" presence treatment on/off (a faint blue
+   * inset glow with restrained corner accents, not a dominating bracket frame). Shown for the
+   * duration of an autopilot run. A guarded best-effort no-op like every overlay call.
+   */
+  async sessionFrame(page: Page | undefined, on: boolean): Promise<void> {
+    await this.call(page, "sessionFrame", on);
   }
 
   /**

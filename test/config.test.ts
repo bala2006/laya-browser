@@ -20,7 +20,7 @@ describe("loadConfig capability and engine parsing", () => {
     const overlay = loadConfig({}, {}).overlay;
     expect(overlay.mode).toBe("auto");
     expect(overlay.enabled).toBe(true); // headed default -> overlay on
-    expect(overlay.accent).toBe("#a855f7");
+    expect(overlay.accent).toBe("#3b82f6");
     expect(overlay.typingEffect).toBe(false);
     expect(overlay.waitCountdown).toBe(false);
     expect(overlay.debugSeeElements).toBe(false);
@@ -42,10 +42,10 @@ describe("loadConfig capability and engine parsing", () => {
       "#00aaff",
     );
     expect(loadConfig({}, { LAYA_BROWSER_OVERLAY_ACCENT: "rebeccapurple" }).overlay.accent).toBe(
-      "#a855f7",
+      "#3b82f6",
     );
     expect(loadConfig({}, { LAYA_BROWSER_OVERLAY_ACCENT: "#xyz" }).overlay.accent).toBe(
-      "#a855f7",
+      "#3b82f6",
     );
   });
 

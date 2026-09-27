@@ -24,7 +24,7 @@ function overlayOn(overrides: Partial<OverlayConfig> = {}): OverlayConfig {
   return {
     enabled: true,
     mode: "on",
-    accent: "#a855f7",
+    accent: "#3b82f6",
     typingEffect: false,
     waitCountdown: false,
     debugSeeElements: false,
