@@ -1149,6 +1149,91 @@ function projectFast(fast: FastSnapshot): { snapshot: Snapshot; ctx: FastContext
   return { snapshot, ctx: { byRef, pageKey: fast.pageKey, marker: fast.marker } };
 }
 
+/**
+ * (F4) A speculatively-computed decision, cached during the previous step's settle window and
+ * reused at the top of the next iteration when the page is proven unchanged and the target is
+ * still fresh. `decision`/`note` are exactly what the ordinary pipeline would have produced;
+ * carrying them here only overlaps the compute cost with the settle wait, so the observed
+ * decision sequence and outcomes are IDENTICAL to not speculating.
+ */
+interface SpeculativeDecision {
+  decision: Decision;
+  note: string | undefined;
+}
+
+/**
+ * (F4) Compute the decision the pipeline WOULD produce for `state`, but ONLY for the cases that
+ * never need the client-LLM escalation (a rule seed, or a high-confidence non-BLOCKED engine
+ * decision). Returns undefined when the ordinary pipeline would escalate/block/degrade, so the
+ * real iteration takes its normal (observable) escalation path and speculation stays invisible.
+ *
+ * This mirrors the loop's own pipeline order (policySeed -> engine.decide -> refine) EXACTLY,
+ * so a cached decision equals the one the un-speculated step would have made. It performs NO
+ * IO beyond the engine's local decide (no page reads, no sampling), so it is safe to overlap
+ * with the settle probe.
+ */
+async function computeSpeculativeDecision(
+  state: PageState,
+  engine: LayaDecisionEngine,
+  confidenceThreshold: number,
+): Promise<SpeculativeDecision | undefined> {
+  const seed = policySeed(state);
+  if (seed) {
+    return { decision: seed.decision, note: `rule: ${seed.reason}` };
+  }
+  if (!engine.available) return undefined;
+  const decision = refineWithGoalValue(await engine.decide(state), state);
+  // Only cache a decision the confidence gate would accept WITHOUT escalating; anything the
+  // real step would escalate/block is deliberately not speculated (its escalation is observable
+  // and must run on the real iteration).
+  const lowConfidence =
+    decision.operationConfidence < confidenceThreshold ||
+    decision.targetConfidence < confidenceThreshold;
+  if (lowConfidence || decision.operation === "BLOCKED") return undefined;
+  return { decision, note: undefined };
+}
+
+/**
+ * (F4) Whether a cached speculative decision's TARGET is still fresh on the live page, using the
+ * FEAT-002 freshness re-check. For a targeted operation (CLICK/TYPE_TEXT/SELECT/HOVER, or a
+ * FILL_FORM whose every field target still has fast identity) it re-checks each target's
+ * guard + pageKey against what the speculative capture observed; for a non-targeted operation
+ * (DONE/WAIT/SCROLL_DOWN/etc.) it re-checks the whole-page marker. Any stale/gone target (or a
+ * target that lacks fast identity, so it cannot be re-checked) makes the whole decision unsafe
+ * to reuse and returns false, so the loop decides fresh. Never throws (freshGuard is guarded).
+ */
+async function speculativeTargetFresh(
+  session: BrowserSession,
+  page: Page,
+  decision: Decision,
+  ctx: FastContext,
+): Promise<boolean> {
+  const checkRef = async (ref: string): Promise<boolean> => {
+    const entry = ctx.byRef.get(ref);
+    if (!entry) return false;
+    return session.freshGuard(page, entry.nodeId, {
+      guard: entry.guard,
+      pageKey: ctx.pageKey,
+    });
+  };
+  switch (decision.operation) {
+    case "CLICK":
+    case "TYPE_TEXT":
+    case "SELECT":
+    case "HOVER":
+      return checkRef(decision.target);
+    case "FILL_FORM": {
+      for (const f of decision.fields) {
+        if (!(await checkRef(f.target))) return false;
+      }
+      return true;
+    }
+    default:
+      // Non-targeted operation: the whole page must be unchanged.
+      return session.freshGuard(page, undefined, { marker: ctx.marker });
+  }
+}
+
 function redactSnapshot(snapshot: Snapshot, redact: (text: string) => string): Snapshot {
   return {
     ...snapshot,
@@ -1322,6 +1407,17 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
   // the top of the next iteration only when the probe observed no change (so it is current),
   // saving a capture round-trip on the common already-settled path. Undefined otherwise.
   let prefetchedSnapshot: Snapshot | undefined;
+  // (F4) The FAST-path speculative overlap. During the previous step's settle probe, when the
+  // page was already settled AND an engine is available, we ALSO capture a speculative
+  // FastSnapshot and pre-compute the next decision against it (both overlapping the probe wait).
+  // At the top of the next iteration, when the prefetched fast snapshot is reused (page proven
+  // unchanged) and the FEAT-002 freshness re-check confirms the cached decision's target is
+  // still fresh, the cached decision is used instead of recomputing. DISCARDED on ANY drift
+  // (probe changed / auto-dismiss ran / guard stale). Only ever populated when fastLoop is on,
+  // so the default (legacy) path is byte-identical. This is a PURE optimization: the observed
+  // decision sequence is identical to not speculating; only wall-clock overlap changes.
+  let prefetchedFast: { snapshot: Snapshot; ctx: FastContext } | undefined;
+  let speculativeDecision: SpeculativeDecision | undefined;
   // (C2) The snapshot captured on the PREVIOUS step, kept so each step can diff against it
   // (surface "N new controls appeared") and the escalation path can send only the delta.
   let prevSnapshot: Snapshot | undefined;
@@ -1354,6 +1450,13 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
       // (or when auto-dismiss might click something) we discard it and capture fresh below.
       const prefetched = prefetchedSnapshot;
       prefetchedSnapshot = undefined;
+      // (F4) Grab and clear the speculative fast prefetch + cached decision computed during the
+      // previous step's settle window. Consumed below only on the fast path and only when the
+      // page is proven unchanged and the cached target is still fresh; discarded otherwise.
+      const speculatedFast = prefetchedFast;
+      const speculatedDecision = speculativeDecision;
+      prefetchedFast = undefined;
+      speculativeDecision = undefined;
 
       // (T2.2) Before capturing/deciding, optionally auto-dismiss cookie/consent banners and
       // blocking modal overlays so they do not hide the real controls. Conservative + bounded
@@ -1381,10 +1484,20 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
       // this branch is skipped entirely and the path is byte-identical to before.
       let fastCtx: FastContext | undefined;
       let snapshot: Snapshot;
+      // (F4) Whether the speculative fast prefetch is safe to reuse this step: it exists, the
+      // previous probe reported no change (that is the only condition under which it is kept),
+      // and no auto-dismiss ran this step (which could mutate the page). On reuse we skip the
+      // captureFast round-trip; otherwise we capture fresh and DISCARD any cached decision.
+      const canReuseFast = fastLoop && speculatedFast !== undefined && !autoDismiss;
       if (fastLoop) {
-        const projected = projectFast(await captureFast(page, captureOptions));
-        snapshot = projected.snapshot;
-        fastCtx = projected.ctx;
+        if (canReuseFast) {
+          snapshot = speculatedFast!.snapshot;
+          fastCtx = speculatedFast!.ctx;
+        } else {
+          const projected = projectFast(await captureFast(page, captureOptions));
+          snapshot = projected.snapshot;
+          fastCtx = projected.ctx;
+        }
       } else {
         const canReusePrefetch = prefetched !== undefined && !autoDismiss;
         snapshot = canReusePrefetch ? prefetched! : await capture(page, captureOptions);
@@ -1428,9 +1541,31 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
       // decision pipeline; the action IO below is deliberately excluded.
       const decisionStart = Date.now();
 
-      const seed = policySeed(state);
+      // (F4) Reuse the speculative decision computed during the previous settle window, but
+      // ONLY when the fast prefetch it was computed against is the very snapshot we are using
+      // now (canReuseFast) AND the FEAT-002 freshness re-check confirms the cached decision's
+      // target is still fresh on the live page. On any drift we fall through to the ordinary
+      // pipeline and decide fresh, so the observed decision is identical to not speculating.
+      let reused: Decision | undefined;
+      if (canReuseFast && speculatedDecision !== undefined && fastCtx !== undefined) {
+        const fresh = await speculativeTargetFresh(
+          session,
+          page,
+          speculatedDecision.decision,
+          fastCtx,
+        );
+        if (fresh) {
+          reused = speculatedDecision.decision;
+          note = speculatedDecision.note;
+        }
+      }
+
+      const seed = reused === undefined ? policySeed(state) : undefined;
       let decision: Decision;
-      if (seed) {
+      if (reused !== undefined) {
+        // Cached speculative decision reused; skip the (redundant) recompute.
+        decision = reused;
+      } else if (seed) {
         decision = seed.decision;
         note = `rule: ${seed.reason}`;
       } else if (engine.available) {
@@ -1725,10 +1860,39 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
       // the prefetch reuse this branch does not use). `settled` is recorded observationally.
       if (settleProbe && fastLoop) {
         const beforeUrlFast = beforeUrl;
-        const probe = await session
-          .probeSettle(page, { beforeUrl: beforeUrlFast, timeoutMs: fastWaitCapMs })
-          .catch(() => ({ changed: false, urlChanged: false, mutations: 0 }));
+        // (F4) Overlap the settle probe with a speculative fast capture for the NEXT step, and
+        // (when the page is already settled and an engine is available) a speculative DECIDE
+        // against that capture. All three are independent local reads/compute run concurrently
+        // with the probe's wait window, so the compute cost is hidden. We KEEP the speculative
+        // snapshot + decision ONLY when the probe reports NO change (the capture is then current,
+        // so reusing it at the next step top is byte-identical to capturing there); on ANY change
+        // we discard both and the next iteration captures + decides fresh. The freshness re-check
+        // at the next step top is the final guard before the cached decision is actually used.
+        const [probe, speculativeFast] = await Promise.all([
+          session
+            .probeSettle(page, { beforeUrl: beforeUrlFast, timeoutMs: fastWaitCapMs })
+            .catch(() => ({ changed: false, urlChanged: false, mutations: 0 })),
+          captureFast(page, captureOptions)
+            .then((f) => projectFast(f))
+            .catch(() => undefined),
+        ]);
         record.settled = probe.changed;
+        if (!probe.changed && speculativeFast !== undefined) {
+          prefetchedFast = speculativeFast;
+          // Pre-compute the next decision against the settled speculative state. Skipped
+          // silently on any failure so speculation never affects the run.
+          const specState = buildState(
+            goal,
+            speculativeFast.snapshot,
+            recentActions,
+            stateOptions,
+          );
+          speculativeDecision = await computeSpeculativeDecision(
+            specState,
+            engine,
+            confidenceThreshold,
+          ).catch(() => undefined);
+        }
       } else if (settleProbe) {
         await narrator.setState("acting", "Waiting for page to settle\u2026");
         // (T4.1) Overlap the settle probe with a speculative capture for the NEXT step. Both
