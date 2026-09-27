@@ -1,0 +1,37 @@
+{
+  "id": "FEAT-003",
+  "type": "feat",
+  "description": "Do the REAL model work with NO fakes: download the real Laya web-agent model, load it on-device through @receptron/laya, run real inference, and capture real per-step latency and autonomy numbers with the LAYA_MODEL_DIR-gated tests and benchmark. docs/PLAN.md's spike VERIFIED that abedinia/laya-web-agent (ModernBERT-shaped) exports to ONNX and loads via Laya.load({ modelDir }) after a tokenizer special-token rename (<bos>/<eos>/<mask>/<pad> -> [CLS]/[SEP]/[MASK]/[PAD], same IDs), and that the reference convaiinnovations/laya checkpoint loads directly. Network is OPEN_INTERNET and Python 3.12 is available via `uv`. Produce a working local ONNX bundle directory, point LAYA_MODEL_DIR at it, and run the gated real-weights tests plus `LAYA_MODEL_DIR=<dir> pnpm run bench` to get REAL numbers (real inference output + latency, real % fully autonomous, and the independent final-page verification still holding - a DONE decision is NOT proof of success). If abedinia/laya-web-agent underperforms the reference on the measured benchmark, evaluate the reference convaiinnovations/laya (or another @receptron/laya-compatible ONNX-modelDir option) and pick the best on the evidence, justified with numbers. Then clear all temporary files created during download/export (scratch dirs, the Python venv, downloaded weights) - the repo .gitignore already excludes *.onnx / *.onnx.data / model/ / .venv/ / .cache/, so NEVER commit weights; verify `git status` is clean of large/temp artifacts afterward. Add a documented, reproducible prepare script or documented steps (not committed weights) so anyone can reproduce the bundle.",
+  "status": "pending",
+  "steps": [
+    "Create a scratch working directory OUTSIDE the tracked source (e.g. /tmp/laya-model-work or a gitignored path) for all downloads and the Python venv, so cleanup is trivial and nothing large ever lands in a tracked path.",
+    "Set up Python 3.12 via `uv` in the scratch dir with torch, transformers, onnx, onnxscript, onnxruntime, safetensors, huggingface_hub (mirror the versions docs/PLAN.md recorded for the spike).",
+    "Attempt path A (reference, simplest): download convaiinnovations/laya and load it directly via a tiny Node script that calls Laya.load({ modelDir }) (or via createEngine({ modelDir })). If it loads and runs a narrow choice question, capture the real distribution + input_tokens + latency.",
+    "Attempt path B (web-agent, the product model): snapshot_download('abedinia/laya-web-agent'), run @receptron/laya's export/export_onnx.py against it (pulling rl_common.py/rl_agent_api.py/email_utils.py from convaiinnovations/laya as the spike documented), then RENAME the four tokenizer special tokens in tokenizer/tokenizer.json (<bos>/<eos>/<mask>/<pad> -> [CLS]/[SEP]/[MASK]/[PAD], keeping the SAME token IDs) before loading. Load the produced bundle via Laya.load({ modelDir }) in Node and capture real inference output + latency.",
+    "Point LAYA_MODEL_DIR at the produced bundle directory and run `LAYA_MODEL_DIR=<dir> pnpm test` so the gated real-weights blocks (test/autopilot.test.ts describe.skipIf at line 338, test/benchmark/report.test.ts it.skipIf at line 43) actually execute against the real model. Capture the real outcome (done/max_steps/blocked), and confirm the independent final-page verification result is reported honestly.",
+    "Run `LAYA_MODEL_DIR=<dir> pnpm run bench` to get the real-engine coverage table and per-step latency on the offline fixtures. Record the numbers.",
+    "Measure the north-star metrics with the real model on the broadened benchmark (built in FEAT-004 if run after; otherwise on the current fixtures): per-step latency and % fully autonomous (from FEAT-002's autonomy summary), so 'faster and autonomous while reliable' is backed by real before/after numbers. Do NOT regress the independent verification.",
+    "If abedinia/laya-web-agent underperforms convaiinnovations/laya (or another compatible model) on the measured evidence, run the alternative through the same gated tests + bench, compare the numbers head-to-head, and pick the best; record which model won and why (with the measured figures).",
+    "If the real model genuinely underperforms the deterministic rule layer on structured tasks, document that honestly (the rules do most of the structured work; the model helps on ambiguous steps) rather than inflating a number.",
+    "Update docs/PLAN.md's VERIFIED/INFERRED/GUESSED ledger with EXACTLY what was run this session: which model loaded, the real latency/autonomy numbers, and the reproduce steps. Add a documented prepare procedure (a script under a scripts/ dir OR clear steps in docs) that recreates the bundle from scratch. Do NOT commit any weights.",
+    "Clear temporary files: remove the scratch working dir, the Python venv, and any downloaded/exported weights. Run `git status --porcelain --ignored` and confirm no *.onnx / *.onnx.data / model/ / .venv / large scratch artifacts are tracked or staged. The working tree must be clean of temp artifacts (only intended source/doc/test changes remain).",
+    "Run `pnpm run typecheck`, `pnpm run build`, and `pnpm test` (offline, WITHOUT LAYA_MODEL_DIR) to confirm the offline suite is still green with the stub and no weights."
+  ],
+  "acceptance_criteria": [
+    "A real Laya ONNX bundle was downloaded/exported and loaded via @receptron/laya's Laya.load({ modelDir }) in Node, with real inference output captured (not a fake/stub).",
+    "`LAYA_MODEL_DIR=<dir> pnpm test` runs the gated real-weights tests against the real model and they pass (the real-weights autopilot test accepts done/max_steps/blocked outcomes).",
+    "`LAYA_MODEL_DIR=<dir> pnpm run bench` produced a real-engine coverage table and per-step latency numbers, which are recorded in the findings and docs/PLAN.md.",
+    "Real per-step latency and % fully autonomous numbers were captured; if a model choice was made between web-agent and reference, it is justified with the measured figures.",
+    "No weights, venv, or scratch artifacts are committed or staged; `git status --porcelain --ignored` shows the tree clean of large/temp files after cleanup.",
+    "docs/PLAN.md ledger updated with what was actually run, and a reproducible prepare procedure is documented.",
+    "The offline suite (`pnpm test` without LAYA_MODEL_DIR) remains fully green with the stub and no weights."
+  ],
+  "verification": [
+    "LAYA_MODEL_DIR=<bundle-dir> pnpm test",
+    "LAYA_MODEL_DIR=<bundle-dir> pnpm run bench",
+    "pnpm test",
+    "git status --porcelain --ignored"
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}

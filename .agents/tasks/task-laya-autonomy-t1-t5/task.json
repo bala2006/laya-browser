@@ -1,0 +1,7 @@
+{
+  "task_id": "task-laya-autonomy-t1-t5",
+  "task_description": "Implement the T1-T5 local-first autonomy spec for laya-browser-mcp (rules 0.97 -> Laya default path with LLM never default; raise the escalation gate to 0.85 with OR semantics; keep escalation per-step with autonomous resume; make an unreachable LLM fall back to Laya's best guess (op != BLOCKED) so the run continues, with only Laya-BLOCKED / loop detector / destructive guard stopping a run; record source + both confidences + inference ms per step and a % fully-autonomous summary). Also clear temporary files, download+load+test the real Laya model on-device (no fakes), pick the best model on measured evidence if the web-agent underperforms, broaden the benchmark to real-world-shaped tasks, and document everything with an easy organised README setup and an honest PLAN ledger. Verify with real command output; keep the offline stub suite green with no weights and gate real-weights work behind LAYA_MODEL_DIR.",
+  "status": "in_progress",
+  "feature_order": ["FEAT-001", "FEAT-002", "FEAT-003", "FEAT-004"],
+  "blocked_reason": null
+}

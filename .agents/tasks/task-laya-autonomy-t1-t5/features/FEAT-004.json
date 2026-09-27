@@ -1,0 +1,35 @@
+{
+  "id": "FEAT-004",
+  "type": "docs",
+  "description": "Broaden the benchmark to real-world-shaped tasks and document everything clearly. Two parts. (1) BENCHMARK: the current benchmark is narrow synthetic fixtures (benchmark/tasks.mjs + benchmark/fixtures/ has ~16 tasks). Add more real-world-shaped tasks and fixtures (multi-field forms with validation, a search-then-select flow, multi-step navigation, list selection, cookie/consent banner dismissal, a modal-dismiss flow, a login-then-action flow) so the harness measures a broader spread of use cases. Each new task must follow the existing task shape (fixture + assist(h) script + optional autopilot(h) + verify(h) that RE-PROBES the real DOM for a literal outcome), and each new fixture is a small local HTML file under benchmark/fixtures/ served by benchmark/server.mjs. Keep the harness's honest labelling: the metric is expected-ops COVERAGE (a subsequence match), not precision; the independent final-page verify is the trustworthy signal. Regenerate benchmark/RESULTS.md, results.json, and charts/ via `pnpm run bench:compare`. If a public benchmark dataset is warranted (Mind2Web is referenced in PLAN.md, CC BY 4.0 - attribute Deng et al. NeurIPS 2023, do NOT redistribute/commit the test set), it may be fetched and used locally for measurement only. (2) DOCS: update README.md (~55KB) with the new T1-T5 semantics (0.85 gate, per-step escalation, fallback-never-BLOCKED autonomy, the source/confidence/inference-ms audit fields + autonomy summary), a clear and easy organised SETUP section (install, native rebuild, playwright install, build, how to get the model, the full env-var reference), and the new benchmark methodology + results. Update docs/PLAN.md to describe the T1-T5 changes and keep its ledger honest. Every claim must carry evidence or a measured/inferred/guess label; never fabricate a number or a bare URL (format links as markdown). Never use em dashes.",
+  "status": "pending",
+  "steps": [
+    "Study the existing benchmark shape: benchmark/tasks.mjs (task registry, the `h` helper API documented at the top), benchmark/server.mjs (fixture server + how fixtures are registered), benchmark/fixtures/*.html, benchmark/runner.mjs, benchmark/compare.mjs, benchmark/RESULTS.md.",
+    "Add new small local HTML fixtures under benchmark/fixtures/ for the broader use cases: e.g. a multi-field form with client-side validation, a search-then-pick-a-result flow, a two-page navigation flow, a list/table row selection, a cookie/consent banner, a blocking modal. Wire each fixture into benchmark/server.mjs so it is served on loopback. Keep them tiny and deterministic (no external network, no live sites).",
+    "Add matching tasks to benchmark/tasks.mjs following the EXACT existing shape: id/category/description, fixture, applies ('both' or a capability), assist(h) (using the same arg shapes so it is fair to both servers), an optional autopilot(h) single-call laya_run_goal variant where sensible, and verify(h) that re-probes the real DOM (evalText/evalValue/evalTitle) for a literal outcome. Cover the auto-dismiss/consent path (LAYA_AUTO_DISMISS) for at least one task.",
+    "Run `pnpm run bench` (offline stub) and confirm the broadened task set runs green through the vitest report harness, then run `pnpm run bench:compare` (needs network for @playwright/mcp) to regenerate benchmark/RESULTS.md, benchmark/results.json, and benchmark/charts/*.svg with the broader task set. If the real model bundle from FEAT-003 is available, also capture a real-engine row set (LAYA_MODEL_DIR) and record it.",
+    "Optionally (if warranted and time permits) fetch a small local slice of a public real-world dataset (e.g. Mind2Web) for a local-only measurement of per-step behavior; report numbers honestly with the coverage-not-precision caveat, attribute Deng et al. NeurIPS 2023 as a markdown link, and do NOT commit the dataset.",
+    "Update README.md: (a) a SETUP section that is easy and organised - pnpm install, `pnpm rebuild onnxruntime-node esbuild`, `pnpm exec playwright install chromium chromium-headless-shell firefox`, `pnpm run build`, how to obtain/point at the model (LAYA_MODEL_DIR), and a tidy env-var reference table; (b) document the T1-T5 behavior: local-first autonomy (rules 0.97 then Laya, LLM never default), the 0.85 escalation gate with OR semantics, per-step escalation with autonomous resume, escalation-never-kills-autonomy (fallback to Laya's best guess, run continues; only Laya BLOCKED / loop detector / destructive guard stop a run), and the auditability fields (source, both confidences, inference ms) plus the % fully autonomous summary; (c) the new benchmark methodology + refreshed results, keeping the coverage-not-precision honesty.",
+    "Update docs/PLAN.md: add a short section describing the T1-T5 changes and the broadened benchmark, and update the VERIFIED/INFERRED/GUESSED ledger (the 0.85 default moves from GUESSED-0.6 to a VERIFIED/decided value; note the fallback-autonomy behavior and any real model numbers from FEAT-003).",
+    "Proofread all edited docs for accuracy against the actual code and measured numbers; ensure no em dashes, no bare URLs, and no fabricated figures.",
+    "Run `pnpm run typecheck`, `pnpm run build`, and `pnpm test` to confirm nothing regressed; run `pnpm run bench` once more to confirm the broadened benchmark harness is green."
+  ],
+  "acceptance_criteria": [
+    "benchmark/tasks.mjs has additional real-world-shaped tasks (multi-field/validation, search-then-select, multi-step navigation, list selection, consent/modal dismissal) each with a fixture, an assist script, and a DOM-re-probing verify; new fixtures are served by benchmark/server.mjs.",
+    "`pnpm run bench` runs the broadened task set green through the vitest report harness.",
+    "benchmark/RESULTS.md, benchmark/results.json, and benchmark/charts/*.svg are regenerated to reflect the broadened task set (via `pnpm run bench:compare`), with the coverage-not-precision labelling preserved.",
+    "README.md has an easy, organised SETUP section (install/rebuild/playwright/build/model/env-var reference) and documents the T1-T5 semantics and the new benchmark methodology/results accurately.",
+    "docs/PLAN.md describes the T1-T5 changes and its ledger is updated honestly with measured/inferred/guess labels.",
+    "No em dashes, no bare URLs, and no fabricated numbers or links in any edited doc; any dataset used is attributed and NOT committed.",
+    "`pnpm run typecheck`, `pnpm run build`, and `pnpm test` all pass."
+  ],
+  "verification": [
+    "pnpm run bench",
+    "pnpm run bench:compare",
+    "pnpm run typecheck",
+    "pnpm run build",
+    "pnpm test"
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}
