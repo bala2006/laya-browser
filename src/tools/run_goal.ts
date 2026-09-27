@@ -104,10 +104,17 @@ export function renderRunResult(result: RunResult): string {
 export function makeHandler(ctx: RunGoalContext) {
   return async (args: Args): Promise<ToolResult> => {
     try {
+      // Thread the session's visual overlay (agentLens HUD) and the active page into the loop
+      // so each step is narrated on-page. Both are optional: the overlay is a guarded no-op
+      // when disabled, and the loop treats a missing overlay as no narration at all.
+      const overlay = ctx.session.getOverlay();
+      const overlayPage = await ctx.session.getPage();
       const result = await runGoal({
         goal: args.goal,
         session: ctx.session,
         engine: ctx.engine,
+        overlay,
+        overlayPage,
         ...(args.url !== undefined ? { url: args.url } : {}),
         ...(args.maxSteps !== undefined ? { maxSteps: args.maxSteps } : {}),
         ...(ctx.confidenceThreshold !== undefined
