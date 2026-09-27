@@ -1,0 +1,63 @@
+name: CI
+
+# Run the type-check, build, and full test suite on every push and pull request.
+# The test suite drives real Playwright browsers (chromium exhaustively, firefox for the
+# cross-browser smoke test; webkit auto-skips when its system libraries are unavailable),
+# so we install those browsers with their OS dependencies before running vitest.
+#
+# The repo's committed lockfile is pnpm-lock.yaml, so CI installs with pnpm --frozen-lockfile
+# to match local development and guarantee a reproducible dependency tree.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Cancel superseded runs on the same ref so a fresh push doesn't queue behind a stale one.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: typecheck · build · test (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The package declares "node": ">=20"; cover the current LTS lines.
+        node: ["20", "22"]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          # pnpm-lock.yaml is lockfileVersion 9.0, which requires pnpm v9 or newer.
+          version: 10
+
+      - name: Set up Node ${{ matrix.node }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Install only the browsers the suite needs, with the Linux system libraries they
+      # require. --with-deps is what lets headless chromium/firefox launch on the runner.
+      - name: Install Playwright browsers
+        run: pnpm exec playwright install --with-deps chromium firefox
+
+      - name: Type-check
+        run: pnpm run typecheck
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Test
+        run: pnpm test

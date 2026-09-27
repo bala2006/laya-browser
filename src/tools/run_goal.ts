@@ -107,14 +107,20 @@ export function makeHandler(ctx: RunGoalContext) {
       // Thread the session's visual overlay (agentLens HUD) and the active page into the loop
       // so each step is narrated on-page. Both are optional: the overlay is a guarded no-op
       // when disabled, and the loop treats a missing overlay as no narration at all.
+      //
+      // Acquire the page ONLY when the engine can actually run a goal. On the no-weights
+      // degraded path runGoal returns immediately without a browser, so launching one here
+      // just to narrate would be wasted startup cost — keep that path launch-free.
       const overlay = ctx.session.getOverlay();
-      const overlayPage = await ctx.session.getPage();
+      const overlayPage = ctx.engine.available
+        ? await ctx.session.getPage()
+        : undefined;
       const result = await runGoal({
         goal: args.goal,
         session: ctx.session,
         engine: ctx.engine,
         overlay,
-        overlayPage,
+        ...(overlayPage !== undefined ? { overlayPage } : {}),
         ...(args.url !== undefined ? { url: args.url } : {}),
         ...(args.maxSteps !== undefined ? { maxSteps: args.maxSteps } : {}),
         ...(ctx.confidenceThreshold !== undefined
