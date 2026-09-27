@@ -63,18 +63,42 @@ const TARGETED: ReadonlySet<Operation> = new Set<Operation>([
 /** Confidence attributed to an LLM-sourced decision (it is a fallback, not ground truth). */
 export const LLM_CONFIDENCE = 0.75;
 
-/** Build the sampling prompt from the compact page state. */
+/**
+ * (T1.1) The STABLE prompt PREFIX: the role, instructions, and response-format spec.
+ *
+ * KV-cache-friendliness: this block is byte-for-byte identical on every escalation call
+ * (it never interpolates the page state), so an LLM/provider that caches by shared prompt
+ * prefix can reuse the attention KV for these tokens across steps and across runs. The
+ * VOLATILE browser state (url/title/controls/diff) is appended AFTER this prefix by the
+ * prompt builders, so only the changing suffix busts the cache. Reordering only — the SAME
+ * information reaches the model, and the parser (which scans for a JSON object anywhere in
+ * the answer) is unaffected.
+ */
+export const ESCALATION_PROMPT_PREFIX: string = [
+  "You are the fallback planner for a browser automation agent. The fast local model was",
+  "not confident. Choose the SINGLE next step.",
+  "",
+  "Respond with ONLY a JSON object on one line, no prose, of the form:",
+  '{"operation":"CLICK|TYPE_TEXT|SELECT|HOVER|SCROLL_DOWN|WAIT|NAVIGATE_BACK|PRESS_KEY|FILL_FORM|DONE|BLOCKED","target":"<ref like e5, required for CLICK/TYPE_TEXT/SELECT/HOVER>","value":"<text to type or option to select, optional>","key":"<key like Enter/Escape, required for PRESS_KEY>","fields":[{"target":"<ref>","value":"<text>"}]}',
+  "Prefer a single FILL_FORM with a `fields` list when several fields must be filled to progress the goal; otherwise use one targeted step.",
+  "For a large READ (e.g. 'what does the page say about X'), do NOT scroll the whole page; the client has an `extract`/`ask_page` tool for scoped reads.",
+  "Use a target ref (in `target` or every `fields[].target`) that appears in the CONTROLS list below. If nothing can progress the goal, return BLOCKED.",
+].join("\n");
+
+/**
+ * Build the sampling prompt from the compact page state.
+ *
+ * (T1.1) Ordering: the STABLE {@link ESCALATION_PROMPT_PREFIX} (role + instructions +
+ * response format) comes FIRST, and the VOLATILE page state (rendered by {@link renderState})
+ * comes LAST, so the changing tokens are all at the tail (KV-cache-friendly). This is a pure
+ * reorder: the same goal/url/title/controls/recent-actions information is present as before.
+ */
 export function buildEscalationPrompt(state: PageState): string {
   return [
-    "You are the fallback planner for a browser automation agent. The fast local model was",
-    "not confident. Choose the SINGLE next step.",
+    ESCALATION_PROMPT_PREFIX,
     "",
+    "----- CURRENT PAGE STATE -----",
     renderState(state),
-    "",
-    "Respond with ONLY a JSON object on one line, no prose, of the form:",
-    '{"operation":"CLICK|TYPE_TEXT|SELECT|HOVER|SCROLL_DOWN|WAIT|NAVIGATE_BACK|PRESS_KEY|FILL_FORM|DONE|BLOCKED","target":"<ref like e5, required for CLICK/TYPE_TEXT/SELECT/HOVER>","value":"<text to type or option to select, optional>","key":"<key like Enter/Escape, required for PRESS_KEY>","fields":[{"target":"<ref>","value":"<text>"}]}',
-    "Prefer a single FILL_FORM with a `fields` list when several fields must be filled to progress the goal; otherwise use one targeted step.",
-    "Use a target ref (in `target` or every `fields[].target`) that appears in the CONTROLS list above. If nothing can progress the goal, return BLOCKED.",
   ].join("\n");
 }
 
@@ -97,10 +121,13 @@ export function buildDeltaEscalationPrompt(
       ? []
       : [`${label}:`, ...controls.map((c) => controlLabel(c))];
 
+  // (T1.1) STABLE prefix FIRST, VOLATILE delta/state LAST — same KV-cache-friendly ordering
+  // as the full prompt. The response-format spec references "CURRENT CONTROLS", which appears
+  // below; a pure reorder that preserves every piece of information the old prompt carried.
   return [
-    "You are the fallback planner for a browser automation agent. The fast local model was",
-    "not confident. Choose the SINGLE next step.",
+    ESCALATION_PROMPT_PREFIX,
     "",
+    "----- CURRENT PAGE STATE (delta) -----",
     `GOAL: ${state.goal}`,
     `URL: ${state.url}`,
     `TITLE: ${state.title}`,
@@ -117,11 +144,6 @@ export function buildDeltaEscalationPrompt(
     ...(state.controls.length === 0
       ? ["(no actionable controls)"]
       : state.controls.map((c) => controlLabel(c))),
-    "",
-    "Respond with ONLY a JSON object on one line, no prose, of the form:",
-    '{"operation":"CLICK|TYPE_TEXT|SELECT|HOVER|SCROLL_DOWN|WAIT|NAVIGATE_BACK|PRESS_KEY|FILL_FORM|DONE|BLOCKED","target":"<ref like e5, required for CLICK/TYPE_TEXT/SELECT/HOVER>","value":"<text to type or option to select, optional>","key":"<key like Enter/Escape, required for PRESS_KEY>","fields":[{"target":"<ref>","value":"<text>"}]}',
-    "Prefer a single FILL_FORM with a `fields` list when several fields must be filled to progress the goal; otherwise use one targeted step.",
-    "Use a target ref (in `target` or every `fields[].target`) that appears in the CURRENT CONTROLS list above. If nothing can progress the goal, return BLOCKED.",
   ].join("\n");
 }
 

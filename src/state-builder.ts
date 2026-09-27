@@ -148,6 +148,12 @@ export function renderState(state: PageState): string {
   lines.push("");
   lines.push("VISIBLE TEXT:");
   lines.push(state.visibleText || "(none)");
+  // (T1.3) When the visible text was clamped (buildState appends an ellipsis), tell the model
+  // the text is truncated and point it at the scoped `extract` tool rather than paging through
+  // the whole document. Cheap heuristic on the trailing ellipsis the clamp adds.
+  if (state.visibleText.endsWith("\u2026")) {
+    lines.push("(visible text truncated \u2014 use the `extract`/`ask_page` tool for a full read)");
+  }
   lines.push("");
   lines.push("CONTROLS:");
   if (state.controls.length === 0) {
