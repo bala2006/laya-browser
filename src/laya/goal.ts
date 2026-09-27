@@ -94,6 +94,19 @@ export function goalAssignments(goal: string): Map<string, string> {
     out.set("search", (searchFor[1] ?? searchFor[2] ?? "").trim());
   }
 
+  // `type/enter/put/fill "laptops" into the search box` (or `... search field/input`). The
+  // value is quoted and the target clause names a search control, so this is a search intent:
+  // map the quoted value to the `search` key. The value clause is captured before the general
+  // `key "value"` scan below so the phrase `search box` never gets parsed as a field label.
+  if (!out.has("search")) {
+    const typeIntoSearch = goal.match(
+      /(?:type|enter|put|fill)\s+["']([^"']+)["'](?:\s+\w+)*?\s+(?:into|in)\b[^"']*?\bsearch\b/i,
+    );
+    if (typeIntoSearch && typeIntoSearch[1]) {
+      out.set("search", typeIntoSearch[1].trim());
+    }
+  }
+
   // `key "value"` / `key: value` / `key = value` / `key is value`.
   //
   // A quoted value keeps its exact content. An UNQUOTED value captures the rest of the clause
