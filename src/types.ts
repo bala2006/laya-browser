@@ -78,6 +78,23 @@ export interface PageState {
 }
 
 /**
+ * (C2) The difference between two page snapshots, keyed by a stable control identity
+ * (role + accessible name, since the per-snapshot `eN` refs are not comparable across
+ * snapshots). `added` are controls present in the newer snapshot but not the older,
+ * `removed` are present in the older but gone from the newer, and `changed` pairs a
+ * matched control's `before`/`after` states when a meaningful property (value, checked,
+ * disabled, options) differs. Pure data: computed by {@link src/snapshot-diff.ts}.
+ */
+export interface SnapshotDiff {
+  /** Controls that appeared in the newer snapshot (no matching older identity). */
+  added: Control[];
+  /** Controls that disappeared from the newer snapshot (older identity with no match). */
+  removed: Control[];
+  /** Matched controls whose observable state changed between the two snapshots. */
+  changed: { before: Control; after: Control }[];
+}
+
+/**
  * The operations the decision engine can choose.
  *
  * The base set (`CLICK`/`TYPE_TEXT`/`SELECT`/`SCROLL_DOWN`/`WAIT`/`DONE`/`BLOCKED`) mirrors

@@ -456,6 +456,30 @@ Three always-on (by default) reliability behaviours keep a run robust and bounde
   `LAYA_LOOP_WINDOW` steps are identical (no progress) it stops early with the additive
   **`stuck`** outcome instead of burning the whole step budget.
 
+### Perception cost and speed
+
+Three additive knobs tune how the page is perceived, to cut cost and surface the most
+relevant controls without changing the `Snapshot` / `Control[]` contract:
+
+- **Snapshot backend (`LAYA_SNAPSHOT_BACKEND`, default `domwalk`).** The default `domwalk`
+  runs the in-house in-page DOM walk. Setting it to `aria` instead maps Playwright's
+  accessibility tree (`ariaSnapshot`, Playwright 1.63) into the **same** `Control[]` contract
+  and stamps the same `data-laya-ref="eN"` attributes, so `resolveRef('eN')` resolves the same
+  elements either way. `npm run bench` prints a `domwalk` vs `aria` comparison table with the
+  per-backend wall-ms numbers so the perception cost of each is visible.
+- **Viewport-priority capture (`LAYA_VIEWPORT_PRIORITY`, default `true`).** The DOM walk keeps
+  `eN` assignment in DOM order (so ref resolution is never affected) but orders the **returned**
+  control list so controls that intersect or are near the viewport come first. The downstream
+  ~20-control cap in `state-builder.ts` then retains the nearest-viewport controls.
+- **Snapshot diffing + delta prompts (`src/snapshot-diff.ts`).** Each Autopilot step diffs the
+  new snapshot against the previous one (keyed by a stable `role + name` identity, since `eN`
+  refs are per-snapshot). When new controls appear, a first-class "N new controls appeared"
+  toast/log event is surfaced on the overlay. On an escalation, when a meaningful diff exists
+  and it is not the first step, the loop can send the client LLM only the **delta**
+  (added/removed/changed controls plus goal/url/title) instead of the full control list, cutting
+  tokens; the full-snapshot prompt is always used on the first step or when there is no
+  meaningful diff.
+
 ### Safety guards (`src/safety.ts`)
 
 - **Domain allow-list.** When `LAYA_ALLOWED_DOMAINS` is set, `browser_navigate` and every
@@ -534,6 +558,8 @@ constructor options, then handed inward as typed config.
 | `LAYA_REDACT_SECRETS` | `true` | `false` disables masking of secret values/patterns in the transcript, overlay, and rendered output. The real value is always typed into the page regardless. |
 | `LAYA_CONFIRM_DESTRUCTIVE` | `false` | `true` requests inline human approval (via MCP elicitation) before a destructive Autopilot auto-submit `CLICK`, instead of refusing outright. Falls back to refuse-by-default when the client lacks elicitation. |
 | `LAYA_ASSIST_DESTRUCTIVE_GUARD` | `false` | `true` applies the destructive guard to the Assist `browser_click` tool (refuses a destructive click); default `false` leaves Assist-tool behaviour unchanged. |
+| `LAYA_SNAPSHOT_BACKEND` | `domwalk` | Which backend enumerates page controls: `domwalk` (the in-house DOM walk) or `aria` (Playwright's accessibility tree). Both produce the same `Control[]` contract and stamp `data-laya-ref="eN"`, so ref resolution is identical either way. |
+| `LAYA_VIEWPORT_PRIORITY` | `true` | `true` orders captured controls so those in/near the viewport come first, so the ~20-control cap keeps the most relevant. `eN` refs stay in DOM order (ref resolution is unaffected); only the offered order changes. |
 
 ### Cross-browser (`LAYA_BROWSER`)
 

@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Viewport priority</title>
+    <style>
+      body {
+        margin: 0;
+        height: 5000px;
+      }
+      /* The far button is FIRST in the DOM but positioned far below the fold, so the DOM
+         walk would list it before the near button. The near button is SECOND in the DOM
+         but sits inside the viewport at the top. Viewport-priority ordering must therefore
+         move the near button ahead of the far one in the returned list. */
+      #far {
+        position: absolute;
+        top: 4200px;
+        left: 10px;
+      }
+      #near {
+        position: absolute;
+        top: 20px;
+        left: 10px;
+      }
+    </style>
+  </head>
+  <body>
+    <button id="far" type="button">Far Button</button>
+    <button id="near" type="button">Near Button</button>
+  </body>
+</html>

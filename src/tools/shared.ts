@@ -102,7 +102,24 @@ export async function snapshotResult(
   header?: string,
 ): Promise<ToolResult> {
   const page = await ctx.session.getPage();
-  const snap = await capture(page);
+  // (C1/C3) Honour the configured snapshot backend and viewport-priority ordering when a
+  // typed config was threaded in; defaults (domwalk, no reordering) keep existing behaviour.
+  const snap = await capture(page, captureOptionsFromConfig(ctx.config));
   const body = header ? `${header}\n\n${snap.text}` : snap.text;
   return textResult(body);
+}
+
+/**
+ * Derive {@link capture} options from the typed config: the C1 snapshot backend and the C3
+ * viewport-priority ordering. Returns empty options (all defaults) when no config is present,
+ * so lightweight test contexts and untyped callers are unaffected.
+ */
+export function captureOptionsFromConfig(
+  config?: LayaBrowserConfig,
+): { backend?: LayaBrowserConfig["snapshotBackend"]; viewportPriority?: boolean } {
+  if (!config) return {};
+  return {
+    backend: config.snapshotBackend,
+    viewportPriority: config.viewportPriority,
+  };
 }

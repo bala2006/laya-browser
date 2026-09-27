@@ -15,9 +15,17 @@
  * `undefined` and {@link escalate} degrades to a clear BLOCKED decision (never throws).
  */
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { Decision, FieldFill, Operation, PageState, Ref } from "../types.js";
+import type {
+  Control,
+  Decision,
+  FieldFill,
+  Operation,
+  PageState,
+  Ref,
+  SnapshotDiff,
+} from "../types.js";
 import { asRef } from "../types.js";
-import { renderState } from "../state-builder.js";
+import { controlLabel, renderState } from "../state-builder.js";
 
 /** A sampling function: given a prompt, return the client LLM's raw text answer. */
 export type SampleFn = (prompt: string) => Promise<string>;
@@ -67,6 +75,53 @@ export function buildEscalationPrompt(state: PageState): string {
     '{"operation":"CLICK|TYPE_TEXT|SELECT|HOVER|SCROLL_DOWN|WAIT|NAVIGATE_BACK|PRESS_KEY|FILL_FORM|DONE|BLOCKED","target":"<ref like e5, required for CLICK/TYPE_TEXT/SELECT/HOVER>","value":"<text to type or option to select, optional>","key":"<key like Enter/Escape, required for PRESS_KEY>","fields":[{"target":"<ref>","value":"<text>"}]}',
     "Prefer a single FILL_FORM with a `fields` list when several fields must be filled to progress the goal; otherwise use one targeted step.",
     "Use a target ref (in `target` or every `fields[].target`) that appears in the CONTROLS list above. If nothing can progress the goal, return BLOCKED.",
+  ].join("\n");
+}
+
+/**
+ * (C2) Build a DELTA-ONLY sampling prompt from a snapshot diff plus the goal/url/title.
+ *
+ * Instead of the full control list, this sends only what CHANGED since the previous step
+ * (added / removed / changed controls), which cuts tokens on long pages. The added/changed
+ * controls still carry their `eN` refs, so the LLM can target them; the loop uses this only
+ * when a meaningful diff exists and it is not the first step, and otherwise falls back to the
+ * full-snapshot prompt. The current-step controls are still listed compactly so a targeted
+ * choice always has a resolvable ref set to draw from.
+ */
+export function buildDeltaEscalationPrompt(
+  state: PageState,
+  diff: SnapshotDiff,
+): string {
+  const section = (label: string, controls: Control[]): string[] =>
+    controls.length === 0
+      ? []
+      : [`${label}:`, ...controls.map((c) => controlLabel(c))];
+
+  return [
+    "You are the fallback planner for a browser automation agent. The fast local model was",
+    "not confident. Choose the SINGLE next step.",
+    "",
+    `GOAL: ${state.goal}`,
+    `URL: ${state.url}`,
+    `TITLE: ${state.title}`,
+    "",
+    "The page changed since the last step. Here is the DELTA (only what changed):",
+    ...section("NEW CONTROLS", diff.added),
+    ...section(
+      "CHANGED CONTROLS",
+      diff.changed.map((c) => c.after),
+    ),
+    ...section("REMOVED CONTROLS", diff.removed),
+    "",
+    "CURRENT CONTROLS (targets you may act on):",
+    ...(state.controls.length === 0
+      ? ["(no actionable controls)"]
+      : state.controls.map((c) => controlLabel(c))),
+    "",
+    "Respond with ONLY a JSON object on one line, no prose, of the form:",
+    '{"operation":"CLICK|TYPE_TEXT|SELECT|HOVER|SCROLL_DOWN|WAIT|NAVIGATE_BACK|PRESS_KEY|FILL_FORM|DONE|BLOCKED","target":"<ref like e5, required for CLICK/TYPE_TEXT/SELECT/HOVER>","value":"<text to type or option to select, optional>","key":"<key like Enter/Escape, required for PRESS_KEY>","fields":[{"target":"<ref>","value":"<text>"}]}',
+    "Prefer a single FILL_FORM with a `fields` list when several fields must be filled to progress the goal; otherwise use one targeted step.",
+    "Use a target ref (in `target` or every `fields[].target`) that appears in the CURRENT CONTROLS list above. If nothing can progress the goal, return BLOCKED.",
   ].join("\n");
 }
 
@@ -180,6 +235,18 @@ export function parseDecision(raw: string, knownRefs: ReadonlySet<string>): Deci
   };
 }
 
+/**
+ * (C2) Options controlling how {@link escalate} builds its prompt.
+ *
+ * When `diff` is present AND non-empty, escalate sends the delta-only prompt (fewer tokens);
+ * otherwise it uses the full-snapshot prompt. Additive: omitting it preserves the original
+ * full-prompt behaviour exactly.
+ */
+export interface EscalationOptions {
+  /** The snapshot diff to build a delta-only prompt from, when meaningful. */
+  diff?: SnapshotDiff;
+}
+
 /** The outcome of an escalation attempt. */
 export interface EscalationResult {
   /** The decision to use next (always well-formed; BLOCKED when escalation cannot help). */
@@ -200,6 +267,7 @@ export interface EscalationResult {
 export async function escalate(
   state: PageState,
   sample: SampleFn | undefined,
+  options: EscalationOptions = {},
 ): Promise<EscalationResult> {
   if (!sample) {
     return {
@@ -215,9 +283,19 @@ export async function escalate(
   }
 
   const knownRefs = new Set<string>(state.controls.map((c) => c.ref));
+  // (C2) Prefer the delta-only prompt when a non-empty diff was supplied; otherwise the full
+  // control-list prompt. `knownRefs` (the current controls) is unchanged either way, so a
+  // targeted decision is still validated against the resolvable refs on this step.
+  const diff = options.diff;
+  const useDelta =
+    diff !== undefined &&
+    (diff.added.length > 0 || diff.removed.length > 0 || diff.changed.length > 0);
+  const prompt = useDelta
+    ? buildDeltaEscalationPrompt(state, diff)
+    : buildEscalationPrompt(state);
   let raw: string;
   try {
-    raw = await sample(buildEscalationPrompt(state));
+    raw = await sample(prompt);
   } catch (err) {
     return {
       decision: {
