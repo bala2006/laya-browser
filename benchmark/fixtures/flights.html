@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Flights</title>
+  </head>
+  <body>
+    <h1>Flight search</h1>
+    <!--
+      A Google-Flights-shaped multi-field search built as a deterministic local fixture (NOT a
+      live site). Three text fields (origin, destination, departure date) plus a search button
+      that reveals a results marker. No network, no bot-detection, so a before/after run is fair.
+    -->
+    <form onsubmit="searchFlights(); return false;">
+      <label for="origin">Origin</label>
+      <input id="origin" name="origin" type="text" placeholder="Origin" aria-label="Origin" />
+
+      <label for="destination">Destination</label>
+      <input
+        id="destination"
+        name="destination"
+        type="text"
+        placeholder="Destination"
+        aria-label="Destination"
+      />
+
+      <label for="departure">Departure date</label>
+      <input
+        id="departure"
+        name="departure"
+        type="text"
+        placeholder="YYYY-MM-DD"
+        aria-label="Departure date"
+      />
+
+      <button id="search" type="submit">Search flights</button>
+    </form>
+    <div id="results" aria-live="polite"></div>
+    <script>
+      function searchFlights() {
+        var origin = document.getElementById("origin").value.trim();
+        var destination = document.getElementById("destination").value.trim();
+        var departure = document.getElementById("departure").value.trim();
+        if (!origin || !destination) {
+          document.getElementById("results").textContent = "Origin and destination required";
+          return;
+        }
+        document.getElementById("results").textContent =
+          "Showing flights " + origin + " to " + destination + " on " + departure;
+        document.title = "Flights " + origin + " to " + destination;
+      }
+    </script>
+  </body>
+</html>

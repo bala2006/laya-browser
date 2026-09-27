@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Occlusion</title>
+    <style>
+      body { margin: 0; padding: 40px; }
+      #target {
+        position: absolute;
+        left: 40px;
+        top: 40px;
+        width: 160px;
+        height: 40px;
+      }
+      /* A full-viewport overlay that COVERS the target button until removed. */
+      #overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        background: rgba(0, 0, 0, 0.4);
+      }
+      #overlay.hidden { display: none; }
+    </style>
+  </head>
+  <body>
+    <h1>Occlusion test</h1>
+    <button id="target" type="button" onclick="document.getElementById('outcome').textContent='clicked target'">
+      Confirm
+    </button>
+    <div id="outcome" aria-live="polite"></div>
+
+    <!-- The overlay sits on top of the target so a hit-test at the target center resolves
+         to the overlay, not the button. Removing it uncovers the button. -->
+    <div id="overlay"></div>
+
+    <script>
+      function removeOverlay() {
+        document.getElementById("overlay").classList.add("hidden");
+      }
+    </script>
+  </body>
+</html>

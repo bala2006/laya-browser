@@ -92,6 +92,10 @@ export interface RunGoalContext extends ToolContext {
   autoDismiss?: boolean;
   /** (T2.3) Same-origin iframe / open shadow-root descent depth for per-step capture. */
   frameDepth?: number;
+  /** (F1) Whether the fast browser loop is active (persistent identity + guards + occlusion). */
+  fastLoop?: boolean;
+  /** (F1) The adaptive-wait cap in ms the fast loop uses when waiting for a control to settle. */
+  fastWaitCapMs?: number;
   /**
    * (D1) Shared holder for the most recent run's artifacts. When recording is enabled (see
    * {@link recordArtifacts}), the run stores its artifacts here for the laya_export_run tool
@@ -309,6 +313,8 @@ export function makeHandler(ctx: RunGoalContext) {
           : {}),
         ...(ctx.autoDismiss !== undefined ? { autoDismiss: ctx.autoDismiss } : {}),
         ...(ctx.frameDepth !== undefined ? { frameDepth: ctx.frameDepth } : {}),
+        ...(ctx.fastLoop !== undefined ? { fastLoop: ctx.fastLoop } : {}),
+        ...(ctx.fastWaitCapMs !== undefined ? { fastWaitCapMs: ctx.fastWaitCapMs } : {}),
         ...(onProgress !== undefined ? { onProgress } : {}),
       });
       // (D1) Persist the most recent run's artifacts into the shared holder so the

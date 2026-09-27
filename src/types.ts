@@ -53,6 +53,107 @@ export interface Control {
   checked?: boolean;
   /** Whether the control is currently disabled. */
   disabled?: boolean;
+  /**
+   * (F1) Optional persistent in-page identity assigned by the fast snapshot. Unlike {@link ref}
+   * (an `eN` handle re-numbered per capture and only valid within one snapshot), `nodeId` is a
+   * stable integer key into an in-page identity map that survives across fast snapshots, so the
+   * same node keeps the same id between observations. It is ABSENT on the legacy domwalk/aria
+   * path, so existing callers are unaffected; only the fast loop populates it.
+   */
+  nodeId?: number;
+}
+
+/**
+ * (F1) A pure, JSON-serializable semantic-freshness fingerprint of a single node, captured at
+ * decision time and re-checked at act time in the fast loop.
+ *
+ * This mirrors the jev fast-path's per-node guard array, but modelled as a NAMED STRUCT rather
+ * than a positional tuple so illegal states are unrepresentable and each field is documented.
+ * Before the fast loop inputs into a control, it re-reads the live node's fingerprint and
+ * compares it to the guard recorded when the decision was made; a mismatch means the page
+ * mutated under us (the node changed identity or state), so the action is refused and the page
+ * is re-observed instead of acting on a stale target.
+ *
+ * Every field is a plain JSON value (string / boolean / number / null) because a `NodeGuard`
+ * crosses the untrusted `page.evaluate` boundary and must round-trip through JSON. `null` means
+ * the attribute does not apply to this node (e.g. a button has no `checked` or `selectedIndex`),
+ * which is deliberately distinct from an empty string.
+ */
+export interface NodeGuard {
+  /** Accessibility role of the node, e.g. `"button"`, `"textbox"`, `"combobox"`. */
+  role: string;
+  /** Accessible name / label of the node. */
+  name: string;
+  /** Current value of a form field, or `null` when the node has no value semantics. */
+  value: string | null;
+  /** Checkbox/radio checked state, or `null` when not applicable. */
+  checked: boolean | null;
+  /** Selected option index for a select, or `null` when not applicable. */
+  selectedIndex: number | null;
+  /** Whether the node is currently disabled. */
+  disabled: boolean;
+  /** `aria-expanded` attribute value, or `null` when absent. */
+  ariaExpanded: string | null;
+  /** `aria-checked` attribute value, or `null` when absent. */
+  ariaChecked: string | null;
+  /** `aria-selected` attribute value, or `null` when absent. */
+  ariaSelected: string | null;
+  /** `href` for links, or `null` when the node is not a link. */
+  href: string | null;
+  /**
+   * Truncated `innerText` of the nearest enclosing scope (form / dialog / table row / list
+   * item) the node lives in. A change here signals the surrounding context was replaced even
+   * when the node's own attributes look unchanged.
+   */
+  scopeText: string;
+}
+
+/**
+ * (F1) A control from the fast snapshot, extending {@link Control} with the extra identity and
+ * geometry the fast loop needs to act safely.
+ *
+ * Where a legacy {@link Control} may carry an optional `nodeId`, a `FastControl` REQUIRES one,
+ * plus the `guard` fingerprint used for the act-time freshness re-check and the `rect` geometry
+ * used for the pre-input occlusion hit-test (`document.elementFromPoint` at the rect center must
+ * still resolve to the target, otherwise something is covering it).
+ */
+export interface FastControl extends Control {
+  /** Required persistent in-page identity (the fast path always assigns one). */
+  nodeId: number;
+  /** Semantic-freshness fingerprint captured with this control, re-checked before acting. */
+  guard: NodeGuard;
+  /** Viewport-space geometry (CSS px) used for the pre-input occlusion hit-test. */
+  rect: { x: number; y: number; w: number; h: number };
+}
+
+/**
+ * (F1) The atomic result of the fast loop's single-call snapshot.
+ *
+ * The whole page (url, title, visible text, controls, and text) is captured in ONE
+ * `page.evaluate` so it is internally consistent (no interleaving mutation between separate
+ * reads). `pageKey` identifies the observed document/navigation so a decision made against one
+ * page is not applied after a navigation, and `marker` is a whole-page freshness token compared
+ * cheaply when a per-node guard is not applicable.
+ *
+ * Because a `FastSnapshot` originates entirely from an untrusted `page.evaluate`, it MUST be
+ * validated at the browser boundary (shape and field types checked) before the rest of the
+ * server trusts it. This type only describes the validated shape; it does not itself validate.
+ */
+export interface FastSnapshot {
+  /** Current page URL. */
+  url: string;
+  /** Current document title. */
+  title: string;
+  /** Condensed visible text of the page. */
+  visibleText: string;
+  /** The fast controls, each carrying persistent identity, a guard, and geometry. */
+  controls: FastControl[];
+  /** Fuller page text (larger read than {@link visibleText}), for extraction. */
+  text: string;
+  /** Identity of the observed document/navigation, so a decision is not applied cross-page. */
+  pageKey: string;
+  /** Whole-page freshness token, compared when a per-node guard does not apply. */
+  marker: string;
 }
 
 /**

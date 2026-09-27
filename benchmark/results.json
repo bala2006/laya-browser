@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-27T17:38:32.103Z",
+  "generatedAt": "2026-09-27T19:26:36.746Z",
   "runs": 5,
   "warmupDiscarded": 1,
   "tasks": [
@@ -10,15 +10,15 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 242,
-        "p90Ms": 246,
+        "medianMs": 236,
+        "p90Ms": 242,
         "rt": 2
       },
       "playwright": {
         "rate": 1,
         "passed": true,
-        "medianMs": 410,
-        "p90Ms": 422,
+        "medianMs": 377,
+        "p90Ms": 471,
         "rt": 2
       },
       "autopilot": {
@@ -32,21 +32,21 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 293,
-        "p90Ms": 297,
+        "medianMs": 289,
+        "p90Ms": 293,
         "rt": 4
       },
       "playwright": {
         "rate": 1,
         "passed": true,
-        "medianMs": 939,
-        "p90Ms": 974,
+        "medianMs": 936,
+        "p90Ms": 994,
         "rt": 4
       },
       "autopilot": {
         "rate": 1,
         "passed": true,
-        "medianMs": 571,
+        "medianMs": 556,
         "rt": 2
       }
     },
@@ -57,21 +57,21 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 388,
-        "p90Ms": 397,
+        "medianMs": 373,
+        "p90Ms": 400,
         "rt": 9
       },
       "playwright": {
         "rate": 1,
         "passed": true,
-        "medianMs": 1094,
-        "p90Ms": 1103,
+        "medianMs": 1062,
+        "p90Ms": 1091,
         "rt": 9
       },
       "autopilot": {
         "rate": 0,
         "passed": false,
-        "medianMs": 577,
+        "medianMs": 570,
         "rt": 3
       }
     },
@@ -82,15 +82,15 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 282,
-        "p90Ms": 290,
+        "medianMs": 278,
+        "p90Ms": 281,
         "rt": 4
       },
       "playwright": {
         "rate": 1,
         "passed": true,
-        "medianMs": 479,
-        "p90Ms": 508,
+        "medianMs": 416,
+        "p90Ms": 451,
         "rt": 4
       },
       "autopilot": {
@@ -104,15 +104,15 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 312,
-        "p90Ms": 320,
+        "medianMs": 295,
+        "p90Ms": 300,
         "rt": 4
       },
       "playwright": {
         "rate": 1,
         "passed": true,
-        "medianMs": 942,
-        "p90Ms": 958,
+        "medianMs": 975,
+        "p90Ms": 990,
         "rt": 4
       },
       "autopilot": {
@@ -126,15 +126,15 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 302,
-        "p90Ms": 318,
+        "medianMs": 313,
+        "p90Ms": 372,
         "rt": 4
       },
       "playwright": {
         "rate": 1,
         "passed": true,
-        "medianMs": 475,
-        "p90Ms": 520,
+        "medianMs": 455,
+        "p90Ms": 457,
         "rt": 4
       },
       "autopilot": {
@@ -148,15 +148,15 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 1053,
-        "p90Ms": 1056,
+        "medianMs": 1052,
+        "p90Ms": 1084,
         "rt": 3
       },
       "playwright": {
         "rate": 1,
         "passed": true,
-        "medianMs": 1202,
-        "p90Ms": 1221,
+        "medianMs": 1197,
+        "p90Ms": 1211,
         "rt": 3
       },
       "autopilot": {
@@ -170,15 +170,15 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 312,
-        "p90Ms": 330,
+        "medianMs": 324,
+        "p90Ms": 332,
         "rt": 5
       },
       "playwright": {
         "rate": 1,
         "passed": true,
-        "medianMs": 982,
-        "p90Ms": 1011,
+        "medianMs": 1001,
+        "p90Ms": 1049,
         "rt": 5
       },
       "autopilot": {
@@ -192,15 +192,15 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 320,
-        "p90Ms": 327,
+        "medianMs": 312,
+        "p90Ms": 321,
         "rt": 6
       },
       "playwright": {
         "rate": 1,
         "passed": true,
-        "medianMs": 960,
-        "p90Ms": 988,
+        "medianMs": 954,
+        "p90Ms": 1021,
         "rt": 6
       },
       "autopilot": {
@@ -214,15 +214,15 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 243,
-        "p90Ms": 256,
+        "medianMs": 240,
+        "p90Ms": 270,
         "rt": 3
       },
       "playwright": {
         "rate": 1,
         "passed": true,
-        "medianMs": 386,
-        "p90Ms": 437,
+        "medianMs": 408,
+        "p90Ms": 425,
         "rt": 3
       },
       "autopilot": {
@@ -236,15 +236,15 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 242,
-        "p90Ms": 246,
+        "medianMs": 238,
+        "p90Ms": 248,
         "rt": 3
       },
       "playwright": {
         "rate": 1,
         "passed": true,
-        "medianMs": 423,
-        "p90Ms": 434,
+        "medianMs": 401,
+        "p90Ms": 408,
         "rt": 3
       },
       "autopilot": {
@@ -259,14 +259,14 @@
         "rate": 1,
         "passed": true,
         "medianMs": 274,
-        "p90Ms": 277,
+        "p90Ms": 304,
         "rt": 2
       },
       "playwright": {
         "rate": 1,
         "passed": true,
-        "medianMs": 452,
-        "p90Ms": 463,
+        "medianMs": 433,
+        "p90Ms": 466,
         "rt": 2
       },
       "autopilot": {
@@ -280,8 +280,8 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 321,
-        "p90Ms": 326,
+        "medianMs": 320,
+        "p90Ms": 351,
         "rt": 5
       },
       "playwright": {
@@ -299,8 +299,8 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 317,
-        "p90Ms": 321,
+        "medianMs": 306,
+        "p90Ms": 397,
         "rt": 5
       },
       "playwright": {
@@ -318,19 +318,94 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 245,
-        "p90Ms": 304,
+        "medianMs": 241,
+        "p90Ms": 248,
         "rt": 2
       },
       "playwright": {
         "rate": 1,
         "passed": true,
-        "medianMs": 913,
-        "p90Ms": 932,
+        "medianMs": 883,
+        "p90Ms": 942,
         "rt": 2
       },
       "autopilot": {
         "na": true
+      }
+    },
+    {
+      "id": "flights-search",
+      "category": "multi-field-form",
+      "description": "Fill origin, destination, and departure date, then search flights",
+      "laya": {
+        "rate": 1,
+        "passed": true,
+        "medianMs": 338,
+        "p90Ms": 339,
+        "rt": 6
+      },
+      "playwright": {
+        "rate": 1,
+        "passed": true,
+        "medianMs": 1016,
+        "p90Ms": 1082,
+        "rt": 6
+      },
+      "autopilot": {
+        "rate": 1,
+        "passed": true,
+        "medianMs": 574,
+        "rt": 2
+      }
+    },
+    {
+      "id": "wiki-open",
+      "category": "navigation",
+      "description": "Search a term, then open the result link to reach the article page",
+      "laya": {
+        "rate": 1,
+        "passed": true,
+        "medianMs": 334,
+        "p90Ms": 372,
+        "rt": 7
+      },
+      "playwright": {
+        "rate": 1,
+        "passed": true,
+        "medianMs": 1486,
+        "p90Ms": 1527,
+        "rt": 7
+      },
+      "autopilot": {
+        "rate": 1,
+        "passed": true,
+        "medianMs": 556,
+        "rt": 3
+      }
+    },
+    {
+      "id": "hotel-search-filter",
+      "category": "multi-field-form",
+      "description": "Type a destination, apply a filter, search, then open the property",
+      "laya": {
+        "rate": 1,
+        "passed": true,
+        "medianMs": 419,
+        "p90Ms": 422,
+        "rt": 8
+      },
+      "playwright": {
+        "rate": 1,
+        "passed": true,
+        "medianMs": 1584,
+        "p90Ms": 1620,
+        "rt": 8
+      },
+      "autopilot": {
+        "rate": 1,
+        "passed": true,
+        "medianMs": 555,
+        "rt": 3
       }
     },
     {
@@ -340,176 +415,13 @@
       "laya": {
         "rate": 1,
         "passed": true,
-        "medianMs": 295,
-        "p90Ms": 299,
+        "medianMs": 289,
+        "p90Ms": 292,
         "rt": 5
       },
       "playwright": {
         "na": true,
         "note": "N/A: server lacks this capability"
-      },
-      "autopilot": {
-        "na": true
-      }
-    },
-    {
-      "id": "signup-validated-form",
-      "category": "multi-field-form",
-      "description": "Fill a validated signup form (name/email/password/plan/terms) and submit",
-      "laya": {
-        "rate": 1,
-        "passed": true,
-        "medianMs": 385,
-        "p90Ms": 419,
-        "rt": 9
-      },
-      "playwright": {
-        "rate": 1,
-        "passed": true,
-        "medianMs": 1090,
-        "p90Ms": 1110,
-        "rt": 9
-      },
-      "autopilot": {
-        "na": true
-      }
-    },
-    {
-      "id": "search-then-select",
-      "category": "search-select",
-      "description": "Filter a product list by keyword then pick a matching result",
-      "laya": {
-        "rate": 1,
-        "passed": true,
-        "medianMs": 336,
-        "p90Ms": 340,
-        "rt": 6
-      },
-      "playwright": {
-        "rate": 1,
-        "passed": true,
-        "medianMs": 1502,
-        "p90Ms": 1527,
-        "rt": 6
-      },
-      "autopilot": {
-        "rate": 0,
-        "passed": false,
-        "medianMs": 1012,
-        "rt": 2
-      }
-    },
-    {
-      "id": "wizard-two-step",
-      "category": "multi-step-navigation",
-      "description": "Complete a two-page wizard: enter a value on step 1, finish on step 2",
-      "laya": {
-        "rate": 1,
-        "passed": true,
-        "medianMs": 391,
-        "p90Ms": 392,
-        "rt": 8
-      },
-      "playwright": {
-        "rate": 1,
-        "passed": true,
-        "medianMs": 1583,
-        "p90Ms": 1596,
-        "rt": 8
-      },
-      "autopilot": {
-        "na": true
-      }
-    },
-    {
-      "id": "table-row-select",
-      "category": "list-selection",
-      "description": "Select a specific row from a table of invoices",
-      "laya": {
-        "rate": 1,
-        "passed": true,
-        "medianMs": 307,
-        "p90Ms": 317,
-        "rt": 4
-      },
-      "playwright": {
-        "rate": 1,
-        "passed": true,
-        "medianMs": 969,
-        "p90Ms": 1016,
-        "rt": 4
-      },
-      "autopilot": {
-        "na": true
-      }
-    },
-    {
-      "id": "consent-dismiss",
-      "category": "consent-dismiss",
-      "description": "Dismiss a cookie/consent banner, then subscribe",
-      "laya": {
-        "rate": 1,
-        "passed": true,
-        "medianMs": 366,
-        "p90Ms": 378,
-        "rt": 6
-      },
-      "playwright": {
-        "rate": 1,
-        "passed": true,
-        "medianMs": 1505,
-        "p90Ms": 1519,
-        "rt": 6
-      },
-      "autopilot": {
-        "rate": 0,
-        "passed": false,
-        "medianMs": 259,
-        "rt": 2
-      }
-    },
-    {
-      "id": "modal-dismiss",
-      "category": "modal-dismiss",
-      "description": "Dismiss a blocking welcome modal, then run the report",
-      "laya": {
-        "rate": 1,
-        "passed": true,
-        "medianMs": 357,
-        "p90Ms": 360,
-        "rt": 6
-      },
-      "playwright": {
-        "rate": 1,
-        "passed": true,
-        "medianMs": 1521,
-        "p90Ms": 1543,
-        "rt": 6
-      },
-      "autopilot": {
-        "rate": 0,
-        "passed": false,
-        "medianMs": 256,
-        "rt": 2
-      }
-    },
-    {
-      "id": "login-then-action",
-      "category": "multi-step-navigation",
-      "description": "Sign in with credentials, then seed storage as a follow-up action",
-      "laya": {
-        "rate": 1,
-        "passed": true,
-        "medianMs": 409,
-        "p90Ms": 424,
-        "rt": 9
-      },
-      "playwright": {
-        "rate": 1,
-        "passed": true,
-        "medianMs": 1631,
-        "p90Ms": 1635,
-        "rt": 9
       },
       "autopilot": {
         "na": true
@@ -521,8 +433,8 @@
       "category": "navigation",
       "layaRate": 1,
       "pwRate": 1,
-      "layaN": 1,
-      "pwN": 1
+      "layaN": 2,
+      "pwN": 2
     },
     {
       "category": "forms",
@@ -535,8 +447,8 @@
       "category": "multi-field-form",
       "layaRate": 1,
       "pwRate": 1,
-      "layaN": 2,
-      "pwN": 2
+      "layaN": 3,
+      "pwN": 3
     },
     {
       "category": "selection",
@@ -621,143 +533,88 @@
       "pwRate": null,
       "layaN": 1,
       "pwN": 0
-    },
-    {
-      "category": "search-select",
-      "layaRate": 1,
-      "pwRate": 1,
-      "layaN": 1,
-      "pwN": 1
-    },
-    {
-      "category": "multi-step-navigation",
-      "layaRate": 1,
-      "pwRate": 1,
-      "layaN": 2,
-      "pwN": 2
-    },
-    {
-      "category": "list-selection",
-      "layaRate": 1,
-      "pwRate": 1,
-      "layaN": 1,
-      "pwN": 1
-    },
-    {
-      "category": "consent-dismiss",
-      "layaRate": 1,
-      "pwRate": 1,
-      "layaN": 1,
-      "pwN": 1
-    },
-    {
-      "category": "modal-dismiss",
-      "layaRate": 1,
-      "pwRate": 1,
-      "layaN": 1,
-      "pwN": 1
     }
   ],
   "tasksBoth": [
     {
       "id": "nav-basic",
-      "layaMs": 242,
-      "pwMs": 410
+      "layaMs": 236,
+      "pwMs": 377
     },
     {
       "id": "search-type-submit",
-      "layaMs": 293,
-      "pwMs": 939
+      "layaMs": 289,
+      "pwMs": 936
     },
     {
       "id": "login-fill-form",
-      "layaMs": 388,
-      "pwMs": 1094
+      "layaMs": 373,
+      "pwMs": 1062
     },
     {
       "id": "select-option",
-      "layaMs": 282,
-      "pwMs": 479
+      "layaMs": 278,
+      "pwMs": 416
     },
     {
       "id": "click-button",
-      "layaMs": 312,
-      "pwMs": 942
+      "layaMs": 295,
+      "pwMs": 975
     },
     {
       "id": "hover-reveal",
-      "layaMs": 302,
-      "pwMs": 475
+      "layaMs": 313,
+      "pwMs": 455
     },
     {
       "id": "wait-for-dynamic",
-      "layaMs": 1053,
-      "pwMs": 1202
+      "layaMs": 1052,
+      "pwMs": 1197
     },
     {
       "id": "tabs-open",
-      "layaMs": 312,
-      "pwMs": 982
+      "layaMs": 324,
+      "pwMs": 1001
     },
     {
       "id": "dialog-confirm",
-      "layaMs": 320,
-      "pwMs": 960
+      "layaMs": 312,
+      "pwMs": 954
     },
     {
       "id": "console-capture",
-      "layaMs": 243,
-      "pwMs": 386
+      "layaMs": 240,
+      "pwMs": 408
     },
     {
       "id": "network-capture",
-      "layaMs": 242,
-      "pwMs": 423
+      "layaMs": 238,
+      "pwMs": 401
     },
     {
       "id": "screenshot",
       "layaMs": 274,
-      "pwMs": 452
+      "pwMs": 433
     },
     {
       "id": "evaluate",
-      "layaMs": 245,
-      "pwMs": 913
+      "layaMs": 241,
+      "pwMs": 883
     },
     {
-      "id": "signup-validated-form",
-      "layaMs": 385,
-      "pwMs": 1090
+      "id": "flights-search",
+      "layaMs": 338,
+      "pwMs": 1016
     },
     {
-      "id": "search-then-select",
-      "layaMs": 336,
-      "pwMs": 1502
+      "id": "wiki-open",
+      "layaMs": 334,
+      "pwMs": 1486
     },
     {
-      "id": "wizard-two-step",
-      "layaMs": 391,
-      "pwMs": 1583
-    },
-    {
-      "id": "table-row-select",
-      "layaMs": 307,
-      "pwMs": 969
-    },
-    {
-      "id": "consent-dismiss",
-      "layaMs": 366,
-      "pwMs": 1505
-    },
-    {
-      "id": "modal-dismiss",
-      "layaMs": 357,
-      "pwMs": 1521
-    },
-    {
-      "id": "login-then-action",
-      "layaMs": 409,
-      "pwMs": 1631
+      "id": "hotel-search-filter",
+      "layaMs": 419,
+      "pwMs": 1584
     }
   ],
   "roundTripTasks": [
@@ -774,55 +631,113 @@
       "autoRt": 3
     },
     {
-      "id": "search-then-select",
+      "id": "flights-search",
       "layaRt": 6,
       "pwRt": 6,
       "autoRt": 2
     },
     {
-      "id": "consent-dismiss",
-      "layaRt": 6,
-      "pwRt": 6,
-      "autoRt": 2
+      "id": "wiki-open",
+      "layaRt": 7,
+      "pwRt": 7,
+      "autoRt": 3
     },
     {
-      "id": "modal-dismiss",
-      "layaRt": 6,
-      "pwRt": 6,
-      "autoRt": 2
+      "id": "hotel-search-filter",
+      "layaRt": 8,
+      "pwRt": 8,
+      "autoRt": 3
     }
   ],
   "coverage": {
     "layaTools": 72,
     "pwTools": 24,
-    "layaCategories": 20,
-    "pwCategories": 18,
-    "layaPassed": 23,
-    "pwPassed": 20
+    "layaCategories": 15,
+    "pwCategories": 13,
+    "layaPassed": 19,
+    "pwPassed": 16
   },
   "summary": {
     "laya": {
-      "applicable": 23,
-      "passed": 23,
+      "applicable": 19,
+      "passed": 19,
       "rate": 1,
-      "medianMs": 312
+      "medianMs": 306
     },
     "playwright": {
-      "applicable": 20,
-      "passed": 20,
+      "applicable": 16,
+      "passed": 16,
       "rate": 1,
-      "medianMs": 965
+      "medianMs": 945
     },
     "layaAutopilot": {
       "applicable": 5,
-      "passed": 1,
-      "rate": 0.2,
-      "medianMs": 571
+      "passed": 4,
+      "rate": 0.8,
+      "medianMs": 556
     }
   },
   "toolCounts": {
     "layaCore": 25,
     "layaAll": 72,
     "playwrightCore": 24
+  },
+  "fastLoop": {
+    "generatedAt": "2026-09-27T19:28:44.386Z",
+    "runs": 7,
+    "warmupDiscarded": 1,
+    "tasks": [
+      {
+        "id": "flights-search",
+        "before": {
+          "medianMs": 468,
+          "medianSteps": 3,
+          "medianBrowserRt": 2,
+          "passed": true
+        },
+        "after": {
+          "medianMs": 513,
+          "medianSteps": 3,
+          "medianBrowserRt": 2,
+          "passed": true
+        },
+        "msDeltaPct": -10,
+        "rtDeltaPct": 0
+      },
+      {
+        "id": "wiki-open",
+        "before": {
+          "medianMs": 450,
+          "medianSteps": 3,
+          "medianBrowserRt": 2,
+          "passed": true
+        },
+        "after": {
+          "medianMs": 475,
+          "medianSteps": 3,
+          "medianBrowserRt": 2,
+          "passed": true
+        },
+        "msDeltaPct": -6,
+        "rtDeltaPct": 0
+      },
+      {
+        "id": "hotel-search-filter",
+        "before": {
+          "medianMs": 453,
+          "medianSteps": 3,
+          "medianBrowserRt": 2,
+          "passed": true
+        },
+        "after": {
+          "medianMs": 470,
+          "medianSteps": 3,
+          "medianBrowserRt": 2,
+          "passed": true
+        },
+        "msDeltaPct": -4,
+        "rtDeltaPct": 0
+      }
+    ]
   }
 }

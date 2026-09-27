@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Hotels</title>
+  </head>
+  <body>
+    <h1>Hotel search</h1>
+    <!--
+      A hotel search/filter flow built as a deterministic local fixture (NOT a live site). A
+      destination field, a couple of filter checkboxes, and a results list with an openable
+      property. Typing a destination reveals the list; opening a property sets a literal marker.
+    -->
+    <form onsubmit="searchHotels(); return false;">
+      <label for="city">Destination</label>
+      <input id="city" name="city" type="text" placeholder="Destination" aria-label="Destination" />
+
+      <label><input id="breakfast" name="breakfast" type="checkbox" /> Free breakfast</label>
+      <label><input id="pool" name="pool" type="checkbox" /> Pool</label>
+
+      <button id="search" type="submit">Search hotels</button>
+    </form>
+
+    <div id="status" aria-live="polite"></div>
+    <ul id="results" aria-live="polite"></ul>
+    <div id="opened" aria-live="polite"></div>
+
+    <script>
+      function searchHotels() {
+        var city = document.getElementById("city").value.trim();
+        var list = document.getElementById("results");
+        var status = document.getElementById("status");
+        list.innerHTML = "";
+        if (!city) {
+          status.textContent = "";
+          list.textContent = "Enter a destination";
+          return;
+        }
+        status.textContent = "Hotels in " + city;
+        document.title = "Hotels in " + city;
+        var breakfast = document.getElementById("breakfast").checked;
+        var pool = document.getElementById("pool").checked;
+        var perks = [];
+        if (breakfast) perks.push("breakfast");
+        if (pool) perks.push("pool");
+        var suffix = perks.length ? " (" + perks.join(", ") + ")" : "";
+        var li = document.createElement("li");
+        var btn = document.createElement("button");
+        btn.id = "open-grand";
+        btn.type = "button";
+        btn.textContent = "Grand Hotel " + city + suffix;
+        btn.onclick = function () {
+          document.getElementById("opened").textContent = "Opened Grand Hotel " + city;
+          document.title = "Grand Hotel " + city;
+        };
+        li.appendChild(btn);
+        list.appendChild(li);
+      }
+    </script>
+  </body>
+</html>

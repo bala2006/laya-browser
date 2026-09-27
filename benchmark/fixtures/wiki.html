@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Wiki</title>
+  </head>
+  <body>
+    <h1>Wiki search</h1>
+    <!--
+      A Wikipedia-open-shaped flow built as a deterministic local fixture (NOT a live site). A
+      search box that, on submit, reveals a status marker AND a result link that navigates to
+      an article page. Two success paths are supported so both the Autopilot (submit-to-marker,
+      which the reference stub can drive) and the Assist head-to-head (open the result link to
+      reach the article) run deterministically offline.
+    -->
+    <form onsubmit="runSearch(); return false;">
+      <label for="q">Search Wiki</label>
+      <input
+        id="q"
+        name="q"
+        type="search"
+        placeholder="Search Wiki"
+        aria-label="Search Wiki"
+      />
+      <button id="go" type="submit">Search</button>
+    </form>
+    <div id="status" aria-live="polite"></div>
+    <ul id="results"></ul>
+    <script>
+      function runSearch() {
+        var q = document.getElementById("q").value.trim();
+        var status = document.getElementById("status");
+        var list = document.getElementById("results");
+        list.innerHTML = "";
+        if (!q) {
+          status.textContent = "Enter a term";
+          return;
+        }
+        status.textContent = "Found article for " + q;
+        document.title = "Results for " + q;
+        var li = document.createElement("li");
+        var a = document.createElement("a");
+        a.id = "result-ada";
+        a.href = "wiki-article.html";
+        a.textContent = q;
+        li.appendChild(a);
+        list.appendChild(li);
+      }
+    </script>
+  </body>
+</html>

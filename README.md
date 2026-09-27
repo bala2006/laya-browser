@@ -780,6 +780,109 @@ relevant controls without changing the `Snapshot` / `Control[]` contract:
   before (no snapshot, no guard). This is scoped to `browser_click` as the required example;
   other Assist tools remain unguarded by design.
 
+## Fast browser loop (`LAYA_FAST_LOOP`)
+
+The fast browser loop is an opt-in Autopilot perception/act path adapted from the jev-ultrafast
+reference design (see "Honest benchmark methodology" below for how it was measured). It is
+**default off**: when `LAYA_FAST_LOOP` is unset the loop is byte-identical to `main`. Turn it on
+with a single environment variable:
+
+```sh
+LAYA_FAST_LOOP=true node dist/index.js
+# optional: tighten or loosen the adaptive-wait cap (default 200 ms)
+LAYA_FAST_LOOP=true LAYA_FAST_WAIT_CAP_MS=150 node dist/index.js
+```
+
+It has four parts, all confined to `src/snapshot.ts` and `src/browser.ts` behind the flag:
+
+- **Atomic snapshot.** `captureFast` does the whole per-step observation in ONE
+  `page.evaluate`: it walks the DOM, stamps `data-laya-ref="eN"`, and computes every control's
+  freshness guard, viewport rect, a page-level marker, and a page key in the same pass, instead
+  of one call to walk plus follow-up calls to re-query. Fewer evaluate calls per step.
+- **Persistent node identity.** The walk keeps a per-page `WeakMap` so each interactive element
+  gets a stable integer `nodeId` that survives across snapshots (pruned when the element is
+  removed). The act path resolves the node from that map rather than re-querying a selector, so
+  a decision made against snapshot N still points at the same live element on snapshot N+1
+  (INFERRED win: no cross-snapshot re-query round trip; the legacy path re-runs
+  `page.locator('[data-laya-ref=eN]')` at act time).
+- **Freshness guard plus occlusion hit-test.** Before a targeted click/select the loop
+  re-checks the target's semantic guard (role/name/value/checked/selected/disabled/scope text)
+  and the page key in one evaluate; if they drifted, it re-observes rather than acting on a
+  stale element. It then hit-tests `elementFromPoint` at the control's center and refuses a
+  control that is covered by an overlay or scrolled out of view (returns `covered`/`gone` so the
+  existing self-heal retry re-captures). This is a correctness guard, not a speed trick: it
+  prevents acting on the wrong element after the page shifts.
+- **Adaptive waits.** Instead of a fixed post-action settle, the fast path waits only until the
+  affected control settles (for example a combobox/autocomplete list appears), capped by
+  `LAYA_FAST_WAIT_CAP_MS` (default 200 ms), then proceeds.
+
+### Honest benchmark methodology and before/after numbers
+
+The fast loop is proven with laya's OWN Autopilot on identical local fixtures, run with the
+flag OFF (before) and ON (after). The measurement uses only laya's built server plus a loopback
+fixture server (no `@playwright/mcp` dependency), so it always reproduces here. Run it with:
+
+```sh
+pnpm run build
+pnpm run bench:fastloop   # writes the before/after block into benchmark/RESULTS.md + results.json
+```
+
+Three jev-inspired but fully local, deterministic fixtures drive it (a Google-Flights-shaped
+multi-field search, a Wikipedia-open search flow, and a hotel search/filter flow); each run's
+final-page `verify()` re-probes the real DOM for a literal outcome, which is the trust signal (a
+run counts only if it reached the same real result). The recorded run (7 runs per task, first
+discarded as warm-up, median reported) produced these **MEASURED** numbers:
+
+| Task | before ms | after ms | ms delta | steps (before/after) | browser round trips (before/after) | verify before/after |
+| --- | --- | --- | --- | --- | --- | --- |
+| flights-search | 468 | 513 | -10% | 3 / 3 | 2 / 2 | PASS / PASS |
+| wiki-open | 450 | 475 | -6% | 3 / 3 | 2 / 2 | PASS / PASS |
+| hotel-search-filter | 453 | 470 | -4% | 3 / 3 | 2 / 2 | PASS / PASS |
+
+**Reading these numbers honestly (MEASURED):** on these instant-loading local fixtures the fast
+loop is a few percent SLOWER in wall-clock, not faster, and the step and browser-round-trip
+counts are identical. That is the expected and honest result for this environment: there is no
+network round-trip latency to amortize, the pages settle instantly (so the legacy quiet-period
+settle probe is already cheap), and the fast path's extra per-step freshness-guard plus
+occlusion plus adaptive-wait evaluate adds a small fixed overhead. The fast loop did NOT
+regress correctness (verify PASS on both sides) and did NOT add steps or browser round trips.
+
+**Where the fast loop is expected to win (INFERRED, not a wall-clock win here):** its design
+targets are per-step target-resolution round trips (resolving a node from the persistent map
+instead of re-querying a selector) and safety on shifting pages (freshness guard plus occlusion
+hit-test), plus bounding a slow control's settle. A separate behavioral test
+(`test/fast-loop.test.ts`) VERIFIES that on `login.html` the flag-on run reaches the same
+independently-verified outcome with STRICTLY FEWER target-resolution round trips than the
+flag-off run. On a real, remote, network-bound page where each redundant re-query is a network
+hop and pages settle slowly, that per-step saving is where a speedup would materialize; this
+local harness deliberately removes network latency for determinism, so it does not show that
+component. We do not extrapolate a live-web speed number we did not measure.
+
+### Comparison to jev-ultrafast (qualitative, INFERRED; jev not run here)
+
+jev-ultrafast could NOT be run in this environment (VERIFIED blocker): its
+[README](../jev-ultrafast/README.md) and `pyproject.toml` require a `TYPESAFE_API_KEY` plus a
+text-model key (`TEXT_MODEL_API_KEY`, an OpenRouter/OpenAI-compatible key), the `browser-harness`
+package connected to a real Chrome with remote debugging, and paid API calls for any live run.
+None of those keys are set here and no such model endpoint is reachable, so any jev timing would
+be fabricated. We therefore publish NO jev number and reason only qualitatively from laya's
+MEASURED per-step costs:
+
+- **No network in the decision path (INFERRED advantage for laya).** laya's decision is a local
+  `@receptron/laya` `systemOne` pass; jev's per-step decision calls a remote text model
+  (its own README reports median browser protocol calls dropping from 1,092 to 101 and median
+  task time from 9.450 s to 7.092 s for its OWN before/after on one Google Flights task, which
+  is jev's number, not ours). laya's goal-grammar fills resolve field values deterministically
+  on-device with zero text-LLM round trip.
+- **Fewer steps via batching (VERIFIED on the stub).** laya batches multiple goal-stated fields
+  into one `FILL_FORM` step; the head-to-head benchmark shows the multi-field autopilot goals
+  completing in 2 to 3 Autopilot round trips versus 6 to 8 Assist calls for the same outcome.
+- **The trade (honest).** jev's fan-out speculatively decides several operations against several
+  target heads in parallel; laya's engine asks operation and target as one shared question in a
+  single pass (see the Phase 0 spike note in `docs/PLAN.md`), so it does not express jev's
+  per-operation target fan-out. That is a genuine architectural difference, independent of the
+  four fast-loop levers above.
+
 ## Configuration reference
 
 All configuration is parsed **once** (`src/config.ts`) from environment + tool args +
@@ -827,6 +930,8 @@ constructor options, then handed inward as typed config.
 | `LAYA_AUTO_DISMISS` | `false` | **(T2.2)** `true` runs a bounded, conservative heuristic before each Autopilot step to auto-dismiss cookie/consent banners and blocking modal overlays (never clicks destructive controls). Each dismissal is surfaced on the overlay ("Closed cookie banner") and noted in the transcript. |
 | `LAYA_FRAME_DEPTH` | `0` | **(T2.3)** How many levels of **same-origin** iframe and **open** shadow root the DOM walk descends into to discover controls. `0` walks only the top document (unchanged). Cross-origin frames are skipped cleanly. Controls found deeper get `data-laya-ref` stamps that Autopilot can act on. Clamped `0..5`. |
 | `LAYA_DOWNLOAD_DIR` | — | **(T2.4)** Default directory `browser_download_file` saves into when no explicit `path` is given (the browser-suggested filename is appended). |
+| `LAYA_FAST_LOOP` | `false` | **(F1)** `true` enables the fast browser loop for Autopilot (atomic snapshot with persistent in-page node identity, a per-node semantic freshness guard, an occlusion hit-test before acting, and adaptive bounded waits). Default off, so the default path stays byte-identical to `main`. See "Fast browser loop" below. |
+| `LAYA_FAST_WAIT_CAP_MS` | `200` | **(F1)** The adaptive-wait cap in ms the fast loop uses when waiting for a control to settle (for example a combobox/autocomplete list to populate) before inputting. Bounds a slow control so it cannot stall a step. Clamped `0..2000`. |
 
 ### Cross-browser (`LAYA_BROWSER`)
 

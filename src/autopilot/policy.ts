@@ -23,7 +23,9 @@
 import type { Control, Decision, FieldFill, PageState } from "../types.js";
 import {
   fieldValueFromGoal,
+  goalAssignments,
   goalSuccessMarkerPresent,
+  goalSuccessMarkers,
   isSubmitControl,
   unfilledGoalFields,
 } from "../laya/goal.js";
@@ -46,6 +48,31 @@ function isTextField(c: Control): boolean {
     c.tag === "input" ||
     c.tag === "textarea"
   );
+}
+
+/**
+ * The single UNAMBIGUOUS submit/search control on the page, if exactly one exists.
+ *
+ * "Unambiguous" means precisely one control satisfies {@link isSubmitControl}. When zero or
+ * two-plus submit-like controls exist the choice is ambiguous, so this returns undefined and
+ * the composition falls back to the ordinary rules (which do not guess which submit to press).
+ * Pure and side-effect-free.
+ */
+export function unambiguousSubmit(state: PageState): Control | undefined {
+  const submits = state.controls.filter(isSubmitControl);
+  return submits.length === 1 ? submits[0] : undefined;
+}
+
+/**
+ * Whether the goal expresses a success/search intent that a submit would satisfy: it declares
+ * an explicit success marker (`expect "..."` etc.) or a search value (`search for "..."`).
+ * Used only to DOCUMENT/justify composing a fill+submit sequence; it never relaxes the rule
+ * order or the confidence. Pure.
+ */
+export function goalHasSubmitIntent(state: PageState): boolean {
+  const assignments = goalAssignments(state.goal);
+  if (assignments.has("search")) return true;
+  return goalSuccessMarkers(state.goal).length > 0;
 }
 
 /** Whether a control offers a discrete set of options to choose from. */
@@ -120,6 +147,15 @@ export function policySeed(state: PageState): PolicySeed | undefined {
   // still unfilled, fill them ALL in a single FILL_FORM step instead of emitting N sequential
   // TYPE_TEXT steps (each of which would otherwise be its own snapshot+decide+execute cycle).
   // This is the concrete faster-automation mechanism: fewer steps, no per-field round-trip.
+  //
+  // COMPOSITION: the batch is deliberately the FEWEST valid Decisions the union allows for the
+  // "fill many fields, then submit" plan. The Decision union has no legal composite state that
+  // fills AND submits in one step (that would be an illegal state), so the minimal expression
+  // is exactly ONE FILL_FORM here followed by ONE submit CLICK on the next iteration (Rule 3),
+  // which fires once every batched field reads back as filled. When the page has exactly one
+  // unambiguous submit control and the goal has a submit intent, that next-step CLICK is fully
+  // determined ({@link unambiguousSubmit} + {@link goalHasSubmitIntent}); we do NOT emit it here
+  // because each emitted Decision must be individually valid against the CURRENT observed page.
   const unfilled = unfilledGoalFields(state.goal, state.controls);
   if (unfilled.length >= 2) {
     const fields: FieldFill[] = unfilled.map((f) => ({ target: f.control.ref, value: f.value }));

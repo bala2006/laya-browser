@@ -33,11 +33,13 @@ import type {
   ConsoleMessageRecord,
   DialogRecord,
   NetworkRequestRecord,
+  NodeGuard,
   RouteRule,
   TabInfo,
 } from "./types.js";
 import { DEFAULT_OVERLAY_ACCENT, type OverlayConfig } from "./config.js";
 import { BrowserOverlay } from "./overlay.js";
+import { captureFast } from "./snapshot.js";
 
 /** The Playwright engine a {@link BrowserSession} drives. */
 export type BrowserEngineName = "chromium" | "firefox" | "webkit";
@@ -127,6 +129,369 @@ export interface SettleProbeResult {
 
 /** Cap the console/network buffers so a long-running session cannot grow unbounded. */
 const RING_BUFFER_LIMIT = 500;
+
+/**
+ * (F1) Deep-equal two {@link NodeGuard} fingerprints field by field. A guard is a flat struct
+ * of JSON scalars, so a field-wise comparison is exact and cheap (avoids JSON.stringify key
+ * ordering pitfalls). Used by {@link BrowserSession.freshGuard} to decide fresh vs stale.
+ */
+function guardsEqual(a: NodeGuard, b: NodeGuard): boolean {
+  return (
+    a.role === b.role &&
+    a.name === b.name &&
+    a.value === b.value &&
+    a.checked === b.checked &&
+    a.selectedIndex === b.selectedIndex &&
+    a.disabled === b.disabled &&
+    a.ariaExpanded === b.ariaExpanded &&
+    a.ariaChecked === b.ariaChecked &&
+    a.ariaSelected === b.ariaSelected &&
+    a.href === b.href &&
+    a.scopeText === b.scopeText
+  );
+}
+
+/**
+ * (F1) In-page: recompute [pageKey, guard(node)] for a specific persistent nodeId, exactly as
+ * captureFast built them, so the Node side can deep-equal it against the recorded expectation.
+ * Returns null when the identity cache is absent; the guard is null when the node is gone /
+ * invisible. Self-contained (closes over nothing from Node).
+ */
+function currentGuardAndPageKey(nodeId: number): {
+  pageKey: string;
+  guard: NodeGuard | null;
+} | null {
+  interface LayaFastCache {
+    ids: WeakMap<Element, number>;
+    nodes: Map<number, Element>;
+    next: number;
+  }
+  const w = window as unknown as { __layaFast?: LayaFastCache };
+  const cache = w.__layaFast;
+  if (!cache) return null;
+  function viewOf(el: Element): Window {
+    return (el.ownerDocument && el.ownerDocument.defaultView) || window;
+  }
+  function isVisible(el: Element): boolean {
+    const rect = (el as HTMLElement).getBoundingClientRect();
+    const style = viewOf(el).getComputedStyle(el as HTMLElement);
+    if (style.display === "none" || style.visibility === "hidden") return false;
+    if (style.opacity === "0") return false;
+    if (rect.width === 0 && rect.height === 0) {
+      const tag = el.tagName.toLowerCase();
+      if (tag !== "input" && tag !== "select" && tag !== "textarea") return false;
+    }
+    return true;
+  }
+  function roleFor(el: Element): string {
+    const explicit = el.getAttribute("role");
+    if (explicit && explicit.trim()) return explicit.trim();
+    const tag = el.tagName.toLowerCase();
+    if (tag === "a") return "link";
+    if (tag === "button") return "button";
+    if (tag === "select") return "combobox";
+    if (tag === "textarea") return "textbox";
+    if (tag === "input") {
+      const type = (el.getAttribute("type") ?? "text").toLowerCase();
+      if (type === "checkbox") return "checkbox";
+      if (type === "radio") return "radio";
+      if (["submit", "button", "reset", "image"].includes(type)) return "button";
+      if (type === "search") return "searchbox";
+      if (type === "range") return "slider";
+      if (type === "hidden") return "hidden";
+      return "textbox";
+    }
+    if (el.hasAttribute("contenteditable")) return "textbox";
+    return tag;
+  }
+  // (F1) Accessible-name derivation, kept BYTE-FOR-BYTE identical to captureFast's
+  // accessibleName in snapshot.ts so the act-time guard recompute never disagrees with the
+  // observe-time guard. The full fallback chain is: aria-label, aria-labelledby, associated
+  // label/placeholder/name for form fields, input submit/button/reset value, title,
+  // textContent, then a child img[alt]. Any divergence here would make guardsEqual report a
+  // fresh node as stale, so this MUST mirror accessibleName exactly.
+  function nameFor(el: Element): string {
+    const he = el as HTMLElement;
+    const tag = el.tagName.toLowerCase();
+
+    const ariaLabel = he.getAttribute("aria-label");
+    if (ariaLabel && ariaLabel.trim()) return ariaLabel.trim();
+
+    const doc = he.ownerDocument || document;
+
+    const labelledBy = he.getAttribute("aria-labelledby");
+    if (labelledBy) {
+      const names = labelledBy
+        .split(/\s+/)
+        .map((id) => doc.getElementById(id)?.textContent?.trim() ?? "")
+        .filter(Boolean);
+      if (names.length) return names.join(" ");
+    }
+
+    if (tag === "input" || tag === "textarea" || tag === "select") {
+      const id = he.getAttribute("id");
+      if (id) {
+        const lbl = doc.querySelector(`label[for="${CSS.escape(id)}"]`);
+        if (lbl && lbl.textContent && lbl.textContent.trim()) return lbl.textContent.trim();
+      }
+      const wrapping = he.closest("label");
+      if (wrapping && wrapping.textContent && wrapping.textContent.trim())
+        return wrapping.textContent.trim();
+      const placeholder = he.getAttribute("placeholder");
+      if (placeholder && placeholder.trim()) return placeholder.trim();
+      const nameAttr = he.getAttribute("name");
+      if (nameAttr && nameAttr.trim()) return nameAttr.trim();
+    }
+
+    if (tag === "input") {
+      const type = (he.getAttribute("type") ?? "text").toLowerCase();
+      if (type === "submit" || type === "button" || type === "reset") {
+        const v = (he as HTMLInputElement).value;
+        if (v && v.trim()) return v.trim();
+      }
+    }
+
+    const title = he.getAttribute("title");
+    if (title && title.trim()) return title.trim();
+
+    const text = (he.textContent ?? "").replace(/\s+/g, " ").trim();
+    if (text) return text.length > 120 ? text.slice(0, 117) + "..." : text;
+
+    const altImg = he.querySelector("img[alt]");
+    if (altImg) {
+      const alt = altImg.getAttribute("alt");
+      if (alt && alt.trim()) return alt.trim();
+    }
+
+    return "";
+  }
+  // pageKey: recompute exactly as captureFast (form-field state + document/nav identity).
+  let formState: unknown[] = [];
+  try {
+    formState = Array.from(document.querySelectorAll("input,textarea,select")).map((e) => {
+      const el = e as HTMLInputElement & HTMLSelectElement;
+      return [
+        cache.ids.get(e) ?? -1,
+        el.value ?? null,
+        el.checked ?? null,
+        el.selectedIndex ?? null,
+        el.disabled ?? null,
+        el.readOnly ?? null,
+      ];
+    });
+  } catch {
+    formState = [];
+  }
+  const pageKey = JSON.stringify([
+    window.location.href,
+    window.scrollX,
+    window.scrollY,
+    window.innerWidth,
+    window.innerHeight,
+    formState,
+  ]);
+
+  const el = cache.nodes.get(nodeId);
+  if (!el || !el.isConnected || !isVisible(el)) {
+    return { pageKey, guard: null };
+  }
+  const role = roleFor(el);
+  const name = nameFor(el);
+  const tag = el.tagName.toLowerCase();
+  const he = el as HTMLInputElement;
+  let value: string | null = null;
+  let checked: boolean | null = null;
+  let selectedIndex: number | null = null;
+  if (tag === "input") {
+    const type = (he.getAttribute("type") ?? "text").toLowerCase();
+    if (type === "checkbox" || type === "radio") checked = he.checked;
+    else value = he.value;
+  } else if (tag === "textarea") {
+    value = (el as unknown as HTMLTextAreaElement).value;
+  } else if (tag === "select") {
+    const sel = el as unknown as HTMLSelectElement;
+    selectedIndex = sel.selectedIndex;
+    const selected = sel.options[sel.selectedIndex];
+    value = selected ? selected.label || selected.value : null;
+  } else if (el.hasAttribute("contenteditable")) {
+    value = (el.textContent ?? "").trim();
+  }
+  const scope =
+    el.closest("form,dialog,[role='dialog'],article,li,tr,[role='row']") || el.parentElement;
+  const scopeText = ((scope as HTMLElement | null)?.innerText ?? "").slice(0, 6000);
+  const guard: NodeGuard = {
+    role,
+    name,
+    value,
+    checked,
+    selectedIndex,
+    disabled: (el as HTMLButtonElement).disabled === true || el.matches(":disabled"),
+    ariaExpanded: el.getAttribute("aria-expanded"),
+    ariaChecked: el.getAttribute("aria-checked"),
+    ariaSelected: el.getAttribute("aria-selected"),
+    href: el.getAttribute("href"),
+    scopeText,
+  };
+  return { pageKey, guard };
+}
+
+/**
+ * (F1) In-page: act on the observed node resolved from `window.__layaFast.nodes`. Re-checks
+ * connected/visible/enabled/not-readonly-for-fill, computes the rect center, occlusion
+ * hit-tests `e.contains(document.elementFromPoint(x,y))` (rejects a covered/off-viewport
+ * control BEFORE input), then performs the input. Self-contained (closes over nothing).
+ * Returns a structured {ok, reason} object so the caller can re-observe on a soft failure.
+ */
+function actOnNodeInPage(args: {
+  nodeId: number;
+  kind: "click" | "fill" | "select";
+  value: string | null;
+}): { ok: boolean; reason?: "stale" | "covered" | "gone" } {
+  interface LayaFastCache {
+    ids: WeakMap<Element, number>;
+    nodes: Map<number, Element>;
+    next: number;
+  }
+  const w = window as unknown as { __layaFast?: LayaFastCache };
+  const cache = w.__layaFast;
+  if (!cache) return { ok: false, reason: "gone" };
+  const el = cache.nodes.get(args.nodeId) as HTMLElement | undefined;
+  if (!el || !el.isConnected) return { ok: false, reason: "gone" };
+  // Enabled + not aria-disabled/inert.
+  if (
+    el.matches(":disabled") ||
+    el.closest("[aria-disabled='true'],[inert]")
+  ) {
+    return { ok: false, reason: "stale" };
+  }
+  // Visible.
+  const style = (el.ownerDocument.defaultView || window).getComputedStyle(el);
+  if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") {
+    return { ok: false, reason: "stale" };
+  }
+  // not-readonly for fill.
+  if (
+    args.kind === "fill" &&
+    ((el as HTMLInputElement).readOnly === true ||
+      el.getAttribute("aria-readonly") === "true")
+  ) {
+    return { ok: false, reason: "stale" };
+  }
+  const rect = el.getBoundingClientRect();
+  const x = rect.x + rect.width / 2;
+  const y = rect.y + rect.height / 2;
+  if (
+    rect.width <= 0 ||
+    rect.height <= 0 ||
+    x < 0 ||
+    y < 0 ||
+    x >= window.innerWidth ||
+    y >= window.innerHeight
+  ) {
+    return { ok: false, reason: "covered" };
+  }
+  // OCCLUSION hit-test: the element under the rect center must be (or contain) the target.
+  const hit = document.elementFromPoint(x, y);
+  if (!hit || !el.contains(hit)) {
+    return { ok: false, reason: "covered" };
+  }
+  if (args.kind === "select") {
+    const sel = el as unknown as HTMLSelectElement;
+    if (el.tagName !== "SELECT") return { ok: false, reason: "stale" };
+    const want = args.value ?? "";
+    const match = Array.from(sel.options).find(
+      (o) => (o.value === want || o.label === want) && !o.disabled,
+    );
+    if (!match) return { ok: false, reason: "stale" };
+    sel.value = match.value;
+    sel.dispatchEvent(new Event("input", { bubbles: true }));
+    sel.dispatchEvent(new Event("change", { bubbles: true }));
+    return { ok: true };
+  }
+  if (args.kind === "fill") {
+    const input = el as HTMLInputElement;
+    input.focus();
+    try {
+      input.select?.();
+    } catch {
+      // Some editable elements have no select(); ignore.
+    }
+    const text = args.value ?? "";
+    if ("value" in input) {
+      input.value = text;
+    } else if (el.isContentEditable) {
+      el.textContent = text;
+    }
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+    return { ok: true };
+  }
+  // click
+  (el as HTMLElement).click();
+  return { ok: true };
+}
+
+/**
+ * (F1) In-page: the bounded adaptive wait. After a fill into a combobox, waits for a visible
+ * `[role=option]` under the field's aria-controls/aria-owns up to capMs; otherwise resolves
+ * after >= 2 animation frames. Self-contained (closes over nothing). Always resolves.
+ */
+function adaptiveWaitInPage(args: {
+  nodeId: number;
+  kind: "click" | "fill" | "select";
+  capMs: number;
+}): Promise<void> {
+  return new Promise<void>((resolve) => {
+    interface LayaFastCache {
+      ids: WeakMap<Element, number>;
+      nodes: Map<number, Element>;
+      next: number;
+    }
+    const w = window as unknown as { __layaFast?: LayaFastCache };
+    const field = w.__layaFast?.nodes.get(args.nodeId) as HTMLElement | undefined;
+    const autocomplete =
+      args.kind === "fill" && field?.getAttribute("role") === "combobox";
+    let frames = 0;
+    let stopped = false;
+    const finish = (): void => {
+      if (stopped) return;
+      stopped = true;
+      resolve();
+    };
+    // Hard cap: an autocomplete list gets up to capMs, a plain action a short floor.
+    window.setTimeout(finish, autocomplete ? args.capMs : Math.min(50, args.capMs));
+    const ready = (): void => {
+      if (stopped) return;
+      const ids = (
+        field?.getAttribute("aria-controls") ||
+        field?.getAttribute("aria-owns") ||
+        ""
+      )
+        .split(/\s+/)
+        .filter(Boolean);
+      const roots: (Document | HTMLElement)[] = ids.length
+        ? (ids.map((id) => document.getElementById(id)).filter(Boolean) as HTMLElement[])
+        : [document];
+      const options = roots.flatMap((root) =>
+        Array.from(root.querySelectorAll("[role='option']")),
+      );
+      const anyVisible =
+        !autocomplete ||
+        options.some((e) => {
+          const r = (e as HTMLElement).getBoundingClientRect();
+          return (
+            r.width > 0 &&
+            r.height > 0 &&
+            r.bottom > 0 &&
+            r.top < window.innerHeight
+          );
+        });
+      if (++frames >= 2 && anyVisible) finish();
+      else requestAnimationFrame(ready);
+    };
+    requestAnimationFrame(ready);
+  });
+}
 
 /**
  * A lazily-launched browser session: browser -> context -> one or more pages (tabs).
@@ -1199,6 +1564,113 @@ export class BrowserSession {
       // A navigation/close mid-probe (or an evaluate rejection) leaves us with no signal;
       // report "nothing observed" so the probe stays purely observational and never throws.
       return { changed: false, urlChanged: false, mutations: 0 };
+    }
+  }
+
+  // --- (F1) Fast-loop persistent-identity execution + freshness -----------------------------
+  //
+  // These methods back the LAYA_FAST_LOOP path. They act on the OBSERVED node via the
+  // window-scoped identity map (`window.__layaFast.nodes`) that captureFast populates, so NO
+  // fresh selector re-query / DOM re-walk happens per action (the round-trip win). Every
+  // evaluate is guarded so a mid-navigation rejection degrades to a stale/gone result rather
+  // than throwing into the loop.
+
+  /**
+   * (F1) Re-evaluate the live freshness of a targeted click/select node in ONE evaluate and
+   * deep-equal it to the guard + pageKey captured at decision time. For non-targeted
+   * freshness (no nodeId), the whole-page marker is compared instead. Returns false (stale) on
+   * any mismatch, when the node is gone, or when the identity cache is absent.
+   *
+   * This mirrors jev's `fresh`: click/select re-check [pageKey, guard(node)] while other
+   * operations re-check the whole-page marker.
+   */
+  async freshGuard(
+    page: Page,
+    nodeId: number | undefined,
+    expected: { guard?: NodeGuard; pageKey?: string; marker?: string },
+  ): Promise<boolean> {
+    // Whole-page freshness: recompute the marker via captureFast (so it is byte-identical to
+    // the one recorded at observation time) and compare. No node is targeted.
+    if (nodeId === undefined) {
+      if (expected.marker === undefined) return false;
+      try {
+        const fresh = await captureFast(page);
+        return fresh.marker === expected.marker;
+      } catch {
+        return false;
+      }
+    }
+    // Targeted freshness: re-read [pageKey, guard(node)] and deep-equal it to the expected.
+    if (expected.guard === undefined || expected.pageKey === undefined) return false;
+    try {
+      const current = (await page.evaluate(currentGuardAndPageKey, nodeId)) as
+        | { pageKey: string; guard: NodeGuard | null }
+        | null;
+      if (current === null || current.guard === null) return false;
+      return (
+        current.pageKey === expected.pageKey &&
+        guardsEqual(current.guard, expected.guard)
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * (F1) Act on the OBSERVED node (resolved from `window.__layaFast.nodes.get(nodeId)`) in ONE
+   * evaluate: re-check isConnected / visible / enabled / not-readonly-for-fill, compute the
+   * rect center, OCCLUSION hit-test `e.contains(document.elementFromPoint(x,y))` (reject a
+   * covered/off-viewport control BEFORE input), then perform the input. Returns a structured
+   * result so the loop can re-observe on `stale`/`covered`/`gone` instead of throwing.
+   *
+   * For `fill` the value is focused + selected + set + input/change dispatched; for `select`
+   * the option value is set + input/change dispatched; for `click` a synthetic `el.click()` is
+   * fired on the target AFTER the rect-center occlusion hit-test passes (the center coordinate
+   * gates the action but is not used to synthesise a pointer gesture, so no full
+   * pointerdown/mousedown/mouseup sequence is dispatched the way a real pointer click would).
+   * NO fresh selector query happens.
+   */
+  async actOnNode(
+    page: Page,
+    nodeId: number,
+    kind: "click" | "fill" | "select",
+    opts: { value?: string } = {},
+  ): Promise<{ ok: true } | { ok: false; reason: "stale" | "covered" | "gone" }> {
+    if (!Number.isInteger(nodeId)) return { ok: false, reason: "gone" };
+    try {
+      const outcome = (await page.evaluate(actOnNodeInPage, {
+        nodeId,
+        kind,
+        value: opts.value ?? null,
+      })) as { ok: boolean; reason?: "stale" | "covered" | "gone" } | null;
+      if (outcome === null) return { ok: false, reason: "gone" };
+      if (outcome.ok) return { ok: true };
+      return { ok: false, reason: outcome.reason ?? "stale" };
+    } catch {
+      // A mid-navigation rejection: the node is effectively gone for this decision.
+      return { ok: false, reason: "gone" };
+    }
+  }
+
+  /**
+   * (F1) A bounded, event-driven adaptive wait replacing the fixed post-action settle on the
+   * hot path. After a fill into a combobox it waits (via a requestAnimationFrame loop inside
+   * ONE evaluate) for a visible `[role=option]` under the field's aria-controls/aria-owns up
+   * to `capMs`, otherwise it resolves after >= 2 animation frames (mirroring jev observe's
+   * after-input wait). Never throws: a mid-navigation rejection resolves immediately.
+   */
+  async adaptiveWait(
+    page: Page,
+    opts: { nodeId: number; kind: "click" | "fill" | "select"; capMs: number },
+  ): Promise<void> {
+    try {
+      await page.evaluate(adaptiveWaitInPage, {
+        nodeId: opts.nodeId,
+        kind: opts.kind,
+        capMs: Math.max(0, Math.min(2000, opts.capMs)),
+      });
+    } catch {
+      // A navigation/close mid-wait leaves nothing to wait for; resolve immediately.
     }
   }
 
