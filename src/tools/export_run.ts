@@ -44,16 +44,6 @@ export const inputSchema = {
 
 type Args = { path: string; format?: "html" | "json" | "both" };
 
-/** Escape a string for safe inclusion in HTML text/attribute content. */
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
 /** Build the JSON replay payload for a recorded run (screenshots embedded as base64). */
 function buildJson(run: RecordedRun): string {
   return JSON.stringify(
@@ -89,32 +79,38 @@ function buildJson(run: RecordedRun): string {
   );
 }
 
-/** Render a single step as an HTML block for the replay page. */
-function renderStepHtml(s: RunStepArtifact): string {
-  const img =
-    s.screenshotPng !== undefined
-      ? `<img class="shot" alt="step ${s.step} screenshot" src="data:image/png;base64,${s.screenshotPng}" />`
-      : `<div class="noshot">(no screenshot captured)</div>`;
-  const note = s.note !== undefined ? `<div class="note">${escapeHtml(s.note)}</div>` : "";
-  const target = s.target !== undefined ? ` &rarr; ${escapeHtml(s.target)}` : "";
-  return `<section class="step">
-  <h2>Step ${s.step}: ${escapeHtml(s.operation)}${target}</h2>
-  <div class="meta">
-    <span>source: ${escapeHtml(s.source)}</span>
-    <span>op conf: ${s.operationConfidence.toFixed(2)}</span>
-    <span>tgt conf: ${s.targetConfidence.toFixed(2)}</span>
-    <span>timing: ${s.durationMs} ms</span>
-  </div>
-  <div class="detail">${escapeHtml(s.detail)}</div>
-  ${note}
-  ${img}
-  <details><summary>Snapshot</summary><pre>${escapeHtml(s.snapshot)}</pre></details>
-</section>`;
-}
-
-/** Build the self-contained HTML replay page for a recorded run. */
+/**
+ * (T3.3) Build the self-contained, SCRUBBABLE HTML replay page for a recorded run.
+ *
+ * The page is a single file with NO external dependencies: the step data (including base64
+ * screenshots) is inlined as a JSON island and a small vanilla-JS player renders one step at
+ * a time with a timeline scrubber (range slider + prev/next), showing that step's screenshot,
+ * decision, confidence, timing, note, and snapshot text. It opens straight from disk (no
+ * server) so a user can review a run by double-clicking the file.
+ */
 function buildHtml(run: RecordedRun): string {
-  const steps = run.steps.map(renderStepHtml).join("\n");
+  // Inline the step data as a JSON island. JSON.stringify is HTML-safe once we neutralise the
+  // sequence that could close the script tag early. All step text was already redacted (B1).
+  const data = {
+    goal: run.goal,
+    outcome: run.outcome,
+    finishedAt: run.finishedAt,
+    steps: run.steps.map((s: RunStepArtifact) => ({
+      step: s.step,
+      operation: s.operation,
+      target: s.target ?? null,
+      operationConfidence: s.operationConfidence,
+      targetConfidence: s.targetConfidence,
+      source: s.source,
+      detail: s.detail,
+      note: s.note ?? null,
+      durationMs: s.durationMs,
+      snapshot: s.snapshot,
+      screenshotPng: s.screenshotPng ?? null,
+    })),
+  };
+  const json = JSON.stringify(data).replace(/</g, "\\u003c");
+
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -126,27 +122,95 @@ function buildHtml(run: RecordedRun): string {
   header { padding: 16px 24px; background: #171a21; border-bottom: 1px solid #2a2f3a; }
   header h1 { margin: 0 0 4px; font-size: 18px; }
   header .sub { color: #9aa4b2; font-size: 13px; }
-  main { padding: 16px 24px; display: flex; flex-direction: column; gap: 20px; }
-  .step { background: #171a21; border: 1px solid #2a2f3a; border-radius: 8px; padding: 16px; }
-  .step h2 { margin: 0 0 8px; font-size: 15px; }
+  main { padding: 16px 24px; }
+  .controls { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+  .controls button { background: #2a2f3a; color: #e6e6e6; border: 1px solid #3a4150; border-radius: 6px; padding: 6px 12px; cursor: pointer; font-size: 13px; }
+  .controls button:hover { background: #3a4150; }
+  .controls input[type=range] { flex: 1; }
+  .stepno { color: #9aa4b2; font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .viewer { display: grid; grid-template-columns: 1.4fr 1fr; gap: 16px; align-items: start; }
+  @media (max-width: 800px) { .viewer { grid-template-columns: 1fr; } }
+  .shot { max-width: 100%; border: 1px solid #2a2f3a; border-radius: 6px; background: #0b0d11; }
+  .noshot { color: #6b7280; font-style: italic; font-size: 12px; padding: 24px; border: 1px dashed #2a2f3a; border-radius: 6px; }
+  .panel { background: #171a21; border: 1px solid #2a2f3a; border-radius: 8px; padding: 16px; }
+  .panel h2 { margin: 0 0 8px; font-size: 15px; }
   .meta { display: flex; flex-wrap: wrap; gap: 12px; color: #9aa4b2; font-size: 12px; margin-bottom: 8px; }
-  .detail { font-family: ui-monospace, monospace; font-size: 13px; margin-bottom: 8px; }
+  .detail { font-family: ui-monospace, monospace; font-size: 13px; margin-bottom: 8px; word-break: break-word; }
   .note { color: #c8a45c; font-size: 12px; margin-bottom: 8px; }
-  .shot { max-width: 100%; border: 1px solid #2a2f3a; border-radius: 6px; }
-  .noshot { color: #6b7280; font-style: italic; font-size: 12px; }
-  pre { white-space: pre-wrap; word-break: break-word; background: #0f1115; padding: 8px; border-radius: 6px; font-size: 12px; }
+  pre { white-space: pre-wrap; word-break: break-word; background: #0f1115; padding: 8px; border-radius: 6px; font-size: 12px; max-height: 360px; overflow: auto; }
   summary { cursor: pointer; color: #9aa4b2; font-size: 12px; }
+  .conf { display: inline-block; height: 6px; border-radius: 3px; background: #22c55e; vertical-align: middle; }
+  .track { display: inline-block; width: 80px; height: 6px; border-radius: 3px; background: #2a2f3a; vertical-align: middle; }
 </style>
 </head>
 <body>
 <header>
   <h1>Laya run replay</h1>
-  <div class="sub">Goal: ${escapeHtml(run.goal)}</div>
-  <div class="sub">Outcome: ${escapeHtml(run.outcome)} &middot; ${run.steps.length} step(s) &middot; ${escapeHtml(run.finishedAt)}</div>
+  <div class="sub" id="goal"></div>
+  <div class="sub" id="summary"></div>
 </header>
 <main>
-${steps}
+  <div class="controls">
+    <button id="prev">&larr; Prev</button>
+    <input type="range" id="scrub" min="0" value="0" />
+    <button id="next">Next &rarr;</button>
+    <span class="stepno" id="stepno"></span>
+  </div>
+  <div class="viewer">
+    <div id="shotwrap"></div>
+    <div class="panel" id="info"></div>
+  </div>
 </main>
+<script id="laya-run-data" type="application/json">${json}</script>
+<script>
+(function () {
+  var RUN = JSON.parse(document.getElementById("laya-run-data").textContent);
+  var steps = RUN.steps || [];
+  var i = 0;
+  var scrub = document.getElementById("scrub");
+  var stepno = document.getElementById("stepno");
+  var shotwrap = document.getElementById("shotwrap");
+  var info = document.getElementById("info");
+  document.getElementById("goal").textContent = "Goal: " + RUN.goal;
+  document.getElementById("summary").textContent =
+    "Outcome: " + RUN.outcome + " \u00B7 " + steps.length + " step(s) \u00B7 " + RUN.finishedAt;
+  scrub.max = String(Math.max(0, steps.length - 1));
+  function esc(t) { var d = document.createElement("div"); d.textContent = t == null ? "" : String(t); return d.innerHTML; }
+  function bar(v) {
+    var pct = Math.max(0, Math.min(1, Number(v) || 0)) * 100;
+    return '<span class="track"><span class="conf" style="width:' + pct + '%"></span></span> ' + (Number(v) || 0).toFixed(2);
+  }
+  function render() {
+    if (steps.length === 0) { info.textContent = "No steps recorded."; return; }
+    var s = steps[i];
+    stepno.textContent = "step " + (i + 1) + " / " + steps.length;
+    scrub.value = String(i);
+    shotwrap.innerHTML = s.screenshotPng
+      ? '<img class="shot" alt="step ' + s.step + '" src="data:image/png;base64,' + s.screenshotPng + '" />'
+      : '<div class="noshot">(no screenshot captured for this step)</div>';
+    var target = s.target ? " &rarr; " + esc(s.target) : "";
+    info.innerHTML =
+      "<h2>Step " + s.step + ": " + esc(s.operation) + target + "</h2>" +
+      '<div class="meta"><span>source: ' + esc(s.source) + "</span>" +
+      "<span>timing: " + esc(s.durationMs) + " ms</span></div>" +
+      '<div class="meta"><span>op conf: ' + bar(s.operationConfidence) + "</span>" +
+      "<span>tgt conf: " + bar(s.targetConfidence) + "</span></div>" +
+      '<div class="detail">' + esc(s.detail) + "</div>" +
+      (s.note ? '<div class="note">' + esc(s.note) + "</div>" : "") +
+      "<details><summary>Snapshot / page state (diff from prior step visible in text)</summary><pre>" +
+      esc(s.snapshot) + "</pre></details>";
+  }
+  function go(n) { i = Math.max(0, Math.min(steps.length - 1, n)); render(); }
+  document.getElementById("prev").addEventListener("click", function () { go(i - 1); });
+  document.getElementById("next").addEventListener("click", function () { go(i + 1); });
+  scrub.addEventListener("input", function () { go(Number(scrub.value)); });
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "ArrowLeft") go(i - 1);
+    else if (e.key === "ArrowRight") go(i + 1);
+  });
+  render();
+})();
+</script>
 </body>
 </html>`;
 }
