@@ -880,11 +880,11 @@ loaded through `Laya.load({ modelDir, repo, subfolder, revision, cacheDir, execu
 dir; it never commits weights):
 
 ```sh
-# Reference model — simplest: downloads a prebuilt ONNX bundle, no Python needed.
+# Reference model - simplest: downloads a prebuilt ONNX bundle, no Python needed.
 scripts/prepare-model.sh reference
 LAYA_MODEL_DIR=.cache/laya-work/cache/receptron--laya-onnx/main pnpm test
 
-# Web-agent model — exports abedinia/laya-web-agent (needs `uv`/Python 3.12) and applies the
+# Web-agent model - exports abedinia/laya-web-agent (needs `uv`/Python 3.12) and applies the
 # tokenizer special-token rename below.
 scripts/prepare-model.sh web-agent
 LAYA_MODEL_DIR=.cache/laya-work/webagent-onnx pnpm test
@@ -895,7 +895,7 @@ real inference. The product's `LayaEngine.decide` asks two narrow `choice` quest
 ~810–870 ms/step for the reference model, ~440–490 ms/step for the web-agent (roughly 2× faster).
 On the structured-form benchmark, however, the deterministic rule layer (confidence `0.97`)
 clears the `0.85` gate and decides every step, so the source breakdown is `rule/laya/stub/llm =
-3/0/0/0` for **both** models — 100% fully autonomous (all local, no LLM round-trip), driven by
+3/0/0/0` for **both** models (100% fully autonomous: all local, no LLM round-trip), driven by
 the rules, not the weights, with the independent final-page verification passing (4/4). Neither
 checkpoint reliably picks the correct web operation on ambiguous single steps on its own, so the
 local model is best used as a low-confidence signal behind the gate that escalates to the client

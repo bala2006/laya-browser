@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# prepare-model.sh — build a @receptron/laya-loadable ONNX bundle for laya-browser-mcp.
+# prepare-model.sh - build a @receptron/laya-loadable ONNX bundle for laya-browser-mcp.
 #
 # Produces a local ONNX bundle directory you can point LAYA_MODEL_DIR at. NOTHING it
 # produces is committed: weights are large and .gitignore excludes *.onnx / *.onnx.data /
@@ -7,11 +7,11 @@
 #
 # Two models are supported (pick with the first argument):
 #
-#   reference   convaiinnovations/laya — the reference System-1 decision model. SIMPLEST:
+#   reference   convaiinnovations/laya - the reference System-1 decision model. SIMPLEST:
 #               @receptron/laya downloads a ready-made ONNX bundle (repo receptron/laya-onnx),
 #               so no Python/export is needed. Loads directly via Laya.load({ modelDir }).
 #
-#   web-agent   abedinia/laya-web-agent — the web-navigation checkpoint. Needs a Python 3.12
+#   web-agent   abedinia/laya-web-agent - the web-navigation checkpoint. Needs a Python 3.12
 #               export (torch/transformers -> ONNX) plus a one-line tokenizer special-token
 #               rename (<bos>/<eos>/<mask>/<pad> -> [CLS]/[SEP]/[MASK]/[PAD], SAME token IDs)
 #               because @receptron/laya@0.1.2 hardcodes the ModernBERT special-token names.
