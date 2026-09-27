@@ -16,7 +16,7 @@
  * The walk runs entirely in the page (it is serialised into the browser and executed there),
  * so it must not close over anything from the Node side.
  */
-import type { Control, Ref } from "./types.js";
+import type { Control, FastControl, FastSnapshot, NodeGuard, Ref } from "./types.js";
 import { asRef } from "./types.js";
 import type { SnapshotBackend } from "./config.js";
 import type { Page } from "playwright";
@@ -779,4 +779,639 @@ function domWalk(args: {
     visibleText,
     controls: ordered,
   } satisfies RawSnapshot;
+}
+
+// ---------------------------------------------------------------------------
+// (F1) The fast snapshot: one atomic page.evaluate that carries persistent node
+// identity + per-node semantic guards + a page-level marker + a pageKey. This adopts the
+// MECHANICS of the jev fast path (window.__jevFast identity WeakMap, guard array, page_key,
+// marker) in TypeScript/Playwright. It is used ONLY when the LAYA_FAST_LOOP flag is on; the
+// legacy capture()/domWalk() path is untouched.
+// ---------------------------------------------------------------------------
+
+/** Raw guard record returned from the in-page fast walk (validated before trusting). */
+interface RawNodeGuard {
+  role: string;
+  name: string;
+  value: string | null;
+  checked: boolean | null;
+  selectedIndex: number | null;
+  disabled: boolean;
+  ariaExpanded: string | null;
+  ariaChecked: string | null;
+  ariaSelected: string | null;
+  href: string | null;
+  scopeText: string;
+}
+
+/** Raw per-control record returned from the in-page fast walk (before branding refs). */
+interface RawFastControl {
+  ref: string;
+  index: number;
+  role: string;
+  name: string;
+  tag: string;
+  type?: string;
+  value?: string;
+  options?: string[];
+  editable: boolean;
+  checked?: boolean;
+  disabled?: boolean;
+  nodeId: number;
+  guard: RawNodeGuard;
+  rect: { x: number; y: number; w: number; h: number };
+}
+
+/** Raw result returned from the in-page fast walk. */
+interface RawFastSnapshot {
+  url: string;
+  title: string;
+  visibleText: string;
+  controls: RawFastControl[];
+  text: string;
+  pageKey: string;
+  marker: string;
+}
+
+/**
+ * (F1) Capture an ATOMIC fast snapshot in ONE page.evaluate.
+ *
+ * Unlike {@link capture} (which the legacy loop uses), this single evaluate initializes or
+ * reuses a window-scoped identity cache (`window.__layaFast`), prunes disconnected nodes,
+ * assigns each visible interactive element a PERSISTENT integer `nodeId` (stable across
+ * captures for the same live node), ALSO stamps `data-laya-ref="eN"` in DOM order (so
+ * `resolveRef` still works and the legacy path is unaffected), and computes for each control
+ * a {@link NodeGuard} plus its viewport rect. It also builds a page-level `marker` (whole-page
+ * freshness token) and a `pageKey` (form-field identity token), mirroring the jev mechanics.
+ *
+ * The returned object comes from an UNTRUSTED page.evaluate, so it is validated at this Node
+ * boundary by {@link assertFastSnapshot} before being returned; a malformed structure throws
+ * a clear error rather than being trusted blindly.
+ */
+export async function captureFast(
+  page: Page,
+  options: CaptureOptions = {},
+): Promise<FastSnapshot> {
+  const limit = options.visibleTextLimit ?? DEFAULT_VISIBLE_TEXT_LIMIT;
+  const raw = (await page.evaluate(fastWalk, { visibleTextLimit: limit })) as unknown;
+
+  // Validate the untrusted eval output BEFORE trusting any field.
+  assertRawFastSnapshot(raw);
+  const rawSnap = raw as RawFastSnapshot;
+
+  const controls: FastControl[] = rawSnap.controls.map((c) => ({
+    ref: asRef(c.ref) as Ref,
+    index: c.index,
+    role: c.role,
+    name: c.name,
+    tag: c.tag,
+    ...(c.type !== undefined ? { type: c.type } : {}),
+    ...(c.value !== undefined ? { value: c.value } : {}),
+    ...(c.options !== undefined ? { options: c.options } : {}),
+    editable: c.editable,
+    ...(c.checked !== undefined ? { checked: c.checked } : {}),
+    ...(c.disabled !== undefined ? { disabled: c.disabled } : {}),
+    nodeId: c.nodeId,
+    guard: { ...c.guard },
+    rect: { ...c.rect },
+  }));
+
+  return {
+    url: rawSnap.url,
+    title: rawSnap.title,
+    visibleText: rawSnap.visibleText,
+    controls,
+    text: rawSnap.text,
+    pageKey: rawSnap.pageKey,
+    marker: rawSnap.marker,
+  };
+}
+
+/**
+ * (F1) Validate that an untrusted value is a plain finite integer. Used at the Node boundary
+ * so a malformed nodeId from the page never becomes a non-integer or a NaN.
+ */
+function isFiniteInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value);
+}
+
+/** (F1) Validate a raw guard structure returned from the untrusted page.evaluate. */
+function isRawNodeGuard(value: unknown): value is RawNodeGuard {
+  if (typeof value !== "object" || value === null) return false;
+  const g = value as Record<string, unknown>;
+  const stringOrNull = (v: unknown): boolean => v === null || typeof v === "string";
+  const boolOrNull = (v: unknown): boolean => v === null || typeof v === "boolean";
+  const intOrNull = (v: unknown): boolean => v === null || isFiniteInteger(v);
+  return (
+    typeof g.role === "string" &&
+    typeof g.name === "string" &&
+    stringOrNull(g.value) &&
+    boolOrNull(g.checked) &&
+    intOrNull(g.selectedIndex) &&
+    typeof g.disabled === "boolean" &&
+    stringOrNull(g.ariaExpanded) &&
+    stringOrNull(g.ariaChecked) &&
+    stringOrNull(g.ariaSelected) &&
+    stringOrNull(g.href) &&
+    typeof g.scopeText === "string"
+  );
+}
+
+/** (F1) Validate a numeric rect `{x,y,w,h}` returned from the untrusted page.evaluate. */
+function isRawRect(value: unknown): value is { x: number; y: number; w: number; h: number } {
+  if (typeof value !== "object" || value === null) return false;
+  const r = value as Record<string, unknown>;
+  return (
+    typeof r.x === "number" &&
+    Number.isFinite(r.x) &&
+    typeof r.y === "number" &&
+    Number.isFinite(r.y) &&
+    typeof r.w === "number" &&
+    Number.isFinite(r.w) &&
+    typeof r.h === "number" &&
+    Number.isFinite(r.h)
+  );
+}
+
+/**
+ * (F1) A structural predicate for the raw fast snapshot, used by {@link assertRawFastSnapshot}
+ * and exported style so a test can exercise the validator against a malformed structure.
+ * Checks every field the fast path relies on: string url/title/visibleText/text/pageKey/marker
+ * and an array of controls each carrying a finite integer nodeId, a well-formed guard, and a
+ * numeric rect. Any malformed field makes this return false.
+ */
+export function isRawFastSnapshot(value: unknown): boolean {
+  if (typeof value !== "object" || value === null) return false;
+  const s = value as Record<string, unknown>;
+  if (
+    typeof s.url !== "string" ||
+    typeof s.title !== "string" ||
+    typeof s.visibleText !== "string" ||
+    typeof s.text !== "string" ||
+    typeof s.pageKey !== "string" ||
+    typeof s.marker !== "string" ||
+    !Array.isArray(s.controls)
+  ) {
+    return false;
+  }
+  for (const c of s.controls) {
+    if (typeof c !== "object" || c === null) return false;
+    const ctrl = c as Record<string, unknown>;
+    if (
+      typeof ctrl.ref !== "string" ||
+      !isFiniteInteger(ctrl.index) ||
+      typeof ctrl.role !== "string" ||
+      typeof ctrl.name !== "string" ||
+      typeof ctrl.tag !== "string" ||
+      typeof ctrl.editable !== "boolean" ||
+      !isFiniteInteger(ctrl.nodeId) ||
+      !isRawNodeGuard(ctrl.guard) ||
+      !isRawRect(ctrl.rect)
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * (F1) Assert the untrusted fast-snapshot eval output is well-formed, throwing a clear error
+ * otherwise. The fast path must NEVER trust an unvalidated structure from the page.
+ */
+function assertRawFastSnapshot(value: unknown): asserts value is RawFastSnapshot {
+  if (!isRawFastSnapshot(value)) {
+    throw new Error(
+      "captureFast: malformed snapshot returned from the page (untrusted page.evaluate output failed validation).",
+    );
+  }
+}
+
+/**
+ * (F1) The in-page fast walk. Runs INSIDE the browser (serialised by Playwright), so it must
+ * be fully self-contained and close over nothing from the Node scope. Returns a plain object.
+ *
+ * It mirrors the jev snapshot.js mechanics:
+ *   - a window-scoped identity cache `window.__layaFast = { ids: WeakMap, nodes: Map, next }`
+ *     that assigns a persistent integer nodeId to each element and prunes disconnected nodes;
+ *   - per-node semantic guards (role, name, value, checked, selectedIndex, disabled, the
+ *     aria state attributes, href, and scopeText) captured at observation time;
+ *   - a page-level `marker` (whole-page freshness) and a `pageKey` (form-field identity).
+ * It also stamps `data-laya-ref="eN"` in DOM order so the legacy resolveRef path is unaffected.
+ */
+function fastWalk(args: { visibleTextLimit: number }): unknown {
+  const { visibleTextLimit } = args;
+
+  // The persistent in-page identity cache. Reused across captures so a node keeps its id.
+  interface LayaFastCache {
+    ids: WeakMap<Element, number>;
+    nodes: Map<number, Element>;
+    next: number;
+  }
+  const w = window as unknown as { __layaFast?: LayaFastCache };
+  const cache: LayaFastCache =
+    w.__layaFast ?? (w.__layaFast = { ids: new WeakMap<Element, number>(), nodes: new Map(), next: 1 });
+
+  // Assign (or reuse) the persistent integer identity for an element, recording it in nodes.
+  const identity = (el: Element): number => {
+    let id = cache.ids.get(el);
+    if (id === undefined) {
+      id = cache.next++;
+      cache.ids.set(el, id);
+    }
+    cache.nodes.set(id, el);
+    return id;
+  };
+
+  // Prune identity entries whose node has left the document (mirror jev snapshot.js).
+  for (const [id, el] of cache.nodes) {
+    if (!el.isConnected) cache.nodes.delete(id);
+  }
+
+  const SELECTOR = [
+    "a[href]",
+    "button",
+    "input",
+    "textarea",
+    "select",
+    "[role]",
+    "[contenteditable]",
+    "[contenteditable='true']",
+  ].join(",");
+
+  function viewOf(el: Element): Window {
+    return (el.ownerDocument && el.ownerDocument.defaultView) || window;
+  }
+
+  function isVisibleWithRect(el: Element, rect: DOMRect): boolean {
+    const he = el as HTMLElement;
+    const style = viewOf(he).getComputedStyle(he);
+    if (style.display === "none" || style.visibility === "hidden") return false;
+    if (style.opacity === "0") return false;
+    if (rect.width === 0 && rect.height === 0) {
+      const tag = el.tagName.toLowerCase();
+      if (tag !== "input" && tag !== "select" && tag !== "textarea") return false;
+    }
+    return true;
+  }
+
+  function accessibleName(el: Element): string {
+    const he = el as HTMLElement;
+    const tag = el.tagName.toLowerCase();
+
+    const ariaLabel = he.getAttribute("aria-label");
+    if (ariaLabel && ariaLabel.trim()) return ariaLabel.trim();
+
+    const doc = he.ownerDocument || document;
+
+    const labelledBy = he.getAttribute("aria-labelledby");
+    if (labelledBy) {
+      const names = labelledBy
+        .split(/\s+/)
+        .map((id) => doc.getElementById(id)?.textContent?.trim() ?? "")
+        .filter(Boolean);
+      if (names.length) return names.join(" ");
+    }
+
+    if (tag === "input" || tag === "textarea" || tag === "select") {
+      const id = he.getAttribute("id");
+      if (id) {
+        const lbl = doc.querySelector(`label[for="${CSS.escape(id)}"]`);
+        if (lbl && lbl.textContent && lbl.textContent.trim()) {
+          return lbl.textContent.trim();
+        }
+      }
+      const wrapping = he.closest("label");
+      if (wrapping && wrapping.textContent && wrapping.textContent.trim()) {
+        return wrapping.textContent.trim();
+      }
+      const placeholder = he.getAttribute("placeholder");
+      if (placeholder && placeholder.trim()) return placeholder.trim();
+      const nameAttr = he.getAttribute("name");
+      if (nameAttr && nameAttr.trim()) return nameAttr.trim();
+    }
+
+    if (tag === "input") {
+      const type = (he.getAttribute("type") ?? "text").toLowerCase();
+      if (type === "submit" || type === "button" || type === "reset") {
+        const v = (he as HTMLInputElement).value;
+        if (v && v.trim()) return v.trim();
+      }
+    }
+
+    const title = he.getAttribute("title");
+    if (title && title.trim()) return title.trim();
+
+    const text = (he.textContent ?? "").replace(/\s+/g, " ").trim();
+    if (text) return text.length > 120 ? text.slice(0, 117) + "..." : text;
+
+    const altImg = he.querySelector("img[alt]");
+    if (altImg) {
+      const alt = altImg.getAttribute("alt");
+      if (alt && alt.trim()) return alt.trim();
+    }
+
+    return "";
+  }
+
+  function roleFor(el: Element): string {
+    const explicit = el.getAttribute("role");
+    if (explicit && explicit.trim()) return explicit.trim();
+
+    const tag = el.tagName.toLowerCase();
+    switch (tag) {
+      case "a":
+        return "link";
+      case "button":
+        return "button";
+      case "select":
+        return "combobox";
+      case "textarea":
+        return "textbox";
+      case "input": {
+        const type = (el.getAttribute("type") ?? "text").toLowerCase();
+        switch (type) {
+          case "checkbox":
+            return "checkbox";
+          case "radio":
+            return "radio";
+          case "submit":
+          case "button":
+          case "reset":
+          case "image":
+            return "button";
+          case "search":
+            return "searchbox";
+          case "range":
+            return "slider";
+          case "hidden":
+            return "hidden";
+          default:
+            return "textbox";
+        }
+      }
+      default:
+        if (el.hasAttribute("contenteditable")) return "textbox";
+        return tag;
+    }
+  }
+
+  function isEditable(el: Element, role: string): boolean {
+    const tag = el.tagName.toLowerCase();
+    if (tag === "textarea") return true;
+    if (el.hasAttribute("contenteditable")) {
+      const ce = el.getAttribute("contenteditable");
+      return ce === "" || ce === "true";
+    }
+    if (tag === "input") {
+      const type = (el.getAttribute("type") ?? "text").toLowerCase();
+      return !["checkbox", "radio", "submit", "button", "reset", "image", "hidden", "file", "range"].includes(
+        type,
+      );
+    }
+    return role === "textbox" || role === "searchbox";
+  }
+
+  // Compute the per-node semantic guard for one element (mirror jev's guard array as a struct).
+  function guardFor(el: Element, role: string, name: string): RawGuard {
+    const he = el as HTMLElement;
+    const tag = el.tagName.toLowerCase();
+    let value: string | null = null;
+    let checked: boolean | null = null;
+    let selectedIndex: number | null = null;
+    if (tag === "input") {
+      const input = el as HTMLInputElement;
+      const type = (input.getAttribute("type") ?? "text").toLowerCase();
+      if (type === "checkbox" || type === "radio") {
+        checked = input.checked;
+      } else {
+        value = input.value;
+      }
+    } else if (tag === "textarea") {
+      value = (el as HTMLTextAreaElement).value;
+    } else if (tag === "select") {
+      selectedIndex = (el as HTMLSelectElement).selectedIndex;
+      const sel = el as HTMLSelectElement;
+      const selected = sel.options[sel.selectedIndex];
+      value = selected ? selected.label || selected.value : null;
+    } else if (el.hasAttribute("contenteditable")) {
+      value = (el.textContent ?? "").trim();
+    }
+    const scope =
+      el.closest("form,dialog,[role='dialog'],article,li,tr,[role='row']") || el.parentElement;
+    const scopeText = ((scope as HTMLElement | null)?.innerText ?? "").slice(0, 6000);
+    return {
+      role,
+      name,
+      value,
+      checked,
+      selectedIndex,
+      disabled: (el as HTMLButtonElement).disabled === true || el.matches(":disabled"),
+      ariaExpanded: el.getAttribute("aria-expanded"),
+      ariaChecked: el.getAttribute("aria-checked"),
+      ariaSelected: el.getAttribute("aria-selected"),
+      href: el.getAttribute("href"),
+      scopeText,
+    };
+  }
+
+  interface RawGuard {
+    role: string;
+    name: string;
+    value: string | null;
+    checked: boolean | null;
+    selectedIndex: number | null;
+    disabled: boolean;
+    ariaExpanded: string | null;
+    ariaChecked: string | null;
+    ariaSelected: string | null;
+    href: string | null;
+    scopeText: string;
+  }
+
+  interface FastRaw {
+    ref: string;
+    index: number;
+    role: string;
+    name: string;
+    tag: string;
+    type?: string;
+    value?: string;
+    options?: string[];
+    editable: boolean;
+    checked?: boolean;
+    disabled?: boolean;
+    nodeId: number;
+    guard: RawGuard;
+    rect: { x: number; y: number; w: number; h: number };
+  }
+
+  const results: FastRaw[] = [];
+  const seen = new Set<Element>();
+  let elements: Element[] = [];
+  try {
+    elements = Array.from(document.querySelectorAll(SELECTOR));
+  } catch {
+    elements = [];
+  }
+  let counter = 0;
+
+  for (const el of elements) {
+    if (seen.has(el)) continue;
+    seen.add(el);
+
+    const role = roleFor(el);
+    if (role === "hidden") continue;
+    const rect = (el as HTMLElement).getBoundingClientRect();
+    if (!isVisibleWithRect(el, rect)) continue;
+
+    const name = accessibleName(el);
+    const tag = el.tagName.toLowerCase();
+
+    counter += 1;
+    const ref = "e" + counter;
+    el.setAttribute("data-laya-ref", ref);
+    const nodeId = identity(el);
+
+    const editable = isEditable(el, role);
+    const control: FastRaw = {
+      ref,
+      index: counter,
+      role,
+      name,
+      tag,
+      editable,
+      nodeId,
+      guard: guardFor(el, role, name),
+      rect: { x: rect.x, y: rect.y, w: rect.width, h: rect.height },
+    };
+
+    if (tag === "input") {
+      const input = el as HTMLInputElement;
+      control.type = (input.getAttribute("type") ?? "text").toLowerCase();
+      if (control.type === "checkbox" || control.type === "radio") {
+        control.checked = input.checked;
+      } else if (input.value) {
+        control.value = input.value;
+      }
+      if (input.disabled) control.disabled = true;
+    } else if (tag === "textarea") {
+      const ta = el as HTMLTextAreaElement;
+      if (ta.value) control.value = ta.value;
+      if (ta.disabled) control.disabled = true;
+    } else if (tag === "select") {
+      const sel = el as HTMLSelectElement;
+      control.options = Array.from(sel.options).map((o) => o.label || o.value);
+      const selected = sel.options[sel.selectedIndex];
+      if (selected) control.value = selected.label || selected.value;
+      if (sel.disabled) control.disabled = true;
+    } else if (el.hasAttribute("contenteditable")) {
+      const txt = (el.textContent ?? "").trim();
+      if (txt) control.value = txt;
+    } else if (tag === "button" || role === "button") {
+      const btn = el as HTMLButtonElement;
+      if (tag === "button") {
+        const rawType = btn.getAttribute("type");
+        control.type = (rawType ?? "submit").toLowerCase();
+      }
+      if (btn.disabled) control.disabled = true;
+    }
+
+    results.push(control);
+  }
+
+  const bodyText = (document.body?.innerText ?? "")
+    .replace(/\s+\n/g, "\n")
+    .replace(/[ \t]+/g, " ")
+    .trim();
+  const visibleText =
+    bodyText.length > visibleTextLimit
+      ? bodyText.slice(0, visibleTextLimit) + "\n... [truncated]"
+      : bodyText;
+
+  // The compact human-readable text (same line format as the legacy snapshot).
+  const lines: string[] = [];
+  lines.push("URL: " + window.location.href);
+  lines.push("Title: " + document.title);
+  lines.push("");
+  if (results.length === 0) {
+    lines.push("- (no interactive or landmark elements found)");
+  } else {
+    for (const c of results) {
+      const parts = ["- " + c.role + " " + JSON.stringify(c.name) + " [ref=" + c.ref + "]"];
+      const attrs: string[] = [];
+      if (c.type && c.type !== c.role) attrs.push(c.type);
+      if (c.disabled) attrs.push("disabled");
+      if (c.checked !== undefined) attrs.push(c.checked ? "checked" : "unchecked");
+      if (c.value) attrs.push("value=" + JSON.stringify(c.value));
+      if (c.options && c.options.length > 0) {
+        attrs.push("options=[" + c.options.map((o) => JSON.stringify(o)).join(", ") + "]");
+      }
+      if (attrs.length > 0) parts.push("(" + attrs.join(", ") + ")");
+      lines.push(parts.join(" "));
+    }
+  }
+  const text = lines.join("\n");
+
+  // pageKey: identity of the observed document/navigation plus every form field's state.
+  // A change here means a form input was mutated or the page navigated/scrolled.
+  let formState: unknown[] = [];
+  try {
+    formState = Array.from(document.querySelectorAll("input,textarea,select")).map((e) => {
+      const el = e as HTMLInputElement & HTMLSelectElement;
+      return [
+        cache.ids.get(e) ?? -1,
+        el.value ?? null,
+        el.checked ?? null,
+        el.selectedIndex ?? null,
+        el.disabled ?? null,
+        el.readOnly ?? null,
+      ];
+    });
+  } catch {
+    formState = [];
+  }
+  const pageKey = JSON.stringify([
+    window.location.href,
+    window.scrollX,
+    window.scrollY,
+    window.innerWidth,
+    window.innerHeight,
+    formState,
+  ]);
+
+  // marker: a whole-page freshness token = href + scroll + viewport + title + text + the
+  // per-node semantic tuples. Compared cheaply when a per-node guard is not applicable.
+  const semantics = results.map((c) => [
+    c.nodeId,
+    c.role,
+    c.name,
+    c.guard.value,
+    c.guard.checked,
+    c.guard.selectedIndex,
+    c.guard.disabled,
+    c.guard.ariaExpanded,
+    c.guard.ariaChecked,
+    c.guard.ariaSelected,
+    c.guard.href,
+  ]);
+  const marker = JSON.stringify([
+    window.location.href,
+    window.scrollX,
+    window.scrollY,
+    window.innerWidth,
+    window.innerHeight,
+    document.title,
+    visibleText,
+    semantics,
+  ]);
+
+  return {
+    url: window.location.href,
+    title: document.title,
+    visibleText,
+    controls: results,
+    text,
+    pageKey,
+    marker,
+  } satisfies RawFastSnapshot;
 }

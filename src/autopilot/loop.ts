@@ -30,7 +30,7 @@ import type {
   ScrollDirection,
   ToastKind,
 } from "../overlay.js";
-import { capture, type CaptureOptions, type Snapshot } from "../snapshot.js";
+import { capture, captureFast, type CaptureOptions, type Snapshot } from "../snapshot.js";
 import { diffSnapshots, hasChanges } from "../snapshot-diff.js";
 import { buildState, renderState, type BuildStateOptions } from "../state-builder.js";
 import { fieldValueFromGoal, goalSuccessMarkers } from "../laya/goal.js";
@@ -46,9 +46,18 @@ import {
   DEFAULT_MAX_STEPS,
   DEFAULT_SELF_HEAL_RETRIES,
   DEFAULT_SNAPSHOT_BACKEND,
+  DEFAULT_FAST_WAIT_CAP_MS,
   type SnapshotBackend,
 } from "../config.js";
-import type { Control, Decision, LayaDecisionEngine, PageState } from "../types.js";
+import type {
+  Control,
+  Decision,
+  FastControl,
+  FastSnapshot,
+  LayaDecisionEngine,
+  NodeGuard,
+  PageState,
+} from "../types.js";
 
 /**
  * How the goal run ended.
@@ -382,6 +391,23 @@ export interface RunGoalOptions {
    * caller's concern; keep it defensive).
    */
   onProgress?: (info: { step: number; total: number; message: string }) => void | Promise<void>;
+  /**
+   * (F1) Whether the FAST browser loop is active. When ON: per-step capture uses the atomic
+   * {@link captureFast} (persistent in-page node identity + per-node semantic guards + a
+   * page-level marker + pageKey in ONE evaluate); a targeted CLICK/TYPE_TEXT/SELECT/FILL_FORM
+   * re-checks the target's guard+pageKey and acts on the OBSERVED node via
+   * {@link BrowserSession.actOnNode} (no fresh selector re-query, with a pre-input occlusion
+   * hit-test); and the fixed post-action settle is replaced by {@link BrowserSession.adaptiveWait}
+   * on the hot path. When OFF (default) the code path is EXACTLY as today
+   * (capture / resolveRef / locate / probeSettle), so main's behavior is byte-identical.
+   */
+  fastLoop?: boolean;
+  /**
+   * (F1) The adaptive-wait cap in ms the fast loop uses (e.g. for a combobox/autocomplete list
+   * to populate) before inputting. Only consulted when {@link fastLoop} is on. Defaults to
+   * {@link DEFAULT_FAST_WAIT_CAP_MS}.
+   */
+  fastWaitCapMs?: number;
 }
 
 const DEFAULT_WAIT_MS = 500;
@@ -764,10 +790,48 @@ async function execute(
     secrets: Set<string>;
     /** (C1/C3) The backend/ordering used for any re-capture inside execute (self-heal/VERIFY). */
     captureOptions: CaptureOptions;
+    /**
+     * (F1) When present, the fast loop is active for this step: `ctx` carries the per-ref
+     * persistent identity / guard / rect and the observation's pageKey+marker, and `capMs`
+     * is the adaptive-wait cap. A targeted CLICK/TYPE_TEXT/SELECT/FILL_FORM then re-checks the
+     * guard+pageKey and acts on the OBSERVED node (no fresh selector query) with a pre-input
+     * occlusion hit-test, returning a soft `stale`/`covered` result so the loop re-observes.
+     */
+    fast?: { ctx: FastContext; capMs: number };
   },
   session: BrowserSession,
   narrator: Narrator,
 ): Promise<ExecuteResult> {
+  // (F1) The fast-path result of a targeted action attempt: `handled` false means the caller
+  // should fall back to the legacy locator path (e.g. the ref had no fast identity).
+  const fastAct = async (
+    ref: string,
+    kind: "click" | "fill" | "select",
+    value: string | undefined,
+  ): Promise<{ handled: boolean; soft?: "stale" | "covered" | "gone" }> => {
+    const fast = options.fast;
+    if (!fast) return { handled: false };
+    const entry = fast.ctx.byRef.get(ref);
+    if (!entry) return { handled: false };
+    const page = await session.getPage();
+    // Freshness re-check: [pageKey, guard(node)] must match what we observed at decision time.
+    const fresh = await session.freshGuard(page, entry.nodeId, {
+      guard: entry.guard,
+      pageKey: fast.ctx.pageKey,
+    });
+    if (!fresh) return { handled: true, soft: "stale" };
+    // Act on the OBSERVED node (no fresh selector query) with the pre-input occlusion hit-test.
+    const result = await session.actOnNode(page, entry.nodeId, kind, { value: value ?? "" });
+    if (!result.ok) return { handled: true, soft: result.reason };
+    // Adaptive, bounded wait instead of a fixed post-action settle on the hot path.
+    await session.adaptiveWait(page, { nodeId: entry.nodeId, kind, capMs: fast.capMs });
+    return { handled: true };
+  };
+  // (F1) A soft failure (stale/covered/gone) from the fast path surfaces as a stale-ref-shaped
+  // error so the existing self-heal retry budget re-captures and re-resolves, exactly as it
+  // does for a genuine stale locator on the legacy path.
+  const softError = (reason: string): Error =>
+    new Error(`fast path: target is ${reason} (re-observe needed)`);
   switch (decision.operation) {
     case "CLICK": {
       const c = findControl(state, decision.target);
@@ -785,6 +849,15 @@ async function execute(
         { ref: decision.target, name: c ? String(c.name) : "", role: c ? c.role : "" },
         options.selfHealRetries,
         async (ref) => {
+          // (F1) Fast path: act on the observed node (freshness + occlusion) with NO fresh
+          // selector query. A soft stale/covered result throws a stale-shaped error so the
+          // self-heal budget re-captures and re-resolves; a ref without fast identity falls
+          // through to the legacy locator path unchanged.
+          const fa = await fastAct(ref, "click", undefined);
+          if (fa.handled) {
+            if (fa.soft) throw softError(fa.soft);
+            return;
+          }
           await (await session.locate(ref)).click();
         },
         options.captureOptions,
@@ -811,6 +884,11 @@ async function execute(
         { ref: decision.target, name: c ? String(c.name) : "", role: c ? c.role : "" },
         options.selfHealRetries,
         async (ref) => {
+          const fa = await fastAct(ref, "fill", value);
+          if (fa.handled) {
+            if (fa.soft) throw softError(fa.soft);
+            return;
+          }
           await (await session.locate(ref)).fill(value);
         },
         options.captureOptions,
@@ -831,6 +909,11 @@ async function execute(
         { ref: decision.target, name: c ? String(c.name) : "", role: c ? c.role : "" },
         options.selfHealRetries,
         async (ref) => {
+          const fa = await fastAct(ref, "select", value);
+          if (fa.handled) {
+            if (fa.soft) throw softError(fa.soft);
+            return;
+          }
           const locator = await session.locate(ref);
           await locator.selectOption({ label: value }).catch(async () => {
             await locator.selectOption(value);
@@ -881,9 +964,23 @@ async function execute(
         }
         // Tier 1: spotlight/cursor each field in turn as it is filled.
         await narrator.focusTarget(field.target, `Filling ${label}\u2026`);
-        const locator = await session.locate(field.target);
         const kind = fieldKindFor(control);
-        await applyFieldValue(locator, field.value, kind);
+        // (F1) Fast path: fill/select the OBSERVED node with no fresh selector query. A
+        // checkbox/radio still goes through the legacy applyFieldValue (its toggle semantics
+        // are richer than a raw value set); a text/combobox fill or a select uses actOnNode.
+        // On a soft stale/covered result or a ref without fast identity, fall back to the
+        // legacy locator fill so a batch never silently drops a field.
+        const fastKind: "fill" | "select" | undefined =
+          kind === "combobox" ? "select" : kind === "checkbox" || kind === "radio" ? undefined : "fill";
+        let handledFast = false;
+        if (fastKind !== undefined) {
+          const fa = await fastAct(field.target, fastKind, field.value);
+          handledFast = fa.handled && fa.soft === undefined;
+        }
+        if (!handledFast) {
+          const locator = await session.locate(field.target);
+          await applyFieldValue(locator, field.value, kind);
+        }
         filled.push(`${field.target}=${JSON.stringify(field.value)}`);
       }
       return { detail: `FILL_FORM [${filled.join(", ")}]` };
@@ -1012,6 +1109,46 @@ function buildArtifact(
   };
 }
 
+/**
+ * (F1) The per-ref fast-path side data captured alongside a {@link FastSnapshot}: each control's
+ * persistent nodeId, its semantic guard, and its geometry rect. Keyed by ref so the decision
+ * layer keeps using plain refs (buildState / the engine are unchanged); the loop looks the
+ * extra identity up here when it executes a targeted action via the persistent-identity path.
+ */
+interface FastContext {
+  /** Per-ref identity + guard + rect for the CURRENT observation. */
+  byRef: Map<string, { nodeId: number; guard: NodeGuard; rect: FastControl["rect"] }>;
+  /** The pageKey of the current observation (used for the click/select freshness re-check). */
+  pageKey: string;
+  /** The whole-page marker of the current observation (used for non-targeted freshness). */
+  marker: string;
+}
+
+/**
+ * (F1) Project a {@link FastSnapshot} down to the plain {@link Snapshot} the state builder and
+ * engine consume, and build the {@link FastContext} side map keyed by ref. The Snapshot's
+ * `controls` are the SAME FastControl objects (a FastControl is a Control), so nothing about
+ * buildState / the decision layer changes; the nodeId/guard/rect simply ride along on the side
+ * map for the loop to use at execution time.
+ */
+function projectFast(fast: FastSnapshot): { snapshot: Snapshot; ctx: FastContext } {
+  const byRef = new Map<
+    string,
+    { nodeId: number; guard: NodeGuard; rect: FastControl["rect"] }
+  >();
+  for (const c of fast.controls) {
+    byRef.set(c.ref, { nodeId: c.nodeId, guard: c.guard, rect: c.rect });
+  }
+  const snapshot: Snapshot = {
+    url: fast.url,
+    title: fast.title,
+    visibleText: fast.visibleText,
+    controls: fast.controls,
+    text: fast.text,
+  };
+  return { snapshot, ctx: { byRef, pageKey: fast.pageKey, marker: fast.marker } };
+}
+
 function redactSnapshot(snapshot: Snapshot, redact: (text: string) => string): Snapshot {
   return {
     ...snapshot,
@@ -1064,6 +1201,8 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
     autoDismiss = false,
     frameDepth = 0,
     onProgress,
+    fastLoop = false,
+    fastWaitCapMs = DEFAULT_FAST_WAIT_CAP_MS,
   } = options;
 
   // (T1.4) Whether ANY per-step screenshot is captured. Recording artifacts implies a
@@ -1235,8 +1374,21 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
       // (T4.1) Use the prefetched snapshot when it is safe (settled + no auto-dismiss); this
       // is byte-identical to capturing here because the probe confirmed the page did not
       // change between the prefetch and now. Otherwise capture fresh (unchanged behaviour).
-      const canReusePrefetch = prefetched !== undefined && !autoDismiss;
-      const snapshot = canReusePrefetch ? prefetched! : await capture(page, captureOptions);
+      // (F1) Fast loop: capture the atomic FastSnapshot (persistent identity + guards + marker
+      // + pageKey in ONE evaluate) and project it to the plain Snapshot the state builder / the
+      // engine consume, keeping the nodeId/guard/rect on a side map keyed by ref. The prefetch
+      // reuse (a legacy-path optimization) is not used on the fast path. When fastLoop is OFF
+      // this branch is skipped entirely and the path is byte-identical to before.
+      let fastCtx: FastContext | undefined;
+      let snapshot: Snapshot;
+      if (fastLoop) {
+        const projected = projectFast(await captureFast(page, captureOptions));
+        snapshot = projected.snapshot;
+        fastCtx = projected.ctx;
+      } else {
+        const canReusePrefetch = prefetched !== undefined && !autoDismiss;
+        snapshot = canReusePrefetch ? prefetched! : await capture(page, captureOptions);
+      }
       lastSnapshot = snapshot;
 
       // (D1) Optional per-step PNG screenshot, captured only when recording is enabled so
@@ -1502,7 +1654,18 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
       const executed = await execute(
         decision,
         state,
-        { waitMs, scrollBy, selfHealRetries, redactSecrets, secrets, captureOptions },
+        {
+          waitMs,
+          scrollBy,
+          selfHealRetries,
+          redactSecrets,
+          secrets,
+          captureOptions,
+          // (F1) Thread the fast context for this step's targeted execution when fastLoop is on.
+          ...(fastLoop && fastCtx !== undefined
+            ? { fast: { ctx: fastCtx, capMs: fastWaitCapMs } }
+            : {}),
+        },
         session,
         narrator,
       );
@@ -1556,7 +1719,17 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
       // A2: purely-observational settle probe. It NEVER changes the decision path or outcome;
       // it only records `settled` on the step and narrates a hint. Terminal ops already broke
       // out above, so this runs only for the continuing loop.
-      if (settleProbe) {
+      // (F1) On the fast path the targeted action already did its own bounded adaptiveWait and
+      // the next iteration always captures a fresh FastSnapshot, so the legacy fixed settle
+      // probe + speculative prefetch are skipped (they are a legacy-path optimization keyed to
+      // the prefetch reuse this branch does not use). `settled` is recorded observationally.
+      if (settleProbe && fastLoop) {
+        const beforeUrlFast = beforeUrl;
+        const probe = await session
+          .probeSettle(page, { beforeUrl: beforeUrlFast, timeoutMs: fastWaitCapMs })
+          .catch(() => ({ changed: false, urlChanged: false, mutations: 0 }));
+        record.settled = probe.changed;
+      } else if (settleProbe) {
         await narrator.setState("acting", "Waiting for page to settle\u2026");
         // (T4.1) Overlap the settle probe with a speculative capture for the NEXT step. Both
         // are independent reads against the page; running them together hides the capture cost

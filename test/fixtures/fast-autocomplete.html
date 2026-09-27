@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Autocomplete</title>
+    <style>
+      #listbox { list-style: none; margin: 0; padding: 0; border: 1px solid #ccc; }
+      #listbox li { padding: 6px; }
+      #listbox.empty { display: none; }
+    </style>
+  </head>
+  <body>
+    <h1>Autocomplete</h1>
+    <label for="city">City</label>
+    <input
+      id="city"
+      name="city"
+      type="text"
+      role="combobox"
+      aria-controls="listbox"
+      aria-autocomplete="list"
+      autocomplete="off"
+    />
+    <ul id="listbox" class="empty" role="listbox" aria-label="Suggestions"></ul>
+
+    <script>
+      const input = document.getElementById("city");
+      const listbox = document.getElementById("listbox");
+      input.addEventListener("input", () => {
+        // Populate the option list after a short delay, mirroring a real autocomplete
+        // that fetches suggestions asynchronously.
+        listbox.classList.add("empty");
+        listbox.innerHTML = "";
+        const query = input.value.trim();
+        if (!query) return;
+        setTimeout(() => {
+          if (input.value.trim() !== query) return;
+          for (const city of ["London", "Los Angeles", "Lagos"]) {
+            const li = document.createElement("li");
+            li.setAttribute("role", "option");
+            li.textContent = city;
+            listbox.appendChild(li);
+          }
+          listbox.classList.remove("empty");
+        }, 80);
+      });
+    </script>
+  </body>
+</html>
