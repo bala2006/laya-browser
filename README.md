@@ -758,10 +758,38 @@ of each fixture's expected operations that appear, in order, in the transcript �
 
 ## Weights
 
-The Laya ONNX bundle is **not bundled** with this package. It is roughly **1.7 GB** (needs
+The Laya ONNX bundle is **not bundled** with this package. It is roughly **1.3–1.7 GB** (needs
 ~2 GB RAM loaded) and is downloaded/exported at runtime, cached under
 `~/.cache/receptron-laya` (`LAYA_CACHE`) or pointed at via `LAYA_MODEL_DIR`. The bundle is
 loaded through `Laya.load({ modelDir, repo, subfolder, revision, cacheDir, executionProviders })`.
+
+### Prepare a bundle
+
+`scripts/prepare-model.sh` builds a loadable bundle reproducibly (into a gitignored scratch
+dir; it never commits weights):
+
+```sh
+# Reference model — simplest: downloads a prebuilt ONNX bundle, no Python needed.
+scripts/prepare-model.sh reference
+LAYA_MODEL_DIR=.cache/laya-work/cache/receptron--laya-onnx/main pnpm test
+
+# Web-agent model — exports abedinia/laya-web-agent (needs `uv`/Python 3.12) and applies the
+# tokenizer special-token rename below.
+scripts/prepare-model.sh web-agent
+LAYA_MODEL_DIR=.cache/laya-work/webagent-onnx pnpm test
+```
+
+**Measured on device (CPU, this repo).** Both bundles load through `@receptron/laya` and run
+real inference. The product's `LayaEngine.decide` asks two narrow `choice` questions per step:
+~810–870 ms/step for the reference model, ~440–490 ms/step for the web-agent (roughly 2× faster).
+On the structured-form benchmark, however, the deterministic rule layer (confidence `0.97`)
+clears the `0.85` gate and decides every step, so the source breakdown is `rule/laya/stub/llm =
+3/0/0/0` for **both** models — 100% fully autonomous (all local, no LLM round-trip), driven by
+the rules, not the weights, with the independent final-page verification passing (4/4). Neither
+checkpoint reliably picks the correct web operation on ambiguous single steps on its own, so the
+local model is best used as a low-confidence signal behind the gate that escalates to the client
+LLM when unsure. The **reference model is the drop-in default** (prebuilt bundle, no export); the
+**web-agent** is available for ambiguous/real-site steps via the documented export.
 
 ### Web-agent export spike (VERIFIED)
 

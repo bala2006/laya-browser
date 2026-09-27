@@ -199,8 +199,11 @@ unit-testable without a live MCP client.
     weights.
 - **INFERRED (from docs/patterns, not run here):**
   - Real per-step accuracy (~97.7% clean forms, ~1 step in 5 on real Mind2Web) — from the
-    checkpoint's reported figures; not reproduced offline.
-  - The bundle size (~1.7 GB) and ~2 GB RAM footprint.
+    checkpoint's reported figures; not reproduced offline. FEAT-003's direct `decide` probes are
+    consistent with the "not reliable step-by-step on its own" side of this (see the VERIFIED
+    FEAT-003 block), but were not a full accuracy benchmark.
+  - The ~2 GB RAM footprint. (Bundle SIZE is now VERIFIED: reference ~1.69 GB of external weights;
+    web-agent `laya.onnx` 1291 MB inline — see the FEAT-003 VERIFIED block.)
 - **GUESSED (reasonable defaults, tunable):**
   - The default confidence threshold `0.85` (T2; raised from `0.6`), default `maxSteps` `15`,
     the destructive-keyword set, and the goal-grammar surface. All are configurable /
@@ -227,6 +230,55 @@ unit-testable without a live MCP client.
     `Autonomy: X/Y steps local (Z%); inference: median NN ms` line plus per-step `inf=NNms`.
     Full offline suite green with the stub, no weights: 272 passed, 3 skipped; `pnpm run bench`
     green (domwalk + aria, 4/4 fixtures, 100% ops coverage).
+
+- **VERIFIED (ran it) — FEAT-003 real weights on device (this session, CPU, Node 22, no fakes):**
+  Both real bundles were downloaded/exported, loaded through `@receptron/laya`'s
+  `Laya.load({ modelDir })` in Node, and run REAL inference. Reproduce with
+  `scripts/prepare-model.sh reference|web-agent`, then `LAYA_MODEL_DIR=<dir> pnpm test` +
+  `LAYA_MODEL_DIR=<dir> pnpm run bench`.
+  - **Path A — reference `convaiinnovations/laya`.** `@receptron/laya` downloaded the ready-made
+    ONNX bundle (repo `receptron/laya-onnx`): `laya.onnx` 3.8 MB graph + `laya.onnx.data`
+    1.69 GB external weights + `laya_config.json` (`max_len 512`, `head_max_len 192`) + tokenizer.
+    Loaded directly (no rename). `Laya.load` ~12.8 s cold (download) / ~1.5 s warm; one
+    `systemOne` narrow-choice call ~280 ms; the product's `LayaEngine.decide` (TWO narrow choice
+    questions per step) ~810-870 ms median.
+  - **Path B — web-agent `abedinia/laya-web-agent`.** `snapshot_download` the checkpoint
+    (`model.safetensors` 1.29 GB) + pulled `rl_common.py`/`rl_agent_api.py`/`email_utils.py` from
+    `convaiinnovations/laya`; ran the reference `export_onnx.py` UNMODIFIED (parity
+    `max |dlogits| = 4.20e-05`, `max |dact| = 0.0`; `laya.onnx` 1291 MB, weights inline). Applied
+    the one-line tokenizer rename (`<bos>=2/<eos>=1/<mask>=4/<pad>=0` -> `[CLS]/[SEP]/[MASK]/[PAD]`,
+    SAME IDs). `Laya.load({ modelDir })` then loaded and ran. `LayaEngine.decide` ~440-490 ms
+    median (roughly 2x faster than the reference per decision).
+  - **Gated tests pass for BOTH bundles.** `LAYA_MODEL_DIR=<dir> pnpm test` runs
+    `test/autopilot.test.ts` (line ~338) + `test/benchmark/report.test.ts` (line ~43): the real
+    autopilot test drives the search form to a real INDEPENDENT final-page verification (success,
+    not just a DONE decision), and the real-engine benchmark reports 4/4 end-to-end success,
+    100% ops coverage.
+  - **HONEST finding — the deterministic rule layer does the structured work; the model is not
+    consulted on these fixtures.** On all four benchmark fixtures the per-step source breakdown is
+    `rule/laya/stub/llm = 3/0/0/0` for BOTH real models: the rule seed's confidence `0.97` clears
+    the `0.85` gate, so Laya never decides a step. Fully-autonomous = 100% (all local, zero LLM
+    round-trips), but that autonomy comes from the rules, not the weights. Direct
+    `LayaEngine.decide` probes on ambiguous single steps confirm neither checkpoint reliably picks
+    the correct web operation from our `renderState` input: reference gives TYPE_TEXT on an
+    empty-search state (correct, but conf 0.36, below the gate -> would escalate) yet TYPE_TEXT on
+    an already-filled form (should CLICK) and on a results page (should DONE); the web-agent skews
+    to DONE (correct on the results page conf 0.94, but DONE on the empty and filled forms too).
+    So the honest positioning stands: the rules do the reliable structured work, the local model
+    is a low-confidence signal behind the `0.85` gate that escalates to the client LLM when unsure,
+    and the independent final-page check (never a DONE decision) is the trust signal.
+  - **Model choice: the reference `convaiinnovations/laya` is the DEFAULT (zero-friction: a
+    prebuilt ONNX bundle, no Python/export, no tokenizer rename).** The web-agent is the
+    purpose-built web checkpoint and is ~2x faster per decide, but on the current structured
+    fixtures neither model changes the measured end-to-end outcome (the rules win), so there is no
+    evidence to prefer the heavier export path for structured tasks. Recommendation: ship the
+    reference bundle as the drop-in default; keep the documented web-agent export
+    (`scripts/prepare-model.sh web-agent`) for ambiguous/real-site steps where the model, not the
+    rules, has to decide. Both paths are one command via `scripts/prepare-model.sh`.
+  - **Offline suite still green with the stub, no weights (WITHOUT `LAYA_MODEL_DIR`):** typecheck +
+    build pass; `pnpm test` = 272 passed / 3 skipped (WebKit self-skip + the two `LAYA_MODEL_DIR`
+    gated blocks). Scratch dir, venv, and all weights were deleted after capturing the numbers;
+    `git status --porcelain --ignored` is clean of `*.onnx`/`*.onnx.data`/`model/`/`.venv`.
 
 ## Core data shapes (designed first — `src/types.ts`)
 
@@ -324,7 +376,8 @@ without the export step.
 - **Weights size.** The bundle is ~1.3–1.7 GB and needs ~2 GB RAM loaded. It is never committed
   (`.gitignore` excludes `*.onnx` / `*.onnx.data` / `model/`); it is downloaded/exported at
   runtime and cached under `~/.cache/receptron-laya` (`LAYA_CACHE`) or pointed at via
-  `modelDir` / `LAYA_MODEL_DIR`.
+  `modelDir` / `LAYA_MODEL_DIR`. `scripts/prepare-model.sh reference|web-agent` builds a bundle
+  reproducibly in a scratch dir; it never commits weights.
 - **`head_max_len` limits.** Options for a `choice` must fit `head_max_len` tokens (throws
   otherwise) and ~<20 options per choice is recommended; the state builder must keep the numbered
   control list compact.
