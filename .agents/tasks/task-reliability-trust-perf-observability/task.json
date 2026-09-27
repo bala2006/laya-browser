@@ -1,0 +1,7 @@
+{
+  "task_id": "task-reliability-trust-perf-observability",
+  "task_description": "Implement all four feature groups on the laya-browser-mcp Autopilot/overlay stack, additively and backward-compatibly: A) Reliability & self-healing (auto-retry with self-healing refs, post-action settle detection, loop-detection/stuck guard); B) Trust & safety (secret redaction, human-in-the-loop confirmation via MCP elicitation, opt-in destructive guard for Assist tools); C) Perception cost & speed (accessibility-tree snapshot backend + benchmark, snapshot diffing with delta escalation, viewport-priority capture); D) Observability (session trace/replay export tool, structured MCP progress notifications). All new config via typed LAYA_-prefixed knobs parsed once in src/config.ts; README updated; real headless tests added for each feature; no networkidle/slowMo; stderr-only; no secrets in logs.",
+  "status": "in_progress",
+  "feature_order": ["FEAT-001", "FEAT-002", "FEAT-003", "FEAT-004", "FEAT-005"],
+  "blocked_reason": null
+}
