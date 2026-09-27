@@ -3,6 +3,9 @@ import {
   asRef,
   type Control,
   type Decision,
+  type FastControl,
+  type FastSnapshot,
+  type NodeGuard,
   type Operation,
   type PageState,
 } from "../src/types.js";
@@ -94,5 +97,106 @@ describe("core types", () => {
     expect(decision.operation).toBe("PRESS_KEY");
     expect(decision.key).toBe("Enter");
     expect(decision.target).toBeUndefined();
+  });
+});
+
+describe("fast-path types (F1)", () => {
+  it("constructs a NodeGuard with the applicable/null-when-not fields", () => {
+    const guard: NodeGuard = {
+      role: "textbox",
+      name: "Email",
+      value: "user@example.com",
+      checked: null,
+      selectedIndex: null,
+      disabled: false,
+      ariaExpanded: null,
+      ariaChecked: null,
+      ariaSelected: null,
+      href: null,
+      scopeText: "Sign up form",
+    };
+
+    // Round-trips through JSON (crosses the untrusted page.evaluate boundary).
+    const round = JSON.parse(JSON.stringify(guard)) as NodeGuard;
+    expect(round).toEqual(guard);
+    expect(round.value).toBe("user@example.com");
+    expect(round.checked).toBeNull();
+    expect(round.selectedIndex).toBeNull();
+  });
+
+  it("builds a FastControl requiring nodeId, guard and rect (extends Control)", () => {
+    const control: FastControl = {
+      ref: asRef("e3"),
+      index: 1,
+      role: "button",
+      name: "Submit",
+      tag: "button",
+      editable: false,
+      nodeId: 42,
+      guard: {
+        role: "button",
+        name: "Submit",
+        value: null,
+        checked: null,
+        selectedIndex: null,
+        disabled: false,
+        ariaExpanded: null,
+        ariaChecked: null,
+        ariaSelected: null,
+        href: null,
+        scopeText: "Checkout",
+      },
+      rect: { x: 10, y: 20, w: 100, h: 40 },
+    };
+
+    // A FastControl is assignable to a plain Control (structural extension).
+    const asControl: Control = control;
+    expect(asControl.ref).toBe("e3");
+    expect(control.nodeId).toBe(42);
+    expect(control.rect.w).toBe(100);
+    expect(control.guard.role).toBe("button");
+  });
+
+  it("assembles a FastSnapshot literal that round-trips through JSON", () => {
+    const snapshot: FastSnapshot = {
+      url: "https://example.com/checkout",
+      title: "Checkout",
+      visibleText: "Complete your purchase.",
+      controls: [
+        {
+          ref: asRef("e1"),
+          index: 1,
+          role: "button",
+          name: "Pay",
+          tag: "button",
+          editable: false,
+          nodeId: 7,
+          guard: {
+            role: "button",
+            name: "Pay",
+            value: null,
+            checked: null,
+            selectedIndex: null,
+            disabled: false,
+            ariaExpanded: null,
+            ariaChecked: null,
+            ariaSelected: null,
+            href: null,
+            scopeText: "Checkout",
+          },
+          rect: { x: 0, y: 0, w: 80, h: 30 },
+        },
+      ],
+      text: "Complete your purchase. Pay now.",
+      pageKey: "nav-1",
+      marker: "m-abc123",
+    };
+
+    const round = JSON.parse(JSON.stringify(snapshot)) as FastSnapshot;
+    expect(round).toEqual(snapshot);
+    expect(round.controls).toHaveLength(1);
+    expect(round.controls[0]!.nodeId).toBe(7);
+    expect(round.pageKey).toBe("nav-1");
+    expect(round.marker).toBe("m-abc123");
   });
 });
