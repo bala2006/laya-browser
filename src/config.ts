@@ -34,6 +34,15 @@
  *   LAYA_CAPS=network,storage          enabled tool capability groups (empty = core-only)
  *   LAYA_BROWSER=chromium|firefox|webkit   browser engine (default: chromium)
  *   LAYA_ALLOW_UNSAFE_CODE=true        enable browser_run_code_unsafe (default: false)
+ *   LAYA_SELF_HEAL_RETRIES=1           Autopilot self-healing retry attempts (clamped 0..3)
+ *   LAYA_SETTLE_PROBE=true             probe for DOM/navigation settle after an action (default: true)
+ *   LAYA_LOOP_DETECTION=true           detect repeated no-progress steps and stop (default: true)
+ *   LAYA_LOOP_WINDOW=3                 how many recent steps the loop detector compares (clamped 2..6)
+ *   LAYA_REDACT_SECRETS=true           redact secret values/patterns in logs + step details (default: true)
+ *   LAYA_CONFIRM_DESTRUCTIVE=false     require confirmation before destructive submits (default: false)
+ *   LAYA_ASSIST_DESTRUCTIVE_GUARD=false   apply the destructive guard to Assist click/type (default: false)
+ *   LAYA_SNAPSHOT_BACKEND=domwalk|aria    snapshot capture backend (default: domwalk)
+ *   LAYA_VIEWPORT_PRIORITY=true        order/cap controls by viewport visibility first (default: true)
  */
 
 /** How the Autopilot engine is selected. `auto` decides from the presence of weights. */
@@ -80,6 +89,15 @@ export interface Viewport {
   width: number;
   height: number;
 }
+
+/**
+ * Which backend {@link src/snapshot.ts capture()} uses to enumerate page controls:
+ * `domwalk` is the existing in-page DOM walk; `aria` uses the accessibility tree.
+ */
+export type SnapshotBackend = "domwalk" | "aria";
+
+/** All valid snapshot backends, used to validate LAYA_SNAPSHOT_BACKEND. */
+export const SNAPSHOT_BACKENDS: readonly SnapshotBackend[] = ["domwalk", "aria"] as const;
 
 /** How the visual overlay is switched: `auto` follows headed/headless, `on`/`off` force it. */
 export type OverlayMode = "auto" | "on" | "off";
@@ -177,6 +195,54 @@ export interface LayaBrowserConfig {
    * message, since running arbitrary code against the page is a deliberate, risky opt-in.
    */
   allowUnsafeCode: boolean;
+
+  /**
+   * (A1) How many times the Autopilot re-attempts a failed action against a freshly
+   * re-captured page (self-healing against stale refs / transient failures) before giving
+   * up on that step. Clamped to `[0, 3]`; `0` disables self-healing retries.
+   */
+  selfHealRetries: number;
+  /**
+   * (A2) Whether the Autopilot probes for the page to settle (DOM quiescence / navigation
+   * completion) after an action before capturing the next snapshot. Default on.
+   */
+  settleProbe: boolean;
+  /**
+   * (A3) Whether loop detection is active: the Autopilot compares recent steps and stops
+   * with a `stuck` outcome when it detects no progress. Default on.
+   */
+  loopDetection: boolean;
+  /**
+   * (A3) How many of the most recent steps the loop detector compares when deciding the
+   * run is stuck. Clamped to `[2, 6]`.
+   */
+  loopWindow: number;
+  /**
+   * (B1) Whether secret values and common secret patterns are masked in logs and Autopilot
+   * step details. Default on. Masks only the DISPLAYED/LOGGED representation, never the
+   * value actually typed into the page.
+   */
+  redactSecrets: boolean;
+  /**
+   * (B2) Whether a destructive submit (e.g. delete/pay/purchase) requires an explicit
+   * confirmation before the Autopilot proceeds. Default off.
+   */
+  confirmDestructive: boolean;
+  /**
+   * (B3) Whether the destructive-action guard also applies to Assist-mode `click`/`type`
+   * tools (opt-in), not just the Autopilot auto-submit path. Default off.
+   */
+  assistDestructiveGuard: boolean;
+  /**
+   * (C1) Which backend {@link src/snapshot.ts capture()} uses to enumerate controls:
+   * `domwalk` (default) or `aria` (accessibility tree).
+   */
+  snapshotBackend: SnapshotBackend;
+  /**
+   * (C3) Whether controls are ordered and capped by viewport visibility first (in-view
+   * controls prioritised) when building the page state. Default on.
+   */
+  viewportPriority: boolean;
 }
 
 /** Overrides supplied programmatically (constructor options / tool arguments). */
@@ -200,6 +266,15 @@ export interface ConfigOverrides {
   capabilities?: Capability[];
   browserEngine?: BrowserEngine;
   allowUnsafeCode?: boolean;
+  selfHealRetries?: number;
+  settleProbe?: boolean;
+  loopDetection?: boolean;
+  loopWindow?: number;
+  redactSecrets?: boolean;
+  confirmDestructive?: boolean;
+  assistDestructiveGuard?: boolean;
+  snapshotBackend?: SnapshotBackend;
+  viewportPriority?: boolean;
 }
 
 /** Built-in defaults, used when neither an override nor an env var is present. */
@@ -211,6 +286,19 @@ export const DEFAULT_AUTOPILOT_WAIT_MS = 300;
 /** Bounds for the Autopilot WAIT duration. */
 export const AUTOPILOT_WAIT_MS_MIN = 0;
 export const AUTOPILOT_WAIT_MS_MAX = 5000;
+
+/** (A1) Default self-healing retry attempts, and its inclusive bounds. */
+export const DEFAULT_SELF_HEAL_RETRIES = 1;
+export const SELF_HEAL_RETRIES_MIN = 0;
+export const SELF_HEAL_RETRIES_MAX = 3;
+
+/** (A3) Default loop-detection comparison window, and its inclusive bounds. */
+export const DEFAULT_LOOP_WINDOW = 3;
+export const LOOP_WINDOW_MIN = 2;
+export const LOOP_WINDOW_MAX = 6;
+
+/** (C1) Default snapshot capture backend. */
+export const DEFAULT_SNAPSHOT_BACKEND: SnapshotBackend = "domwalk";
 
 /** Parse a boolean env var: only the literal string `"false"` disables a default-true flag. */
 function envBoolDefaultTrue(value: string | undefined): boolean {
@@ -356,6 +444,58 @@ export function loadConfig(
   const allowUnsafeCode =
     overrides.allowUnsafeCode ?? envBoolDefaultFalse(env.LAYA_ALLOW_UNSAFE_CODE);
 
+  const selfHealRetries = clamp(
+    Math.trunc(
+      overrides.selfHealRetries ??
+        parseNumber(env.LAYA_SELF_HEAL_RETRIES, {
+          min: SELF_HEAL_RETRIES_MIN,
+          max: SELF_HEAL_RETRIES_MAX,
+        }) ??
+        DEFAULT_SELF_HEAL_RETRIES,
+    ),
+    SELF_HEAL_RETRIES_MIN,
+    SELF_HEAL_RETRIES_MAX,
+  );
+
+  const settleProbe =
+    overrides.settleProbe ?? envBoolDefaultTrue(env.LAYA_SETTLE_PROBE);
+
+  const loopDetection =
+    overrides.loopDetection ?? envBoolDefaultTrue(env.LAYA_LOOP_DETECTION);
+
+  const loopWindow = clamp(
+    Math.trunc(
+      overrides.loopWindow ??
+        parseNumber(env.LAYA_LOOP_WINDOW, {
+          min: LOOP_WINDOW_MIN,
+          max: LOOP_WINDOW_MAX,
+        }) ??
+        DEFAULT_LOOP_WINDOW,
+    ),
+    LOOP_WINDOW_MIN,
+    LOOP_WINDOW_MAX,
+  );
+
+  const redactSecrets =
+    overrides.redactSecrets ?? envBoolDefaultTrue(env.LAYA_REDACT_SECRETS);
+
+  const confirmDestructive =
+    overrides.confirmDestructive ?? envBoolDefaultFalse(env.LAYA_CONFIRM_DESTRUCTIVE);
+
+  const assistDestructiveGuard =
+    overrides.assistDestructiveGuard ??
+    envBoolDefaultFalse(env.LAYA_ASSIST_DESTRUCTIVE_GUARD);
+
+  const snapshotBackendEnv = env.LAYA_SNAPSHOT_BACKEND?.trim().toLowerCase();
+  const snapshotBackend: SnapshotBackend =
+    overrides.snapshotBackend ??
+    ((SNAPSHOT_BACKENDS as readonly string[]).includes(snapshotBackendEnv ?? "")
+      ? (snapshotBackendEnv as SnapshotBackend)
+      : DEFAULT_SNAPSHOT_BACKEND);
+
+  const viewportPriority =
+    overrides.viewportPriority ?? envBoolDefaultTrue(env.LAYA_VIEWPORT_PRIORITY);
+
   // Overlay: parse each knob once. `auto` resolves to enabled = !headless (on when headed);
   // `on`/`off` force it regardless. Overrides win per-field over the env-derived values.
   const overlayMode = overrides.overlay?.mode ?? parseOverlayMode(env.LAYA_BROWSER_OVERLAY);
@@ -408,6 +548,15 @@ export function loadConfig(
     capabilities,
     browserEngine,
     allowUnsafeCode,
+    selfHealRetries,
+    settleProbe,
+    loopDetection,
+    loopWindow,
+    redactSecrets,
+    confirmDestructive,
+    assistDestructiveGuard,
+    snapshotBackend,
+    viewportPriority,
   };
   if (channel !== undefined) config.channel = channel;
   if (modelDir !== undefined) config.modelDir = modelDir;

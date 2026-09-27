@@ -111,3 +111,83 @@ describe("loadConfig capability and engine parsing", () => {
     expect(loadConfig({ allowUnsafeCode: true }, {}).allowUnsafeCode).toBe(true);
   });
 });
+
+describe("loadConfig reliability/trust/perf knobs (A1/A2/A3/B1/B2/B3/C1/C3)", () => {
+  it("uses the documented defaults when no env is set", () => {
+    const config = loadConfig({}, {});
+    expect(config.selfHealRetries).toBe(1);
+    expect(config.settleProbe).toBe(true);
+    expect(config.loopDetection).toBe(true);
+    expect(config.loopWindow).toBe(3);
+    expect(config.redactSecrets).toBe(true);
+    expect(config.confirmDestructive).toBe(false);
+    expect(config.assistDestructiveGuard).toBe(false);
+    expect(config.snapshotBackend).toBe("domwalk");
+    expect(config.viewportPriority).toBe(true);
+  });
+
+  it("(A1) parses and clamps LAYA_SELF_HEAL_RETRIES to [0, 3]", () => {
+    expect(loadConfig({}, { LAYA_SELF_HEAL_RETRIES: "0" }).selfHealRetries).toBe(0);
+    expect(loadConfig({}, { LAYA_SELF_HEAL_RETRIES: "2" }).selfHealRetries).toBe(2);
+    expect(loadConfig({}, { LAYA_SELF_HEAL_RETRIES: "3" }).selfHealRetries).toBe(3);
+    // Out of parse-range -> default; override clamps into range.
+    expect(loadConfig({}, { LAYA_SELF_HEAL_RETRIES: "99" }).selfHealRetries).toBe(1);
+    expect(loadConfig({}, { LAYA_SELF_HEAL_RETRIES: "garbage" }).selfHealRetries).toBe(1);
+    expect(loadConfig({ selfHealRetries: 10 }, {}).selfHealRetries).toBe(3);
+    expect(loadConfig({ selfHealRetries: -5 }, {}).selfHealRetries).toBe(0);
+  });
+
+  it("(A2) parses LAYA_SETTLE_PROBE as default-true (only 'false' disables)", () => {
+    expect(loadConfig({}, { LAYA_SETTLE_PROBE: "false" }).settleProbe).toBe(false);
+    expect(loadConfig({}, { LAYA_SETTLE_PROBE: "true" }).settleProbe).toBe(true);
+    expect(loadConfig({}, { LAYA_SETTLE_PROBE: "1" }).settleProbe).toBe(true);
+    expect(loadConfig({ settleProbe: false }, {}).settleProbe).toBe(false);
+  });
+
+  it("(A3) parses LAYA_LOOP_DETECTION and clamps LAYA_LOOP_WINDOW to [2, 6]", () => {
+    expect(loadConfig({}, { LAYA_LOOP_DETECTION: "false" }).loopDetection).toBe(false);
+    expect(loadConfig({}, { LAYA_LOOP_WINDOW: "5" }).loopWindow).toBe(5);
+    expect(loadConfig({}, { LAYA_LOOP_WINDOW: "2" }).loopWindow).toBe(2);
+    expect(loadConfig({}, { LAYA_LOOP_WINDOW: "6" }).loopWindow).toBe(6);
+    // Out of parse-range -> default; override clamps into range.
+    expect(loadConfig({}, { LAYA_LOOP_WINDOW: "99" }).loopWindow).toBe(3);
+    expect(loadConfig({}, { LAYA_LOOP_WINDOW: "garbage" }).loopWindow).toBe(3);
+    expect(loadConfig({ loopWindow: 100 }, {}).loopWindow).toBe(6);
+    expect(loadConfig({ loopWindow: 1 }, {}).loopWindow).toBe(2);
+  });
+
+  it("(B1) parses LAYA_REDACT_SECRETS as default-true (only 'false' disables)", () => {
+    expect(loadConfig({}, { LAYA_REDACT_SECRETS: "false" }).redactSecrets).toBe(false);
+    expect(loadConfig({}, { LAYA_REDACT_SECRETS: "true" }).redactSecrets).toBe(true);
+    expect(loadConfig({ redactSecrets: false }, {}).redactSecrets).toBe(false);
+  });
+
+  it("(B2) parses LAYA_CONFIRM_DESTRUCTIVE as default-false (only 'true' enables)", () => {
+    expect(loadConfig({}, { LAYA_CONFIRM_DESTRUCTIVE: "true" }).confirmDestructive).toBe(true);
+    expect(loadConfig({}, { LAYA_CONFIRM_DESTRUCTIVE: "1" }).confirmDestructive).toBe(false);
+    expect(loadConfig({ confirmDestructive: true }, {}).confirmDestructive).toBe(true);
+  });
+
+  it("(B3) parses LAYA_ASSIST_DESTRUCTIVE_GUARD as default-false (only 'true' enables)", () => {
+    expect(
+      loadConfig({}, { LAYA_ASSIST_DESTRUCTIVE_GUARD: "true" }).assistDestructiveGuard,
+    ).toBe(true);
+    expect(
+      loadConfig({}, { LAYA_ASSIST_DESTRUCTIVE_GUARD: "1" }).assistDestructiveGuard,
+    ).toBe(false);
+    expect(loadConfig({ assistDestructiveGuard: true }, {}).assistDestructiveGuard).toBe(true);
+  });
+
+  it("(C1) parses LAYA_SNAPSHOT_BACKEND and rejects unknown backends", () => {
+    expect(loadConfig({}, { LAYA_SNAPSHOT_BACKEND: "aria" }).snapshotBackend).toBe("aria");
+    expect(loadConfig({}, { LAYA_SNAPSHOT_BACKEND: "domwalk" }).snapshotBackend).toBe("domwalk");
+    expect(loadConfig({}, { LAYA_SNAPSHOT_BACKEND: "bogus" }).snapshotBackend).toBe("domwalk");
+    expect(loadConfig({ snapshotBackend: "aria" }, {}).snapshotBackend).toBe("aria");
+  });
+
+  it("(C3) parses LAYA_VIEWPORT_PRIORITY as default-true (only 'false' disables)", () => {
+    expect(loadConfig({}, { LAYA_VIEWPORT_PRIORITY: "false" }).viewportPriority).toBe(false);
+    expect(loadConfig({}, { LAYA_VIEWPORT_PRIORITY: "true" }).viewportPriority).toBe(true);
+    expect(loadConfig({ viewportPriority: false }, {}).viewportPriority).toBe(false);
+  });
+});
