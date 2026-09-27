@@ -99,6 +99,19 @@ const REF_PATTERN = /^e\d+$/;
 export const DEFAULT_SETTLE_PROBE_MS = 400;
 
 /**
+ * (Perf) Default settle-probe QUIET period, in milliseconds.
+ *
+ * {@link BrowserSession.probeSettle} resolves as soon as the page has been free of GENUINE
+ * mutations for this long, instead of always sleeping the full {@link DEFAULT_SETTLE_PROBE_MS}
+ * cap. A page that was already settled when the probe started — the common case, since a click
+ * does its work before the probe is called — therefore costs roughly `quietMs` rather than the
+ * whole cap. A page that is still mutating keeps re-arming the quiet timer, so the probe still
+ * measures the true settling window, and the cap remains a HARD upper bound: the wait can never
+ * exceed the previous behaviour. Set `quietMs: 0` to restore the fixed-window behaviour exactly.
+ */
+export const DEFAULT_SETTLE_QUIET_MS = 120;
+
+/**
  * (A2) The result of a purely-observational {@link BrowserSession.probeSettle}. Reports
  * whether ANY change was observed after the action, whether the page navigated (URL
  * changed), and the raw DOM mutation count seen over the probe window.
@@ -1092,17 +1105,51 @@ export class BrowserSession {
    */
   async probeSettle(
     page: Page,
-    options: { timeoutMs?: number; beforeUrl?: string } = {},
+    options: { timeoutMs?: number; beforeUrl?: string; quietMs?: number } = {},
   ): Promise<SettleProbeResult> {
     const timeoutMs = options.timeoutMs ?? DEFAULT_SETTLE_PROBE_MS;
+    const quietMs = options.quietMs ?? DEFAULT_SETTLE_QUIET_MS;
     const beforeUrl = options.beforeUrl ?? "";
     try {
       const result = await page.evaluate(
-        ({ timeoutMs, beforeUrl }) =>
+        ({ timeoutMs, quietMs, beforeUrl }) =>
           new Promise<{ urlChanged: boolean; mutations: number; readyComplete: boolean }>(
             (resolve) => {
               let mutations = 0;
+              let done = false;
               let observer: MutationObserver | undefined;
+              let quietTimer: number | undefined;
+              let capTimer: number | undefined;
+              const cap = Math.max(0, Math.min(2000, Number(timeoutMs) || 0));
+              // The quiet period is clamped INTO the cap, so early exit can only ever shorten
+              // the wait, never extend the fixed upper bound.
+              const quiet = Math.max(0, Math.min(cap, Number(quietMs) || 0));
+              const finish = () => {
+                if (done) return;
+                done = true;
+                try {
+                  observer?.disconnect();
+                } catch {
+                  // Ignore disconnect failures.
+                }
+                if (quietTimer !== undefined) window.clearTimeout(quietTimer);
+                if (capTimer !== undefined) window.clearTimeout(capTimer);
+                resolve({
+                  urlChanged:
+                    typeof beforeUrl === "string" &&
+                    beforeUrl !== "" &&
+                    window.location.href !== beforeUrl,
+                  mutations,
+                  readyComplete: document.readyState === "complete",
+                });
+              };
+              // (Perf) Restart the quiet clock; when it elapses the page has stopped changing and
+              // the probe can answer immediately instead of sleeping out the whole cap.
+              const armQuiet = () => {
+                if (done || quiet <= 0) return;
+                if (quietTimer !== undefined) window.clearTimeout(quietTimer);
+                quietTimer = window.setTimeout(finish, quiet);
+              };
               try {
                 observer = new MutationObserver((records) => {
                   // (T4.1) Ignore our OWN instrumentation: the snapshot walk stamps
@@ -1111,6 +1158,7 @@ export class BrowserSession {
                   // falsely report the page as "changed", so they are filtered out. Every
                   // genuine page mutation (childList / characterData / other attributes) is
                   // still counted, so the probe's observed semantics are unchanged.
+                  let genuine = 0;
                   for (const r of records) {
                     if (
                       r.type === "attributes" &&
@@ -1118,8 +1166,12 @@ export class BrowserSession {
                     ) {
                       continue;
                     }
-                    mutations += 1;
+                    genuine += 1;
                   }
+                  mutations += genuine;
+                  // Only GENUINE activity restarts the quiet clock: our own ref stamps (and a
+                  // speculative capture running alongside) must not extend the wait.
+                  if (genuine > 0) armQuiet();
                 });
                 observer.observe(document.documentElement, {
                   subtree: true,
@@ -1130,25 +1182,12 @@ export class BrowserSession {
               } catch {
                 // MutationObserver unavailable (extremely rare); fall through with 0 counts.
               }
-              const cap = Math.max(0, Math.min(2000, Number(timeoutMs) || 0));
-              window.setTimeout(() => {
-                try {
-                  observer?.disconnect();
-                } catch {
-                  // Ignore disconnect failures.
-                }
-                resolve({
-                  urlChanged:
-                    typeof beforeUrl === "string" &&
-                    beforeUrl !== "" &&
-                    window.location.href !== beforeUrl,
-                  mutations,
-                  readyComplete: document.readyState === "complete",
-                });
-              }, cap);
+              capTimer = window.setTimeout(finish, cap);
+              // A page with nothing left to do resolves after one quiet period.
+              armQuiet();
             },
           ),
-        { timeoutMs, beforeUrl },
+        { timeoutMs, quietMs, beforeUrl },
       );
       const changed = result.urlChanged || result.mutations > 0;
       return {

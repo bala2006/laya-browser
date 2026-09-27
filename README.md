@@ -507,10 +507,15 @@ Three always-on (by default) reliability behaviours keep a run robust and bounde
   no matching element is found the original error is rethrown. Steps that needed a retry record
   `retries` in the transcript and surface a "Re-resolving stale element" hint on the overlay.
 - **Settle detection (`LAYA_SETTLE_PROBE`, default on).** After each action the loop runs a
-  short, bounded probe (`document.readyState` + URL change + a brief `MutationObserver` window,
-  capped at ~400ms). It uses **no** `networkidle` and **no** `slowMo`. The probe is purely
-  observational: it records `settled` on the step (and toasts "No change detected" when nothing
-  moved) but never changes the decision path or the run outcome.
+  short, bounded probe (`document.readyState` + URL change + a brief `MutationObserver` window).
+  It resolves as soon as the page has been free of real mutations for a **quiet period**
+  (~120ms) instead of always sleeping out its cap (~400ms), so a page that had already settled
+  costs roughly the quiet period: measured 407–420ms → ~135ms per step. Genuine mutations keep
+  re-arming the quiet timer, and the cap remains a hard upper bound, so a page that is still
+  settling is observed for just as long as before — and the wait can never grow. It uses **no**
+  `networkidle` and **no** `slowMo`. The probe is purely observational: it records `settled` on
+  the step (and toasts "No change detected" when nothing moved) but never changes the decision
+  path or the run outcome.
 - **Loop detection / stuck guard (`LAYA_LOOP_DETECTION`, default on; `LAYA_LOOP_WINDOW`,
   default `3`).** The loop signs each step by URL + control set + decision. When the last
   `LAYA_LOOP_WINDOW` steps are identical (no progress) it stops early with the additive
@@ -566,9 +571,19 @@ relevant controls without changing the `Snapshot` / `Control[]` contract:
 - **Parallelized perception (T4.1).** At the end of a step the purely-observational settle
   probe and a **speculative** capture for the next step run concurrently; the prefetched
   snapshot is reused on the next step only when the probe observed no change (so it is
-  current), cutting a capture round-trip on the common already-settled path. The settle probe
+  current), cutting a capture round-trip on the common already-settled path. (The probe's own
+  early exit above compounds with this: together they cut the end-of-step overhead from ~400ms
+  to ~135ms.) The settle probe
   ignores our own `data-laya-ref` attribute writes so the concurrent capture never pollutes its
   observation — observed semantics are unchanged.
+- **Batched HUD narration.** The per-step overlay chatter (progress, state, caption, toasts,
+  activity-log lines, cursor/spotlight aiming) used to cost one `page.evaluate` per call — ~13
+  round-trips per step, each carrying ~1.4ms of pure round-trip before any in-page work happened.
+  The calls a step emits back-to-back are now applied in ONE round-trip through the in-page
+  `batch([...])` API, and focusing a target is a single compound round-trip that resolves the ref,
+  aims the cursor and lights the spotlight. Measured **13 → ~6.7 overlay round-trips per step**,
+  and a 3-step run went **1207ms → 618ms**. What the HUD displays is unchanged; the overlay's
+  `pointer-events:none` / guarded-no-op invariants are untouched.
 - **`domWalk` micro-opt (T4.3).** The walk computes each element's role once and reads its
   bounding rect **once**, sharing that rect between the visibility test and the
   viewport-proximity measure (one reflow per element instead of two). The selected
@@ -627,7 +642,7 @@ constructor options, then handed inward as typed config.
 | `LAYA_BROWSER_CHANNEL` | — | Chromium channel (e.g. `chrome`). |
 | `LAYA_BROWSER_VIEWPORT` | `1280x800` | Viewport `WIDTHxHEIGHT`. |
 | `LAYA_BROWSER_OVERLAY` | `auto` | agentLens visual overlay: `auto` (on when headed, off when headless), `on`, or `off`. |
-| `LAYA_BROWSER_OVERLAY_ACCENT` | `#a855f7` | Overlay brand accent as a `#rgb`/`#rrggbb` hex (invalid falls back to the default). |
+| `LAYA_BROWSER_OVERLAY_ACCENT` | `#3b82f6` | Overlay brand accent as a `#rgb`/`#rrggbb` hex (invalid falls back to the default). |
 | `LAYA_BROWSER_OVERLAY_TYPING` | `false` | `true` enables the per-character typing effect. |
 | `LAYA_BROWSER_OVERLAY_COUNTDOWN` | `false` | `true` shows a WAIT countdown. |
 | `LAYA_BROWSER_OVERLAY_DEBUG` | `false` | `true` outlines the elements the agent sees. |
@@ -646,7 +661,7 @@ constructor options, then handed inward as typed config.
 | `LAYA_BROWSER` | `chromium` | Browser engine: `chromium`, `firefox`, or `webkit`. |
 | `LAYA_ALLOW_UNSAFE_CODE` | `false` | `true` lets `browser_run_code_unsafe` actually run raw Playwright snippets. |
 | `LAYA_SELF_HEAL_RETRIES` | `1` | Autopilot self-healing retries for a failed targeted action, re-resolving the same element by name+role (clamped `0..3`; `0` disables). |
-| `LAYA_SETTLE_PROBE` | `true` | `false` disables the purely-observational post-action settle probe (readyState + URL + a short bounded MutationObserver window; never `networkidle`). |
+| `LAYA_SETTLE_PROBE` | `true` | `false` disables the purely-observational post-action settle probe (readyState + URL + a short bounded MutationObserver window that exits early once the page is quiet; never `networkidle`). |
 | `LAYA_LOOP_DETECTION` | `true` | `false` disables loop detection; when on, an Autopilot run that repeats the identical step stops early with the `stuck` outcome. |
 | `LAYA_LOOP_WINDOW` | `3` | How many recent steps the loop detector compares before declaring a run `stuck` (clamped `2..6`). |
 | `LAYA_REDACT_SECRETS` | `true` | `false` disables masking of secret values/patterns in the transcript, overlay, and rendered output. The real value is always typed into the page regardless. |
