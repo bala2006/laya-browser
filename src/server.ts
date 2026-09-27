@@ -176,8 +176,13 @@ export function createServer(options: CreateServerOptions = {}): CreatedServer {
       viewportPriority: config.viewportPriority,
       // (C2) Send only the snapshot delta to the LLM on escalation when a diff exists.
       deltaPrompt: true,
-      // (D1) Share the artifacts holder so the run records per-step artifacts for the
-      // laya_export_run replay tool. Presence of the holder enables recording.
+      // (D1) Per-step replay recording is an explicit opt-in (LAYA_RECORD_ARTIFACTS, default
+      // OFF) so a normal run captures no screenshots. When off the shared holder simply never
+      // receives a run and laya_export_run reports none recorded.
+      recordArtifacts: config.recordArtifacts,
+      // (D1) Share the artifacts holder so a run records per-step artifacts for the
+      // laya_export_run replay tool WHEN recording is enabled above. The holder alone does
+      // NOT enable recording.
       artifacts,
       // (B2) Wire the real confirmation via MCP elicitation, resolved lazily at call time
       // (the client's `elicitation` capability is only known after it connects/initializes,

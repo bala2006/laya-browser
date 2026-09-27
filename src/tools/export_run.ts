@@ -9,8 +9,9 @@
  *
  * The artifacts are recorded during the run by the loop (D1) and kept on a small shared
  * holder ({@link ./run_artifacts.RunArtifactsHolder}) that both this tool and laya_run_goal
- * share by reference. When no run has been recorded yet, the tool returns a clear text
- * result telling the user to run laya_run_goal first.
+ * share by reference. Recording is an explicit opt-in (env LAYA_RECORD_ARTIFACTS, default
+ * off) so normal runs are not slowed. When no run has been recorded yet, the tool returns a
+ * clear text result telling the user to enable recording and run laya_run_goal first.
  *
  * All writing goes through node:fs/promises (NEVER stdout - the server speaks JSON-RPC over
  * stdio). All text carried in the artifacts was already redacted per B1 by the loop, so no
@@ -185,7 +186,7 @@ export function makeHandler(ctx: ExportRunContext) {
     const run = ctx.artifacts?.last;
     if (!run || run.steps.length === 0) {
       return textResult(
-        "No Autopilot run has been recorded yet. Run laya_run_goal first, then call laya_export_run to write the replay. (laya_export_run enables per-step artifact recording for that run.)",
+        "No Autopilot run has been recorded yet. Per-step artifact recording is off by default; enable it by setting LAYA_RECORD_ARTIFACTS=true, then run laya_run_goal, then call laya_export_run to write the replay.",
       );
     }
     const format = args.format ?? "both";
@@ -221,7 +222,7 @@ export function makeHandler(ctx: ExportRunContext) {
 export const definition = {
   name: "laya_export_run",
   description:
-    "Export a replay of the most recent laya_run_goal run to a path: a JSON file (per-step decision, confidence, timing, snapshot + embedded base64 screenshots) and/or a self-contained HTML replay page. format: 'html' | 'json' | 'both' (default both). Complements browser_start_tracing/browser_stop_tracing. If no run has been recorded, it tells you to run laya_run_goal first.",
+    "Export a replay of the most recent laya_run_goal run to a path: a JSON file (per-step decision, confidence, timing, snapshot + embedded base64 screenshots) and/or a self-contained HTML replay page. format: 'html' | 'json' | 'both' (default both). Complements browser_start_tracing/browser_stop_tracing. Per-step recording is opt-in via LAYA_RECORD_ARTIFACTS=true; if no run has been recorded, it tells you to enable recording and run laya_run_goal first.",
   inputSchema,
 };
 
