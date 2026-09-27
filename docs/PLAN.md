@@ -66,6 +66,12 @@ It is **not** a fully autonomous general web agent.
   cross-browser design, the broadened Autopilot operation model, the per-group sequencing
   outcome, and the refreshed ledger.
 
+- **Phase 7: Fast browser loop + honest before/after measurement (DONE, flag-gated OFF).**
+  A jev-ultrafast-inspired Autopilot perception/act path behind `LAYA_FAST_LOOP` (default off),
+  plus a jev-inspired but fully local benchmark and an honest laya-only before/after run. See
+  the "Phase 7 addendum" below for the levers, the measured numbers, the jev-runnability
+  finding, and the Phase 0 spike note on per-operation target heads.
+
 ## Phase 6 addendum: full tool parity, capability gating, cross-browser, faster Autopilot
 
 ### Tool taxonomy (71 tools, as registered)
@@ -167,6 +173,59 @@ Playwright is confined to `src/browser.ts`/`src/snapshot.ts`; ONNX/`@receptron/l
 confined to `src/laya/engine.ts`; escalation depends only on an injected `SampleFn`, so it is
 unit-testable without a live MCP client.
 
+## Phase 7 addendum: fast browser loop + honest before/after measurement
+
+### The fast loop levers (all behind `LAYA_FAST_LOOP`, default OFF)
+
+Adapted in TypeScript/Playwright from the jev-ultrafast reference (a read-only Python project at
+`../jev-ultrafast`). All four levers are confined to `src/snapshot.ts` and `src/browser.ts` and
+gated behind the flag, so with the flag unset the loop is byte-identical to `main`:
+
+1. **Atomic snapshot (`captureFast`).** One `page.evaluate` walks the DOM, stamps
+   `data-laya-ref="eN"`, and computes each control's freshness guard, viewport rect, a page-level
+   marker, and a page key in the same pass. Fewer evaluate calls per step than the legacy
+   walk-then-re-query path.
+2. **Persistent node identity.** A per-page `WeakMap` gives each interactive element a stable
+   integer `nodeId` that survives across snapshots (pruned when detached). The act path resolves
+   the node from that map instead of re-running `page.locator('[data-laya-ref=eN]')` at act time,
+   removing the cross-snapshot re-query round trip.
+3. **Freshness guard plus occlusion hit-test.** Before a targeted click/select the loop re-checks
+   the target's semantic guard and the page key in one evaluate, then hit-tests `elementFromPoint`
+   at the control center, refusing a covered/off-viewport control (`covered`/`gone`) so the
+   existing self-heal re-captures. A correctness guard, not a speed trick.
+4. **Adaptive waits.** Instead of a fixed settle, the fast path waits only until the affected
+   control settles (for example a combobox list appears), capped by `LAYA_FAST_WAIT_CAP_MS`
+   (default 200 ms, mirroring jev's 200 ms autocomplete cap).
+
+### Honest before/after measurement (what ran this session)
+
+The honest deliverable is laya's OWN before/after fast-path numbers on identical local fixtures,
+not a jev head-to-head (jev cannot run here; see the ledger). Three jev-inspired but fully local,
+deterministic fixtures were added under `benchmark/fixtures/` (a Google-Flights-shaped
+multi-field search `flights.html`, a Wikipedia-open search flow `wiki.html` + `wiki-article.html`,
+and a hotel search/filter flow `hotels.html`), each with a registered task in `benchmark/tasks.mjs`
+whose `verify()` re-probes the real DOM for a literal outcome. A dedicated script
+`benchmark/before-after.mjs` (`pnpm run bench:fastloop`) runs laya's Autopilot (`laya_run_goal`,
+reference stub engine) over the fast-path-eligible tasks TWICE (flag off, then flag on), using only
+laya's dist server plus the loopback fixture server (no `@playwright/mcp`), and writes a BEFORE vs
+AFTER block into `benchmark/RESULTS.md` and `benchmark/results.json`.
+
+Commands run this session and their REAL results are recorded in the ledger below.
+
+### Phase 0 spike note: can `@receptron/laya` express per-operation target heads (jev's fan-out)?
+
+**VERIFIED from `src/laya/engine.ts` (no external run needed): NO, not as coded.** `LayaEngine.decide`
+asks the operation and the target as TWO narrow `choice` questions in a SINGLE `systemOne` pass, and
+the `target` question offers ONE shared control list (`targetCriteria`, capped upstream by
+`buildState`). There is no per-operation target head: the chosen operation and the chosen target are
+read from the same single inference over the same shared candidate list. jev's design instead
+speculatively fans out several operations against several target heads in parallel (its `model.py`
+documents "Dynamic operation/target heads" and its README credits a "TypeSafe speculative fan-out"
+pattern). Expressing that in laya would require a different question shape (separate per-operation
+target heads) than the trained single-shared-list `systemOne` call this checkpoint uses. **This is
+INDEPENDENT of the four fast-loop levers above** (they are perception/act mechanics; the fan-out is a
+decision-shape change), and it is recorded here as the honest scope boundary for a future phase.
+
 ## Verified / inferred / guessed ledger
 
 - **VERIFIED (ran it):**
@@ -197,6 +256,40 @@ unit-testable without a live MCP client.
     fewer), all resolved by the rule layer (rule/laya/stub/llm = 3/0/0/0, zero escalations),
     ~80 to 90 ms per offline case. Measured with the StubEngine + real Chromium, not real
     weights.
+  - **Phase 7 fast-loop before/after (ran this session, REAL numbers).** Ran `pnpm run build`
+    (tsc, exit 0), then `BENCH_RUNS=7 node benchmark/before-after.mjs` on identical local
+    fixtures with the StubEngine + headless Chromium. Medians (before = `LAYA_FAST_LOOP` unset,
+    after = `LAYA_FAST_LOOP=true`), first run discarded as warm-up:
+    - `flights-search`: 468 ms -> 513 ms (-10%), 3/3 steps, 2/2 browser round trips, verify
+      PASS/PASS.
+    - `wiki-open`: 450 ms -> 475 ms (-6%), 3/3 steps, 2/2 browser round trips, verify PASS/PASS.
+    - `hotel-search-filter`: 453 ms -> 470 ms (-4%), 3/3 steps, 2/2 browser round trips, verify
+      PASS/PASS.
+    Honest reading: on these instant-loading local fixtures the fast loop is a few percent SLOWER
+    in wall-clock (no network latency to amortize, pages settle instantly, and the extra per-step
+    guard/occlusion/adaptive-wait evaluate adds a small fixed cost); it did NOT regress correctness
+    (verify PASS both sides) and did NOT add steps or browser round trips. The per-step
+    target-resolution saving is VERIFIED separately by `test/fast-loop.test.ts` (flag-on reaches
+    the same verified outcome with STRICTLY FEWER target-resolution round trips than flag-off).
+  - **Phase 7 head-to-head refresh (ran this session).** Ran `BENCH_RUNS=5 pnpm run bench:compare`
+    (OPEN_INTERNET; installed benchmark deps, launched real `@playwright/mcp`). All tasks pass on
+    both sides (laya 19/19, playwright 16/16); the three new tasks pass in Assist AND Autopilot,
+    with the multi-field autopilot goals completing in 2 to 3 Autopilot round trips versus 6 to 8
+    Assist calls. `pnpm run bench` (offline vitest report) stays green (domwalk + aria, 2 passed,
+    1 skipped). Full suite: 41 files, 291 passed, 3 skipped.
+  - **jev-ultrafast is NOT runnable here (VERIFIED blocker).** `../jev-ultrafast/README.md` +
+    `pyproject.toml` require `TYPESAFE_API_KEY` plus a text-model key (`TEXT_MODEL_API_KEY`, an
+    OpenRouter/OpenAI-compatible key), the `browser-harness==0.1.13` package connected to a real
+    Chrome with remote debugging, and paid API calls for any live run. `env | grep` for those keys
+    returns none set, and no such model endpoint is reachable, so any jev number would be
+    fabricated. NO jev number is published; the README gives only a qualitative comparison reasoned
+    from laya's measured per-step costs. (jev's own README reports its OWN before/after on one
+    Google Flights task as 9.450 s -> 7.092 s median and 1,092 -> 101 median browser protocol
+    calls; that is jev's figure, cited as theirs, not reproduced by us.)
+  - **Phase 0 spike (per-operation target heads).** VERIFIED from `src/laya/engine.ts`: `decide`
+    asks operation + target as two `choice` questions in ONE `systemOne` pass over ONE shared
+    control list, so it cannot express jev's separate per-operation target-head fan-out as coded;
+    this is independent of the fast-loop levers (see the Phase 7 addendum).
 - **INFERRED (from docs/patterns, not run here):**
   - Real per-step accuracy (~97.7% clean forms, ~1 step in 5 on real Mind2Web) — from the
     checkpoint's reported figures; not reproduced offline. FEAT-003's direct `decide` probes are

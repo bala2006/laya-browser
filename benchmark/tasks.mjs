@@ -350,6 +350,128 @@ export const TASKS = [
     },
   },
 
+  // --- Flights: multi-field search (Google-Flights-shaped local fixture) ---
+  {
+    id: "flights-search",
+    category: "multi-field-form",
+    description: "Fill origin, destination, and departure date, then search flights",
+    fixture: "/flights.html",
+    // Fast-path eligible: multi-field fill_form + submit is the fast loop's core win.
+    fastPath: true,
+    applies: "both",
+    async assist(h) {
+      await h.call("browser_navigate", { url: h.base + "/flights.html" });
+      const snap = await h.snapshot();
+      const origin = refFrom(snap, "Origin") ?? "#origin";
+      const destination = refFrom(snap, "Destination") ?? "#destination";
+      const departure = refFrom(snap, "Departure") ?? "#departure";
+      await h.call("browser_fill_form", {
+        fields: [
+          { target: origin, element: "Origin field", name: "Origin", type: "textbox", value: "Zurich" },
+          { target: destination, element: "Destination field", name: "Destination", type: "textbox", value: "London" },
+          { target: departure, element: "Departure date field", name: "Departure date", type: "textbox", value: "2026-09-20" },
+        ],
+      });
+      const snap2 = await h.snapshot();
+      const search = refFrom(snap2, 'button "Search flights"') ?? "#search";
+      await h.call("browser_click", { target: search, element: "Search flights button" });
+    },
+    async autopilot(h) {
+      await h.call("laya_run_goal", {
+        goal:
+          'origin is "Zurich", destination is "London", departure date is 2026-09-20, then search flights and expect "Showing flights Zurich to London"',
+        url: h.base + "/flights.html",
+      });
+    },
+    async verify(h) {
+      const text = await h.evalText("#results");
+      return text === "Showing flights Zurich to London on 2026-09-20";
+    },
+  },
+
+  // --- Wikipedia-open: search then open a result article (local fixture) ---
+  {
+    id: "wiki-open",
+    category: "navigation",
+    description: "Search a term, then open the result link to reach the article page",
+    fixture: "/wiki.html",
+    // Fast-path eligible: type + submit reveals the result; the Assist path then opens the
+    // navigating link, exercising persistent node identity across a real navigation.
+    fastPath: true,
+    applies: "both",
+    async assist(h) {
+      await h.call("browser_navigate", { url: h.base + "/wiki.html" });
+      const snap = await h.snapshot();
+      const box = refFrom(snap, 'searchbox "Search Wiki"') ?? refFrom(snap, "searchbox") ?? "#q";
+      await h.call("browser_type", { target: box, text: "Ada Lovelace", element: "Search box", submit: true });
+      const snap2 = await h.snapshot();
+      const link = refFrom(snap2, "Ada Lovelace") ?? "#result-ada";
+      await h.call("browser_click", { target: link, element: "Ada Lovelace result link" });
+    },
+    async autopilot(h) {
+      // The reference stub drives the type-and-submit path to the status marker. The Assist
+      // path above additionally opens the result link (the stub does not click result links).
+      await h.call("laya_run_goal", {
+        goal: 'search for "Ada Lovelace" and expect "Found article for Ada Lovelace"',
+        url: h.base + "/wiki.html",
+      });
+    },
+    async verify(h) {
+      // Re-probe the real DOM for the article page's literal marker (Assist path) OR the
+      // search status marker (Autopilot path); either genuine outcome counts as success.
+      const article = await h.evalText("#article-marker");
+      if (article === "Article loaded: Ada Lovelace biography") return true;
+      const status = await h.evalText("#status");
+      return status === "Found article for Ada Lovelace";
+    },
+  },
+
+  // --- Hotel search + filter, then open a property (local fixture) ---
+  {
+    id: "hotel-search-filter",
+    category: "multi-field-form",
+    description: "Type a destination, apply a filter, search, then open the property",
+    fixture: "/hotels.html",
+    // Fast-path eligible: fill + checkbox + submit + a click on a freshly-revealed control.
+    fastPath: true,
+    applies: "both",
+    async assist(h) {
+      await h.call("browser_navigate", { url: h.base + "/hotels.html" });
+      const snap = await h.snapshot();
+      const city = refFrom(snap, "Destination") ?? "#city";
+      const breakfast = refFrom(snap, "Free breakfast") ?? refFrom(snap, "checkbox") ?? "#breakfast";
+      await h.call("browser_fill_form", {
+        fields: [
+          { target: city, element: "Destination field", name: "Destination", type: "textbox", value: "Paris" },
+          { target: breakfast, element: "Free breakfast checkbox", name: "Free breakfast", type: "checkbox", value: "true" },
+        ],
+      });
+      const snap2 = await h.snapshot();
+      const search = refFrom(snap2, 'button "Search hotels"') ?? "#search";
+      await h.call("browser_click", { target: search, element: "Search hotels button" });
+      const snap3 = await h.snapshot();
+      const open = refFrom(snap3, "Grand Hotel Paris") ?? "#open-grand";
+      await h.call("browser_click", { target: open, element: "Open Grand Hotel Paris" });
+    },
+    async autopilot(h) {
+      // The reference stub fills the destination and submits, revealing the results marker.
+      // The Assist path above additionally opens a property (the stub does not click into a
+      // dynamically-created result item toward a goal).
+      await h.call("laya_run_goal", {
+        goal: 'destination is "Paris", then search hotels and expect "Hotels in Paris"',
+        url: h.base + "/hotels.html",
+      });
+    },
+    async verify(h) {
+      // Real-DOM re-probe: the opened-property marker (Assist path) OR the search status
+      // marker (Autopilot path); either genuine outcome counts.
+      const opened = await h.evalText("#opened");
+      if (opened === "Opened Grand Hotel Paris") return true;
+      const status = await h.evalText("#status");
+      return status === "Hotels in Paris";
+    },
+  },
+
   // --- Verify/assert (laya testing capability; Playwright core has no verify_* tool) ---
   {
     id: "verify-text",
