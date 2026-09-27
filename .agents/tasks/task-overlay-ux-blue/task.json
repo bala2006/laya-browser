@@ -1,0 +1,7 @@
+{
+  "task_id": "task-overlay-ux-blue",
+  "task_description": "Fix the four reported agentLens overlay/rendering UX defects in laya-browser-mcp (current main = laya v3): (1) right side of the page not fully rendered (headed window/viewport mismatch in src/browser.ts); (2) synthetic cursor not visible (should be a visible blue cursor moving in real time); (3) streaming feedback popup is top-center and poorly designed (move to bottom-center, raised up, restyle as a modern frosted-glass card); (4) no four-corner highlight (add a persistent blue four-corner bracket frame while Laya controls the browser). Also switch the brand accent from purple (#a855f7) to blue (#3b82f6) as the single source of truth, deriving accent-based shadows instead of hardcoding purple. Preserve the overlay invariant: pointer-events:none, very high z-index, guarded best-effort no-op methods that never change automation semantics. Commit to a feature branch off main; do not push or open a PR.",
+  "status": "in_progress",
+  "feature_order": ["FEAT-001", "FEAT-002", "FEAT-003"],
+  "blocked_reason": null
+}

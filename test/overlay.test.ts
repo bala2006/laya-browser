@@ -299,12 +299,30 @@ describe("agentLens overlay end-to-end (real headless chromium, overlay forced O
             (c) => getComputedStyle(c).pointerEvents === "none",
           )
         : false;
+      // The corner brackets must be drawn in the BLUE accent (#3b82f6 => rgb 59,130,246),
+      // shown via their border colour and/or glow (boxShadow). Concatenate every corner's
+      // relevant computed styles so we do not depend on which border side a given corner sets.
+      const cornerAccent = frame
+        ? (Array.from(frame.children) as HTMLElement[])
+            .map((c) => {
+              const cs = getComputedStyle(c);
+              return [
+                cs.borderTopColor,
+                cs.borderLeftColor,
+                cs.borderRightColor,
+                cs.borderBottomColor,
+                cs.boxShadow,
+              ].join(" ");
+            })
+            .join(" ")
+        : "";
       return {
         cursorVisible: !!cursor && getComputedStyle(cursor).display !== "none",
         frameVisible: !!frame && getComputedStyle(frame).display !== "none",
         frameCorners: frame ? frame.children.length : 0,
         frameEvents: frame ? getComputedStyle(frame).pointerEvents : null,
         cornersPointerNone: cornersOk,
+        cornerAccent,
       };
     }, OVERLAY_ROOT);
 
@@ -314,6 +332,8 @@ describe("agentLens overlay end-to-end (real headless chromium, overlay forced O
     expect(on!.frameCorners).toBe(4);
     expect(on!.frameEvents).toBe("none");
     expect(on!.cornersPointerNone).toBe(true);
+    // The four-corner highlight must be the BLUE accent (#3b82f6 => rgb 59, 130, 246).
+    expect(on!.cornerAccent).toContain("59, 130, 246");
 
     // sessionFrame(false) hides it again.
     await overlay.sessionFrame(page, false);
