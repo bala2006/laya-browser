@@ -56,6 +56,7 @@ import type {
   LayaDecisionEngine,
   NodeGuard,
   PageState,
+  SnapshotDiff,
 } from "../types.js";
 
 /**
@@ -1218,6 +1219,126 @@ async function speculativeTargetFresh(
   }
 }
 
+/** Inputs the per-step decision pipeline needs (see {@link resolveStepDecision}). */
+interface DecisionContext {
+  state: PageState;
+  engine: LayaDecisionEngine;
+  confidenceThreshold: number;
+  sample: SampleFn | undefined;
+  narrator: Narrator;
+  /** A cached speculative decision (F4) already confirmed fresh for THIS step, or undefined. */
+  reused: { decision: Decision; note: string | undefined } | undefined;
+  /** Delta-prompt inputs: enabled flag + this step's diff + whether this is the first step. */
+  deltaPrompt: boolean;
+  diff: SnapshotDiff;
+  isFirstStep: boolean;
+}
+
+/** The resolved per-step decision plus the observability signals the loop meters. */
+interface ResolvedDecision {
+  decision: Decision;
+  note: string | undefined;
+  /** True only when the client LLM actually answered an escalation (not the degraded path). */
+  escalated: boolean;
+  /** Chars of the state text sent on escalation (0 when no escalation happened), for metering. */
+  promptChars: number;
+}
+
+/**
+ * The per-step decision pipeline, as ONE readable flow:
+ *   1. reuse a fresh speculative decision (F4) when one exists, else
+ *   2. seed a high-confidence deterministic RULE (policySeed), else
+ *   3. ask the local model to DECIDE (or, with no weights, stand in a BLOCKED placeholder), then
+ *   4. CHECK confidence: a rule seed never escalates; anything else that is low-confidence or
+ *      BLOCKED escalates to the client LLM (which, when unreachable, degrades to the Laya
+ *      fallback, or to best-safe-progress for a low-confidence BLOCKED - the FEAT-003 fix).
+ *
+ * Pure with respect to the loop's mutable counters: it returns the escalation signals for the
+ * caller to meter, so the flow here has no side effects beyond narration and the injected
+ * sample()/engine.decide() calls. Behavior is identical to the previous inline pipeline.
+ */
+async function resolveStepDecision(ctx: DecisionContext): Promise<ResolvedDecision> {
+  const { state, engine, confidenceThreshold, sample, narrator, reused } = ctx;
+
+  // 1./2./3. Seed the decision: reuse a fresh speculative one, then a deterministic rule, then
+  // the local model, then (no weights) a BLOCKED placeholder that step 4 routes to escalation.
+  let decision: Decision;
+  let note: string | undefined;
+  if (reused !== undefined) {
+    decision = reused.decision;
+    note = reused.note;
+  } else {
+    const seed = policySeed(state);
+    if (seed) {
+      decision = seed.decision;
+      note = `rule: ${seed.reason}`;
+    } else if (engine.available) {
+      // Laya answers the narrow question; fill goal-stated values it did not supply.
+      decision = refineWithGoalValue(await engine.decide(state), state);
+    } else {
+      // (R2) LLM-planned step. With no local weights there is nothing to ask, so the step is
+      // deliberately left below the confidence threshold with a BLOCKED placeholder: the
+      // confidence check below then routes it through the SAME escalation path, which is where
+      // the client LLM chooses the step. Same plumbing, same parsing, same guards.
+      decision = {
+        operation: "BLOCKED",
+        operationConfidence: 0,
+        targetConfidence: 0,
+        source: "laya",
+      };
+    }
+  }
+
+  // 4. Confidence check: escalate on low confidence or BLOCKED (never for rule seeds, which are
+  // high-confidence-deterministic by construction).
+  const lowConfidence =
+    decision.operationConfidence < confidenceThreshold ||
+    decision.targetConfidence < confidenceThreshold;
+  if (decision.source === "rule" || !(lowConfidence || decision.operation === "BLOCKED")) {
+    return { decision, note, escalated: false, promptChars: 0 };
+  }
+
+  // Tier 3: colour the HUD amber to signal low-confidence escalation to the LLM.
+  await narrator.stateWithToast(
+    "uncertain",
+    "Low confidence \u2014 asking the LLM\u2026",
+    "Escalating to the LLM for the next step",
+    "uncertain",
+  );
+  // (C2) When delta prompting is enabled and a meaningful diff exists (and this is not the
+  // first step), escalate with a delta-only prompt to cut tokens; otherwise the full-snapshot
+  // prompt is used (the default).
+  // (T4) Thread Laya's ORIGINAL (pre-escalation) decision through as the fallback so an
+  // UNREACHABLE client LLM (no sampling, or the request throws/times out) degrades to Laya's
+  // best guess instead of hard-BLOCKING the run. escalate() only uses the fallback when the LLM
+  // is unreachable AND the fallback is not itself BLOCKED (so the R2 no-weights placeholder
+  // still degrades gracefully to BLOCKED).
+  //
+  // (FEAT-003) Break the low-confidence-BLOCKED dead-end: when the pre-escalation decision is a
+  // LOW-CONFIDENCE BLOCKED (this branch is only reached when lowConfidence is true or the op is
+  // BLOCKED, so a BLOCKED reaching here that is ALSO low-confidence is exactly the trap), inject
+  // a best-safe-progress resolver bound to THIS page. escalate() consults it ONLY when the LLM
+  // is unreachable AND there is no usable non-BLOCKED fallback, so a CONFIDENT BLOCKED
+  // (deliberate stop) is never softened - we only pass the resolver for a low-confidence BLOCKED.
+  // A genuinely dead page yields undefined and stays BLOCKED, and the loop detector still
+  // terminates a run that cannot make real progress.
+  const lowConfidenceBlocked = decision.operation === "BLOCKED" && lowConfidence;
+  const escalationOptions: EscalationOptions = {
+    fallback: decision,
+    ...(ctx.deltaPrompt && !ctx.isFirstStep && hasChanges(ctx.diff) ? { diff: ctx.diff } : {}),
+    ...(lowConfidenceBlocked ? { bestSafeProgress: () => bestSafeProgress(state) } : {}),
+  };
+  const result = await escalate(state, sample, escalationOptions);
+  return {
+    decision: refineWithGoalValue(result.decision, state),
+    note: result.note,
+    escalated: result.escalated,
+    // (T3.1) Only a real (client-answered) escalation contributes prompt tokens; the degraded
+    // path does not. renderState length is measured here so the caller can meter it.
+    promptChars: result.escalated ? renderState(state).length : 0,
+  };
+}
+
 function redactSnapshot(snapshot: Snapshot, redact: (text: string) => string): Snapshot {
   return {
     ...snapshot,
@@ -1490,10 +1611,10 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
       // Advance the previous-snapshot pointer AFTER computing the diff for this step.
       prevSnapshot = snapshot;
 
-      // Decision pipeline (order matters):
-      //   1. deterministic-rule SEED — high-confidence rules per the laya-ultrafast lesson;
-      //   2. Laya NARROW decision — the engine resolves the element/operation otherwise;
-      //   3. confidence CHECK — escalate to the client LLM (MCP sampling) when low/BLOCKED.
+      // Decision pipeline (order matters), factored into resolveStepDecision below:
+      //   1. deterministic-rule SEED - high-confidence rules per the laya-ultrafast lesson;
+      //   2. Laya NARROW decision - the engine resolves the element/operation otherwise;
+      //   3. confidence CHECK - escalate to the client LLM (MCP sampling) when low/BLOCKED.
       let note: string | undefined;
 
       // (T5) Measure the DECISION wall-time (policy seed + Laya inference + escalation), so the
@@ -1504,95 +1625,38 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
       // (F4) Reuse the speculative decision computed during the previous settle window, but
       // ONLY when the fast prefetch it was computed against is the very snapshot we are using
       // now (canReuseFast) AND the FEAT-002 freshness re-check confirms the cached decision's
-      // target is still fresh on the live page. On any drift we fall through to the ordinary
-      // pipeline and decide fresh, so the observed decision is identical to not speculating.
-      let reused: Decision | undefined;
-      if (canReuseFast && speculatedDecision !== undefined) {
-        const fresh = await speculativeTargetFresh(
-          session,
-          page,
-          speculatedDecision.decision,
-          fastCtx,
-        );
-        if (fresh) {
-          reused = speculatedDecision.decision;
-          note = speculatedDecision.note;
-        }
+      // target is still fresh on the live page. On any drift we decide fresh in the pipeline
+      // below, so the observed decision is identical to not speculating.
+      let reused: { decision: Decision; note: string | undefined } | undefined;
+      if (
+        canReuseFast &&
+        speculatedDecision !== undefined &&
+        (await speculativeTargetFresh(session, page, speculatedDecision.decision, fastCtx))
+      ) {
+        reused = { decision: speculatedDecision.decision, note: speculatedDecision.note };
       }
 
-      const seed = reused === undefined ? policySeed(state) : undefined;
-      let decision: Decision;
-      if (reused !== undefined) {
-        // Cached speculative decision reused; skip the (redundant) recompute.
-        decision = reused;
-      } else if (seed) {
-        decision = seed.decision;
-        note = `rule: ${seed.reason}`;
-      } else if (engine.available) {
-        // Laya answers the narrow question; fill goal-stated values it did not supply.
-        decision = refineWithGoalValue(await engine.decide(state), state);
-      } else {
-        // (R2) LLM-planned step. With no local weights there is nothing to ask, so the step is
-        // deliberately left below the confidence threshold with a BLOCKED placeholder: the
-        // confidence check below then routes it through the SAME escalation path, which is where
-        // the client LLM chooses the step. Same plumbing, same parsing, same guards.
-        decision = {
-          operation: "BLOCKED",
-          operationConfidence: 0,
-          targetConfidence: 0,
-          source: "laya",
-        };
-      }
-
-      // Confidence check: escalate on low confidence or BLOCKED (never for rule seeds,
-      // which are high-confidence-deterministic by construction).
-      const lowConfidence =
-        decision.operationConfidence < confidenceThreshold ||
-        decision.targetConfidence < confidenceThreshold;
-      if (decision.source !== "rule" && (lowConfidence || decision.operation === "BLOCKED")) {
-        // Tier 3: colour the HUD amber to signal low-confidence escalation to the LLM.
-        await narrator.stateWithToast(
-          "uncertain",
-          "Low confidence \u2014 asking the LLM\u2026",
-          "Escalating to the LLM for the next step",
-          "uncertain",
-        );
-        // (C2) When delta prompting is enabled and a meaningful diff exists (and this is not
-        // the first step), escalate with a delta-only prompt to cut tokens; otherwise the
-        // full-snapshot prompt is used (the default).
-        // (T4) Thread Laya's ORIGINAL (pre-escalation) decision through as the fallback so an
-        // UNREACHABLE client LLM (no sampling, or the request throws/times out) degrades to
-        // Laya's best guess instead of hard-BLOCKING the run. escalate() only uses the fallback
-        // when the LLM is unreachable AND the fallback is not itself BLOCKED (so the R2
-        // no-weights placeholder still degrades gracefully to BLOCKED).
-        //
-        // (FEAT-003) Break the low-confidence-BLOCKED dead-end: when the pre-escalation decision
-        // is a LOW-CONFIDENCE BLOCKED (this branch is only reached when lowConfidence is true or
-        // the op is BLOCKED, so a BLOCKED reaching here that is ALSO low-confidence is exactly
-        // the trap), inject a best-safe-progress resolver bound to THIS page. escalate() consults
-        // it ONLY when the LLM is unreachable AND there is no usable non-BLOCKED fallback, so a
-        // CONFIDENT BLOCKED (deliberate stop) is never softened - we only pass the resolver for a
-        // low-confidence BLOCKED. A genuinely dead page yields undefined and stays BLOCKED, and
-        // the loop detector still terminates a run that cannot make real progress.
-        const lowConfidenceBlocked =
-          decision.operation === "BLOCKED" && lowConfidence;
-        const escalationOptions: EscalationOptions = {
-          fallback: decision,
-          ...(deltaPrompt && !isFirstStep && hasChanges(diff) ? { diff } : {}),
-          ...(lowConfidenceBlocked
-            ? { bestSafeProgress: () => bestSafeProgress(state) }
-            : {}),
-        };
-        const result = await escalate(state, sample, escalationOptions);
-        decision = refineWithGoalValue(result.decision, state);
-        note = result.note;
-        // (T3.1) Count a real escalation (the client produced a decision) and estimate its
-        // token cost from the state text sent plus a small allowance for the reply. Only
-        // counts when the client actually answered (result.escalated), not the degraded path.
-        if (result.escalated) {
-          escalationCount += 1;
-          estimatedTokens += estimateTokens(renderState(state).length) + 64;
-        }
+      // The decision pipeline as ONE flow (rule seed -> local model -> confidence check ->
+      // escalate-if-a-channel-exists -> best-safe-progress). See resolveStepDecision.
+      const resolved = await resolveStepDecision({
+        state,
+        engine,
+        confidenceThreshold,
+        sample,
+        narrator,
+        reused,
+        deltaPrompt,
+        diff,
+        isFirstStep,
+      });
+      let decision = resolved.decision;
+      note = resolved.note;
+      // (T3.1) Count a real escalation (the client produced a decision) and estimate its token
+      // cost from the state text sent plus a small allowance for the reply. Only a real,
+      // client-answered escalation contributes (promptChars is 0 otherwise).
+      if (resolved.escalated) {
+        escalationCount += 1;
+        estimatedTokens += estimateTokens(resolved.promptChars) + 64;
       }
 
       // (T5) The decision is now final for this step; record how long deciding it took.
