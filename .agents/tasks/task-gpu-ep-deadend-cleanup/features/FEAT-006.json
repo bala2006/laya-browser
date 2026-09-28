@@ -1,0 +1,25 @@
+{
+  "id": "FEAT-006",
+  "type": "docs",
+  "description": "Update README.md and docs/PLAN.md to reflect the three fixes and the reorg, correct the dishonest speed claim, and leave the door open for a documented model-first follow-up (Phase 3). Every claim carries evidence or a measured/inferred/guess label; never fabricate a link or number. NO EM DASHES anywhere.",
+  "status": "pending",
+  "steps": [
+    "README.md: (a) Document the dynamic EP auto-selection: the preference order (CUDA -> DirectML -> WebGPU -> CPU) is probe-verified (first EP that actually initializes a working session wins; a listed-but-broken EP falls through), the SINGLE startup log line that names the engaged EP (quote its exact text, e.g. '[laya-browser-mcp] Autopilot engine loaded (execution provider: cuda).'), and LAYA_EXECUTION_PROVIDERS as the explicit override that skips auto-selection. (b) Give the user's exact reproduce path for their RTX 4050: the command to run and the startup log line to confirm which EP engaged, and clearly label the GPU speedup as UNVERIFIED-in-CI / to-be-measured on their hardware (this sandbox has no GPU). (c) Correct the 'sub-100ms' claim: replace it with the honest measured CPU decision-ms from FEAT-004 (e.g. web-agent ~440-490 ms / reference ~810-870 ms per decide on CPU, plus int8 numbers if FEAT-004 measured them) OR remove the sub-100ms wording; do not leave an unsubstantiated latency claim. (d) Reflect the collapsed single loop and the pruned flag surface in the setup / env-var sections: remove LAYA_FAST_LOOP and every other removed knob from the docs, matching FEAT-005's final ledger.",
+    "docs/PLAN.md: add a new phase section (e.g. 'Phase 8: dynamic EP selection, dead-end fix, speed levers, and de-nuance') summarizing FEAT-002/003/004/005, and update the verified/inferred/guessed ledger: mark the EP auto-selection ordering + fall-through as VERIFIED-by-unit-test (fake factory, no GPU), the CPU decision-ms (and int8, if measured) as VERIFIED-on-CPU with the exact commands, and the CUDA/DirectML/WebGPU speedup as INFERRED / UNVERIFIED-HERE (no GPU in this sandbox) to-be-measured on the user's RTX 4050. Record the dead-end fix (low-confidence BLOCKED + unreachable LLM now makes best-safe-progress; confident BLOCKED still stops) and the single-loop collapse + flag prune (with the kept/inlined/deleted ledger from FEAT-005).",
+    "Leave the door open for model-first (Phase 3) as a DOCUMENTED FOLLOW-UP ONLY: state explicitly that rules stay first today (option b), and that going model-first is a later, benchmarked step gated on the local model being fast AND confident; do NOT implement model-only here. Reference the existing PLAN.md honest finding that on structured fixtures the rules win and the model is a low-confidence signal behind the 0.85 gate.",
+    "Scan every edited doc for em dashes and remove them (use hyphens or parentheticals). Verify no fabricated links or numbers: any number in the docs must trace to a measured result in a feature's findings or an explicit inferred/guess label."
+  ],
+  "acceptance_criteria": [
+    "README documents dynamic EP auto-selection, the exact startup log line, the LAYA_EXECUTION_PROVIDERS override, and the user's exact reproduce command + confirm-line for their RTX 4050, with the GPU speedup labelled to-be-measured (not fabricated).",
+    "The README 'sub-100ms' claim is corrected or removed and replaced with honest measured CPU numbers (or no latency claim); the single loop and pruned flag surface are reflected in the setup/env-var sections (no removed knobs remain documented).",
+    "docs/PLAN.md has a new phase section and an updated verified/inferred/guessed ledger covering EP selection (verified-by-unit-test), CPU speed (verified-on-CPU), GPU speedup (unverified-here / to-be-measured), the dead-end fix, and the single-loop + flag prune.",
+    "Model-first is present only as a documented Phase 3 follow-up; rules-first (option b) is stated as the current behavior.",
+    "No em dashes in any edited doc; no fabricated links or numbers."
+  ],
+  "verification": [
+    "grep -n '\\u2014' README.md docs/PLAN.md returns nothing (no em dashes)",
+    "Manual read confirms EP selection, startup log line, override, honest speed numbers, GPU-to-be-measured label, single-loop + pruned flags, and the Phase 3 follow-up note are all present and consistent with the feature findings"
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}

@@ -1,0 +1,25 @@
+{
+  "id": "FEAT-001",
+  "type": "chore",
+  "description": "Establish a green baseline on a new branch before any code changes. Confirm the toolchain, install the Playwright browsers the suite needs, and record the passing baseline so every later feature can be measured against it.",
+  "status": "completed",
+  "steps": [
+    "Create and check out a new branch off main: `git checkout -b fix/gpu-speed-dead-end-and-cleanup` (base: main, HEAD 9bca23a). Do all work on this branch. Do NOT push or open a PR.",
+    "Confirm node/pnpm resolve via a login shell: `bash -lc 'node -v && pnpm -v'` (Node 22 via nvm; they are not on the bare PATH).",
+    "Install the Playwright browsers the tests require: `bash -lc 'pnpm exec playwright install chromium'` and `bash -lc 'pnpm exec playwright install firefox'`. Note: `--with-deps` fails here because apt-get is absent, but the browsers still launch; do NOT treat that apt-get error as a blocker.",
+    "Run `bash -lc 'pnpm run typecheck'` (must be clean), `bash -lc 'pnpm run build'` (tsc exit 0), and `bash -lc 'pnpm test'` (vitest).",
+    "Record the exact baseline pass/skip counts in this feature's findings so later features can prove they kept the suite green."
+  ],
+  "acceptance_criteria": [
+    "The branch fix/gpu-speed-dead-end-and-cleanup exists and is checked out, based on main.",
+    "pnpm run typecheck is clean and pnpm run build exits 0.",
+    "pnpm test is green: 42 files, 301 passed, 3 skipped (the 3 skips are the WebKit self-skip and two LAYA_MODEL_DIR-gated blocks). If counts differ, record the actual numbers as the baseline."
+  ],
+  "verification": [
+    "bash -lc 'pnpm run typecheck'",
+    "bash -lc 'pnpm run build'",
+    "bash -lc 'pnpm test' shows 301 passed / 3 skipped (or the recorded actual baseline)"
+  ],
+  "blocked_reason": null,
+  "findings": "Branch fix/gpu-speed-dead-end-and-cleanup created off main (HEAD 9bca23a), clean tree. Toolchain via login shell: node v22.23.2, pnpm 10.28.1. Playwright browsers installed successfully with `pnpm exec playwright install chromium` and `pnpm exec playwright install firefox` (BEWARE fallback-build notices for ubuntu24.04-x64 are benign; --with-deps not used per plan). GREEN BASELINE CONFIRMED and matches the planner's expectation exactly: typecheck clean (tsc --noEmit exit 0), build exit 0 (tsc), and `pnpm test` (vitest run) = 42 test files passed, 301 passed | 3 skipped (304 total), duration ~14.7s. The 3 skips are: test/cross-browser.test.ts (1 skipped, WebKit self-skip - missing system libs), test/benchmark/report.test.ts (1 skipped, LAYA_MODEL_DIR-gated), and test/autopilot.test.ts (1 skipped, LAYA_MODEL_DIR-gated). No source code modified in this feature. NOTE for later features: always run node/pnpm via `bash -lc '...'`; browsers are now installed for this session."
+}

@@ -1,0 +1,28 @@
+{
+  "id": "FEAT-004",
+  "type": "feat",
+  "description": "Fix 1b: speed. Confirm the ONNX session is created ONCE and warmed (verify current behavior first), confirm the decision-prompt token budget is applied on the hot path for large real pages, and add an int8 QUANTIZATION path to scripts/prepare-model.sh with a real CPU fp32-vs-int8 decision-ms measurement behind LAYA_MODEL_DIR. If int8 quantization of this ModernBERT-shaped graph is not feasible, document precisely why (failing command + error) and skip it - partial verified progress beats nothing. NOTE: the GPU speedup itself is UNVERIFIABLE here (no GPU); this feature is about the CPU-measurable speed levers only.",
+  "status": "pending",
+  "steps": [
+    "VERIFY FIRST, do not assume. (a) Session-once: read node_modules/@receptron/laya/dist/laya.js and src/laya/engine.ts and confirm Laya.load creates the ort InferenceSession exactly once and LayaEngine reuses it across decide() calls (it does - Laya holds `session`; decide calls systemOne on the same handle). Record the evidence. If a warmup pass would measurably help cold-start, note it, but do NOT add a warmup that duplicates the model load. (b) Token budget on the hot path: read src/state-builder.ts and confirm buildState clamps visibleText (stateTextLimit, default 1200, bounds 200..8000) and caps controls, and that renderState (used by engine.decide) consumes that clamped state. Confirm the budget is actually applied on the decide hot path (not only on the escalation prompt). Record findings; only change code if a gap is found.",
+    "Add an int8 quantization path to scripts/prepare-model.sh. Add a third mode (e.g. `scripts/prepare-model.sh int8 [OUT_DIR]` or a `--int8` flag on the web-agent path) that, after producing the fp32 ONNX bundle, runs onnxruntime dynamic quantization (`from onnxruntime.quantization import quantize_dynamic, QuantType`; QuantType.QInt8) over laya.onnx to produce an int8 laya.onnx in a sibling bundle dir, copying the tokenizer + laya_config.json unchanged so it is a drop-in LAYA_MODEL_DIR. Reuse the existing `uv` Python 3.12 venv setup already in the script. Keep NO EM DASHES in the script prose. Never commit the produced weights (.gitignore already excludes *.onnx / *.onnx.data / model/ / .venv / .cache).",
+    "MEASURE with real weights on CPU (this is the honest, measurable deliverable). In a scratch dir OUTSIDE the tracked tree: build the fp32 bundle (`scripts/prepare-model.sh web-agent <scratch>` or `reference`), then build the int8 bundle. Run the product's own decide path for each (e.g. `LAYA_MODEL_DIR=<fp32> pnpm test` for the gated real-weights tests, and a small timing probe of LayaEngine.decide median ms, mirroring how PLAN.md's FEAT-003 block measured ~440-490 ms web-agent / ~810-870 ms reference on CPU). Capture fp32-vs-int8 median decision-ms and any accuracy/output sanity delta. Paste the REAL numbers into this feature's findings.",
+    "If dynamic int8 quantization of this ModernBERT-shaped graph FAILS or produces a broken/incompatible bundle (e.g. @receptron/laya cannot load it, or ort rejects an op), STOP that sub-path: record the exact failing command and the full error text in findings, mark the int8 sub-path documented-and-skipped (retryable false for int8 only), and keep the rest of the feature (session-once + token-budget verification) done. Do not fake a number.",
+    "Clean up ALL scratch weights/venv/download artifacts before finishing (`git status --porcelain --ignored` must be clean of *.onnx / *.onnx.data / model/ / .venv / .cache). The offline stub suite must stay green with NO weights."
+  ],
+  "acceptance_criteria": [
+    "Written confirmation (with code evidence) that the ONNX session is created once and reused across decisions, and that the state token budget (stateTextLimit) is applied on the decide hot path.",
+    "scripts/prepare-model.sh has an int8 quantization path that produces a drop-in LAYA_MODEL_DIR bundle, OR the int8 sub-path is documented-and-skipped with the exact failing command + error if the graph cannot be quantized.",
+    "A REAL CPU fp32-vs-int8 median decision-ms measurement is recorded in findings (or, if int8 is infeasible, the precise blocker is recorded). No fabricated numbers.",
+    "No weights/venv/scratch artifacts are committed; git status --ignored is clean of them. Offline stub suite stays green with no weights.",
+    "pnpm run typecheck clean, pnpm run build exit 0, pnpm test green (offline, no weights)."
+  ],
+  "verification": [
+    "bash -lc 'pnpm run typecheck'",
+    "bash -lc 'pnpm run build'",
+    "bash -lc 'pnpm test' (offline, no weights, stays green)",
+    "git status --porcelain --ignored shows no *.onnx / *.onnx.data / model/ / .venv / .cache"
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}
