@@ -18,6 +18,10 @@
 import type { Decision, LayaDecisionEngine, PageState } from "../types.js";
 import { LayaEngine, type LayaEngineOptions } from "./engine.js";
 import { StubEngine } from "./stub.js";
+import {
+  candidateExecutionProviders,
+  resolveEngine,
+} from "./execution-provider.js";
 
 /** Which engine to build. `auto` decides from config/env. */
 export type EngineKind = "auto" | "stub" | "laya";
@@ -36,6 +40,22 @@ export interface CreateEngineConfig extends LayaEngineOptions {
    * exercise the same resolution without touching the real environment.
    */
   env?: Record<string, string | undefined>;
+  /**
+   * TEST-ONLY override of the host platform used for execution-provider auto-selection.
+   * Defaults to `process.platform` in production.
+   */
+  platform?: NodeJS.Platform;
+  /**
+   * TEST-ONLY override of the host architecture used for execution-provider auto-selection.
+   * Defaults to `process.arch` in production.
+   */
+  arch?: string;
+  /**
+   * Optional sink for the single startup log line naming the engaged execution provider.
+   * Defaults to a no-op; src/index.ts reads {@link LayaEngine.executionProvider} to log
+   * once itself, so createEngine stays quiet by default.
+   */
+  onLog?: (line: string) => void;
 }
 
 /**
@@ -85,14 +105,39 @@ export async function createEngine(
     return new UnavailableEngine();
   }
 
+  // Build the ordered execution-provider candidate list: an explicit
+  // config.executionProviders is an override that skips auto-selection (exactly one
+  // candidate), otherwise auto-select from the host platform/arch. The list always ends
+  // with a CPU candidate so resolution can never run out of options.
+  const platform = config.platform ?? process.platform;
+  const arch = config.arch ?? process.arch;
+  const candidates = candidateExecutionProviders(
+    platform,
+    arch,
+    config.executionProviders,
+  );
+
   try {
-    return await LayaEngine.load({
-      ...config,
-      ...(modelDir !== undefined ? { modelDir } : {}),
-      ...(cacheDir !== undefined ? { cacheDir } : {}),
-    });
+    // Attempting a real load with a candidate's providers IS the probe (Laya.load throws
+    // when a listed EP cannot initialize the model). resolveEngine keeps the first
+    // candidate that loads, falls through on failure, and rethrows only if all fail, in
+    // which case we degrade to UnavailableEngine below. The model loads exactly once.
+    const { engine, chosen } = await resolveEngine(
+      candidates,
+      (providers) =>
+        LayaEngine.load({
+          ...config,
+          ...(modelDir !== undefined ? { modelDir } : {}),
+          ...(cacheDir !== undefined ? { cacheDir } : {}),
+          executionProviders: [...providers],
+        }),
+      config.onLog,
+    );
+    engine.executionProvider = chosen.name;
+    return engine;
   } catch {
-    // Missing bundle, no onnxruntime binary, etc. Degrade rather than crash.
+    // Every candidate failed (missing bundle, no onnxruntime binary, etc.). Degrade rather
+    // than crash so the caller falls back to Assist mode.
     return new UnavailableEngine();
   }
 }
