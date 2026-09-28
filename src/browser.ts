@@ -1569,7 +1569,7 @@ export class BrowserSession {
 
   // --- (F1) Fast-loop persistent-identity execution + freshness -----------------------------
   //
-  // These methods back the LAYA_FAST_LOOP path. They act on the OBSERVED node via the
+  // These methods back the fast browser loop. They act on the OBSERVED node via the
   // window-scoped identity map (`window.__layaFast.nodes`) that captureFast populates, so NO
   // fresh selector re-query / DOM re-walk happens per action (the round-trip win). Every
   // evaluate is guarded so a mid-navigation rejection degrades to a stale/gone result rather

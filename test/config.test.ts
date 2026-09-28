@@ -260,31 +260,3 @@ describe("loadConfig Tier 1-4 knobs (token/latency, robustness, UX)", () => {
     expect(loadConfig({}, { LAYA_BROWSER_OVERLAY_TRAIL: "100" }).overlay.cursorTrail).toBe(6);
   });
 });
-
-describe("loadConfig fast browser loop knobs (F1)", () => {
-  it("defaults fastLoop off and fastWaitCapMs to 200", () => {
-    const c = loadConfig({}, {});
-    expect(c.fastLoop).toBe(false);
-    expect(c.fastWaitCapMs).toBe(200);
-  });
-
-  it("parses LAYA_FAST_LOOP as default-false (only 'true' enables)", () => {
-    expect(loadConfig({}, { LAYA_FAST_LOOP: "true" }).fastLoop).toBe(true);
-    expect(loadConfig({}, { LAYA_FAST_LOOP: "1" }).fastLoop).toBe(false);
-    expect(loadConfig({}, { LAYA_FAST_LOOP: "false" }).fastLoop).toBe(false);
-    expect(loadConfig({}, { LAYA_FAST_LOOP: "garbage" }).fastLoop).toBe(false);
-    expect(loadConfig({ fastLoop: true }, {}).fastLoop).toBe(true);
-  });
-
-  it("parses and clamps LAYA_FAST_WAIT_CAP_MS into [0, 2000]", () => {
-    expect(loadConfig({}, { LAYA_FAST_WAIT_CAP_MS: "500" }).fastWaitCapMs).toBe(500);
-    expect(loadConfig({}, { LAYA_FAST_WAIT_CAP_MS: "0" }).fastWaitCapMs).toBe(0);
-    expect(loadConfig({}, { LAYA_FAST_WAIT_CAP_MS: "2000" }).fastWaitCapMs).toBe(2000);
-    // Out-of-parse-range env falls back to the default; an override is clamped into range.
-    expect(loadConfig({}, { LAYA_FAST_WAIT_CAP_MS: "9999" }).fastWaitCapMs).toBe(200);
-    expect(loadConfig({}, { LAYA_FAST_WAIT_CAP_MS: "-5" }).fastWaitCapMs).toBe(200);
-    expect(loadConfig({}, { LAYA_FAST_WAIT_CAP_MS: "garbage" }).fastWaitCapMs).toBe(200);
-    expect(loadConfig({ fastWaitCapMs: 9999 }, {}).fastWaitCapMs).toBe(2000);
-    expect(loadConfig({ fastWaitCapMs: -5 }, {}).fastWaitCapMs).toBe(0);
-  });
-});

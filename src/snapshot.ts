@@ -785,8 +785,8 @@ function domWalk(args: {
 // (F1) The fast snapshot: one atomic page.evaluate that carries persistent node
 // identity + per-node semantic guards + a page-level marker + a pageKey. This adopts the
 // MECHANICS of the jev fast path (window.__jevFast identity WeakMap, guard array, page_key,
-// marker) in TypeScript/Playwright. It is used ONLY when the LAYA_FAST_LOOP flag is on; the
-// legacy capture()/domWalk() path is untouched.
+// marker) in TypeScript/Playwright. It is the per-step capture the (always-on) fast browser
+// loop uses; the plain capture()/domWalk() path still backs final verification and Assist mode.
 // ---------------------------------------------------------------------------
 
 /** Raw guard record returned from the in-page fast walk (validated before trusting). */

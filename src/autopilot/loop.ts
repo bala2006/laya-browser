@@ -46,7 +46,6 @@ import {
   DEFAULT_MAX_STEPS,
   DEFAULT_SELF_HEAL_RETRIES,
   DEFAULT_SNAPSHOT_BACKEND,
-  DEFAULT_FAST_WAIT_CAP_MS,
   type SnapshotBackend,
 } from "../config.js";
 import type {
@@ -391,26 +390,16 @@ export interface RunGoalOptions {
    * caller's concern; keep it defensive).
    */
   onProgress?: (info: { step: number; total: number; message: string }) => void | Promise<void>;
-  /**
-   * (F1) Whether the FAST browser loop is active. When ON: per-step capture uses the atomic
-   * {@link captureFast} (persistent in-page node identity + per-node semantic guards + a
-   * page-level marker + pageKey in ONE evaluate); a targeted CLICK/TYPE_TEXT/SELECT/FILL_FORM
-   * re-checks the target's guard+pageKey and acts on the OBSERVED node via
-   * {@link BrowserSession.actOnNode} (no fresh selector re-query, with a pre-input occlusion
-   * hit-test); and the fixed post-action settle is replaced by {@link BrowserSession.adaptiveWait}
-   * on the hot path. When OFF (default) the code path is EXACTLY as today
-   * (capture / resolveRef / locate / probeSettle), so main's behavior is byte-identical.
-   */
-  fastLoop?: boolean;
-  /**
-   * (F1) The adaptive-wait cap in ms the fast loop uses (e.g. for a combobox/autocomplete list
-   * to populate) before inputting. Only consulted when {@link fastLoop} is on. Defaults to
-   * {@link DEFAULT_FAST_WAIT_CAP_MS}.
-   */
-  fastWaitCapMs?: number;
 }
 
 const DEFAULT_WAIT_MS = 500;
+
+/**
+ * (F1) The adaptive-wait cap in ms the (always-on) fast browser loop uses before inputting
+ * (e.g. for a combobox/autocomplete list to populate) and as the settle-probe timeout,
+ * mirroring jev's 200ms autocomplete cap. An internal timing constant, not an operator knob.
+ */
+const FAST_WAIT_CAP_MS = 200;
 
 /** The Assist-mode hint returned when Autopilot cannot run (no weights). */
 export const DEGRADED_MESSAGE =
@@ -554,6 +543,9 @@ export async function resolveByNameRole(
 function looksLikeStaleRef(err: unknown): boolean {
   const msg = (err as Error)?.message ?? "";
   if (msg === "") return false;
+  // The fast path raises a soft, self-heal-shaped error via softError() when a target is
+  // stale/covered/gone (see fastAct); match those phrasings too so the retry budget re-observes.
+  if (/^fast path: target is (?:stale|covered|gone)/i.test(msg)) return true;
   return /Timeout|not (?:visible|attached|found|stable)|no element|detached|zero elements|resolve to no elements|element is not/i.test(
     msg,
   );
@@ -1286,8 +1278,6 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
     autoDismiss = false,
     frameDepth = 0,
     onProgress,
-    fastLoop = false,
-    fastWaitCapMs = DEFAULT_FAST_WAIT_CAP_MS,
   } = options;
 
   // (T1.4) Whether ANY per-step screenshot is captured. Recording artifacts implies a
@@ -1403,18 +1393,13 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
   const artifacts: RunStepArtifact[] = [];
   let outcome: RunOutcome = "max_steps";
   let lastSnapshot: Snapshot | undefined;
-  // (T4.1) A snapshot captured concurrently WITH the previous step's settle probe. Reused at
-  // the top of the next iteration only when the probe observed no change (so it is current),
-  // saving a capture round-trip on the common already-settled path. Undefined otherwise.
-  let prefetchedSnapshot: Snapshot | undefined;
   // (F4) The FAST-path speculative overlap. During the previous step's settle probe, when the
   // page was already settled AND an engine is available, we ALSO capture a speculative
   // FastSnapshot and pre-compute the next decision against it (both overlapping the probe wait).
   // At the top of the next iteration, when the prefetched fast snapshot is reused (page proven
   // unchanged) and the FEAT-002 freshness re-check confirms the cached decision's target is
   // still fresh, the cached decision is used instead of recomputing. DISCARDED on ANY drift
-  // (probe changed / auto-dismiss ran / guard stale). Only ever populated when fastLoop is on,
-  // so the default (legacy) path is byte-identical. This is a PURE optimization: the observed
+  // (probe changed / auto-dismiss ran / guard stale). This is a PURE optimization: the observed
   // decision sequence is identical to not speculating; only wall-clock overlap changes.
   let prefetchedFast: { snapshot: Snapshot; ctx: FastContext } | undefined;
   let speculativeDecision: SpeculativeDecision | undefined;
@@ -1443,13 +1428,6 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
       // (D1) Start-of-step wall clock, used for the per-step timing artifact.
       const stepStart = Date.now();
 
-      // (T4.1) Reuse a snapshot prefetched during the previous step's settle probe, but ONLY
-      // when that probe observed NO change (so the prefetched DOM is still current) AND no
-      // auto-dismiss will mutate the page this step. This cuts a capture round-trip on the
-      // common "page already settled" path WITHOUT changing observed semantics: on any change
-      // (or when auto-dismiss might click something) we discard it and capture fresh below.
-      const prefetched = prefetchedSnapshot;
-      prefetchedSnapshot = undefined;
       // (F4) Grab and clear the speculative fast prefetch + cached decision computed during the
       // previous step's settle window. Consumed below only on the fast path and only when the
       // page is proven unchanged and the cached target is still fresh; discarded otherwise.
@@ -1474,33 +1452,23 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
         }
       }
 
-      // (T4.1) Use the prefetched snapshot when it is safe (settled + no auto-dismiss); this
-      // is byte-identical to capturing here because the probe confirmed the page did not
-      // change between the prefetch and now. Otherwise capture fresh (unchanged behaviour).
-      // (F1) Fast loop: capture the atomic FastSnapshot (persistent identity + guards + marker
-      // + pageKey in ONE evaluate) and project it to the plain Snapshot the state builder / the
-      // engine consume, keeping the nodeId/guard/rect on a side map keyed by ref. The prefetch
-      // reuse (a legacy-path optimization) is not used on the fast path. When fastLoop is OFF
-      // this branch is skipped entirely and the path is byte-identical to before.
-      let fastCtx: FastContext | undefined;
+      // (F1) Capture the atomic FastSnapshot (persistent identity + guards + marker + pageKey
+      // in ONE evaluate) and project it to the plain Snapshot the state builder / the engine
+      // consume, keeping the nodeId/guard/rect on a side map keyed by ref.
+      let fastCtx: FastContext;
       let snapshot: Snapshot;
       // (F4) Whether the speculative fast prefetch is safe to reuse this step: it exists, the
       // previous probe reported no change (that is the only condition under which it is kept),
       // and no auto-dismiss ran this step (which could mutate the page). On reuse we skip the
       // captureFast round-trip; otherwise we capture fresh and DISCARD any cached decision.
-      const canReuseFast = fastLoop && speculatedFast !== undefined && !autoDismiss;
-      if (fastLoop) {
-        if (canReuseFast) {
-          snapshot = speculatedFast!.snapshot;
-          fastCtx = speculatedFast!.ctx;
-        } else {
-          const projected = projectFast(await captureFast(page, captureOptions));
-          snapshot = projected.snapshot;
-          fastCtx = projected.ctx;
-        }
+      const canReuseFast = speculatedFast !== undefined && !autoDismiss;
+      if (canReuseFast) {
+        snapshot = speculatedFast!.snapshot;
+        fastCtx = speculatedFast!.ctx;
       } else {
-        const canReusePrefetch = prefetched !== undefined && !autoDismiss;
-        snapshot = canReusePrefetch ? prefetched! : await capture(page, captureOptions);
+        const projected = projectFast(await captureFast(page, captureOptions));
+        snapshot = projected.snapshot;
+        fastCtx = projected.ctx;
       }
       lastSnapshot = snapshot;
 
@@ -1547,7 +1515,7 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
       // target is still fresh on the live page. On any drift we fall through to the ordinary
       // pipeline and decide fresh, so the observed decision is identical to not speculating.
       let reused: Decision | undefined;
-      if (canReuseFast && speculatedDecision !== undefined && fastCtx !== undefined) {
+      if (canReuseFast && speculatedDecision !== undefined) {
         const fresh = await speculativeTargetFresh(
           session,
           page,
@@ -1810,10 +1778,8 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
           redactSecrets,
           secrets,
           captureOptions,
-          // (F1) Thread the fast context for this step's targeted execution when fastLoop is on.
-          ...(fastLoop && fastCtx !== undefined
-            ? { fast: { ctx: fastCtx, capMs: fastWaitCapMs } }
-            : {}),
+          // (F1) Thread the fast context for this step's targeted execution.
+          fast: { ctx: fastCtx, capMs: FAST_WAIT_CAP_MS },
         },
         session,
         narrator,
@@ -1867,12 +1833,10 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
 
       // A2: purely-observational settle probe. It NEVER changes the decision path or outcome;
       // it only records `settled` on the step and narrates a hint. Terminal ops already broke
-      // out above, so this runs only for the continuing loop.
-      // (F1) On the fast path the targeted action already did its own bounded adaptiveWait and
-      // the next iteration always captures a fresh FastSnapshot, so the legacy fixed settle
-      // probe + speculative prefetch are skipped (they are a legacy-path optimization keyed to
-      // the prefetch reuse this branch does not use). `settled` is recorded observationally.
-      if (settleProbe && fastLoop) {
+      // out above, so this runs only for the continuing loop. The targeted action already did
+      // its own bounded adaptiveWait and the next iteration captures a fresh FastSnapshot, so
+      // this probe only records `settled` observationally and overlaps a speculative prefetch.
+      if (settleProbe) {
         const beforeUrlFast = beforeUrl;
         // (F4) Overlap the settle probe with a speculative fast capture for the NEXT step, and
         // (when the page is already settled and an engine is available) a speculative DECIDE
@@ -1884,7 +1848,7 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
         // at the next step top is the final guard before the cached decision is actually used.
         const [probe, speculativeFast] = await Promise.all([
           session
-            .probeSettle(page, { beforeUrl: beforeUrlFast, timeoutMs: fastWaitCapMs })
+            .probeSettle(page, { beforeUrl: beforeUrlFast, timeoutMs: FAST_WAIT_CAP_MS })
             .catch(() => ({ changed: false, urlChanged: false, mutations: 0 })),
           captureFast(page, captureOptions)
             .then((f) => projectFast(f))
@@ -1906,23 +1870,6 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
             engine,
             confidenceThreshold,
           ).catch(() => undefined);
-        }
-      } else if (settleProbe) {
-        await narrator.setState("acting", "Waiting for page to settle\u2026");
-        // (T4.1) Overlap the settle probe with a speculative capture for the NEXT step. Both
-        // are independent reads against the page; running them together hides the capture cost
-        // inside the probe's wait window. We only KEEP the speculative snapshot when the probe
-        // reports NO change (page already settled, so the snapshot is current) — on any change
-        // we discard it and the next iteration captures fresh, preserving observed semantics.
-        const [probe, speculative] = await Promise.all([
-          session.probeSettle(page, { beforeUrl }),
-          capture(page, captureOptions).catch(() => undefined),
-        ]);
-        record.settled = probe.changed;
-        prefetchedSnapshot =
-          !probe.changed && speculative !== undefined ? speculative : undefined;
-        if (!probe.changed) {
-          await narrator.toast("No change detected", "uncertain");
         }
       }
 

@@ -42,19 +42,15 @@ describe("Autopilot reliability (Group A, real headless chromium)", () => {
     const page = await session.getPage();
     await page.goto(fixtures.url("stale-ref.html"), { waitUntil: "domcontentloaded" });
 
-    // Capture the ORIGINAL Confirm button ref, then rebuild the target so that ref goes
-    // stale. The rogue engine below always aims at this now-stale ref; the loop must
-    // re-resolve the identically-named replacement button by name+role and click it.
-    const initial = await capture(page);
-    const staleRef = refFor(initial, "button", "Confirm");
-    expect(staleRef).toBeDefined();
-
+    // The rogue engine targets the Confirm button ref as the loop OBSERVED it this step, then
+    // rebuilds the target so that ref goes stale BEFORE execute() runs against it (the
+    // replacement keeps the same name+role). The loop must re-resolve the identically-named
+    // replacement button by name+role and click it.
     let rebuilt = false;
     const staleEngine: LayaDecisionEngine = {
       available: true,
-      async decide(): Promise<Decision> {
-        // On the first decision, replace the Confirm button so the captured ref is stale
-        // BEFORE execute() runs against it. The replacement keeps the same name+role.
+      async decide(state: PageState): Promise<Decision> {
+        const ref = refFor(state, "button", "Confirm")!;
         if (!rebuilt) {
           rebuilt = true;
           await page.evaluate(() => (window as unknown as { rebuildTarget: () => void }).rebuildTarget());
@@ -62,7 +58,7 @@ describe("Autopilot reliability (Group A, real headless chromium)", () => {
         return {
           operation: "CLICK",
           operationConfidence: 1,
-          target: staleRef!,
+          target: ref,
           targetConfidence: 1,
           source: "laya",
         };
@@ -128,21 +124,20 @@ describe("Autopilot reliability (Group A, real headless chromium)", () => {
   it("A2: records settled on step records during a run", async () => {
     const page = await session.getPage();
     await page.goto(fixtures.url("dead-button.html"), { waitUntil: "domcontentloaded" });
-    const initial = await capture(page);
-    const deadRef = refFor(initial, "button", "Do nothing")!;
 
-    // A rogue engine that clicks the dead button once, then declares DONE, so the run has a
-    // single non-terminal CLICK step whose settle probe should observe no change.
+    // A rogue engine that clicks the dead button once (targeting it as the loop OBSERVED it),
+    // then declares DONE, so the run has a single non-terminal CLICK step whose settle probe
+    // should observe no change.
     let clicked = false;
     const engine: LayaDecisionEngine = {
       available: true,
-      async decide(): Promise<Decision> {
+      async decide(state: PageState): Promise<Decision> {
         if (!clicked) {
           clicked = true;
           return {
             operation: "CLICK",
             operationConfidence: 1,
-            target: deadRef,
+            target: refFor(state, "button", "Do nothing")!,
             targetConfidence: 1,
             source: "laya",
           };
@@ -172,17 +167,16 @@ describe("Autopilot reliability (Group A, real headless chromium)", () => {
   it("A3: a rogue always-same-CLICK engine bails with outcome 'stuck' before maxSteps", async () => {
     const page = await session.getPage();
     await page.goto(fixtures.url("loop-trap.html"), { waitUntil: "domcontentloaded" });
-    const state = await capture(page);
-    const spinRef = refFor(state, "button", "Spin forever")!;
 
-    // Always chooses the identical CLICK on a page that never changes.
+    // Always chooses the identical CLICK (targeting the button as the loop OBSERVED it) on a
+    // page that never changes.
     const rogue: LayaDecisionEngine = {
       available: true,
-      async decide(): Promise<Decision> {
+      async decide(state: PageState): Promise<Decision> {
         return {
           operation: "CLICK",
           operationConfidence: 1,
-          target: spinRef,
+          target: refFor(state, "button", "Spin forever")!,
           targetConfidence: 1,
           source: "laya",
         };
@@ -211,16 +205,14 @@ describe("Autopilot reliability (Group A, real headless chromium)", () => {
   it("A3: loop detection off lets the run use its full budget", async () => {
     const page = await session.getPage();
     await page.goto(fixtures.url("loop-trap.html"), { waitUntil: "domcontentloaded" });
-    const state = await capture(page);
-    const spinRef = refFor(state, "button", "Spin forever")!;
 
     const rogue: LayaDecisionEngine = {
       available: true,
-      async decide(): Promise<Decision> {
+      async decide(state: PageState): Promise<Decision> {
         return {
           operation: "CLICK",
           operationConfidence: 1,
-          target: spinRef,
+          target: refFor(state, "button", "Spin forever")!,
           targetConfidence: 1,
           source: "laya",
         };
