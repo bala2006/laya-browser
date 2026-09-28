@@ -1,10 +1,15 @@
-# laya-browser-mcp — Plan
+# laya-browser-mcp Plan
 
 `laya-browser-mcp` is a TypeScript / Node 22 MCP server that is a **superset of Playwright
-MCP** plus a **local, sub-100ms Laya on-device decision engine**. It exposes the familiar
+MCP** plus a **local Laya on-device decision engine**. It exposes the familiar
 ref-based Playwright toolset (Assist mode) and adds an Autopilot loop (`laya_run_goal`) that
 drives structured web tasks with a local Laya "System 1" decision model, deterministic rules,
-and MCP-sampling escalation to the client LLM when confidence is low.
+and MCP-sampling escalation to the client LLM when confidence is low. The on-device decision is
+one signal behind the `0.85` escalation gate, not a sub-100ms path: measured on CPU,
+`LayaEngine.decide` costs hundreds of ms per step (median ~407 ms web-agent / ~810-870 ms
+reference; see the FEAT-004 ledger). It auto-selects the best available onnxruntime execution
+provider (CUDA -> DirectML -> WebGPU -> CPU); the GPU speedup is to-be-measured on hardware with
+a supported GPU (this project's CI has none).
 
 Honest positioning: this is a **fast local decision layer with LLM fallback**. It is strong
 on structured forms and weak on arbitrary real sites (the web-agent checkpoint scores ~97.7%
@@ -13,42 +18,42 @@ It is **not** a fully autonomous general web agent.
 
 ## Phased plan
 
-- **Phase 0 — Scaffold + core types + spike (FEAT-001, this phase).**
+- **Phase 0: Scaffold + core types + spike (FEAT-001, this phase).**
   pnpm + `tsc` (ESM NodeNext, strict) + vitest toolchain; verified deps installed;
   green baseline (typecheck + build + one meaningful test); the **pure** core type module
   `src/types.ts` that every later phase depends on; the time-boxed ONNX-export spike; this plan.
 
-- **Phase 1 — Snapshot + ref boundary + browser lifecycle.**
+- **Phase 1: Snapshot + ref boundary + browser lifecycle.**
   `src/snapshot.ts`: an in-page DOM walk that stamps stable `data-laya-ref="eN"` attributes on
   interactive/landmark elements and returns (a) a compact human-readable snapshot with
   `[ref=eN]` markers and (b) a `ref -> metadata` map. `src/browser.ts`: Playwright lifecycle
   and the ref-resolution boundary (`page.locator('[data-laya-ref="eN"]')`, falling back to
-  treating `target` as a raw selector). **We own the ref boundary ourselves** — stable
+  treating `target` as a raw selector). **We own the ref boundary ourselves**: stable
   `playwright-core@1.63.0` does NOT expose a public `_snapshotForAI`/`snapshotForAI` (only
   alpha/mcp-bundled builds do), so no Playwright private API is assumed anywhere.
 
-- **Phase 2 — Assist-mode MCP tools.**
+- **Phase 2: Assist-mode MCP tools.**
   `src/tools/*.ts`: navigate, snapshot, click, type, select, press_key, wait_for, close, using
   the Playwright MCP convention (`element` human-readable description + `target` exact ref or
   selector), zod input schemas. `src/server.ts` / `src/index.ts`: the stdio MCP server. Works
   standalone with **no weights**.
 
-- **Phase 3 — State builder + Laya engine + stub.**
+- **Phase 3: State builder + Laya engine + stub.**
   `src/state-builder.ts`: snapshot -> compact typed `PageState` for Laya (numbered controls with
   current values, condensed visible text, recent actions), budgeted to the checkpoint's
   `max_len`. `src/laya/engine.ts`: `LayaDecisionEngine` wrapping `@receptron/laya`
   (`Laya.load` + `systemOne` narrow choice questions -> `Decision`). `src/laya/stub.ts`: a
   deterministic fake engine implementing the same interface for offline tests.
 
-- **Phase 4 — Autopilot loop.**
+- **Phase 4: Autopilot loop.**
   `src/autopilot/loop.ts`: snapshot -> state -> decision -> execute -> repeat, until DONE/BLOCKED.
   Narrow Laya decisions + deterministic rules (fill goal-stated values; after typing/opening a
   control choose from the options that appeared; submit then open the named item) + **one** text
   plan per task. Low confidence or BLOCKED escalates to the client LLM via **MCP sampling**.
-  Degrades gracefully when weights are absent. A DONE decision is not proof of success — the
+  Degrades gracefully when weights are absent. A DONE decision is not proof of success: the
   loop verifies the final page independently.
 
-- **Phase 5 — Escalation + rules + hardening + benchmark + docs (DONE).**
+- **Phase 5: Escalation + rules + hardening + benchmark + docs (DONE).**
   `src/autopilot/policy.ts` (deterministic-rule layer around the narrow Laya decision:
   fill goal-stated values -> choose from options that appeared -> submit),
   `src/autopilot/escalation.ts` (MCP-sampling escalation to the client LLM via
@@ -66,11 +71,19 @@ It is **not** a fully autonomous general web agent.
   cross-browser design, the broadened Autopilot operation model, the per-group sequencing
   outcome, and the refreshed ledger.
 
-- **Phase 7: Fast browser loop + honest before/after measurement (DONE, flag-gated OFF).**
-  A jev-ultrafast-inspired Autopilot perception/act path behind `LAYA_FAST_LOOP` (default off),
+- **Phase 7: Fast browser loop + honest before/after measurement (DONE; the fast loop is now
+  always-on after Phase 8).**
+  A jev-ultrafast-inspired Autopilot perception/act path originally behind `LAYA_FAST_LOOP`,
   plus a jev-inspired but fully local benchmark and an honest laya-only before/after run. See
   the "Phase 7 addendum" below for the levers, the measured numbers, the jev-runnability
-  finding, and the Phase 0 spike note on per-operation target heads.
+  finding, and the Phase 0 spike note on per-operation target heads. Phase 8 collapsed the fast
+  loop into the single always-on browser path and retired the `LAYA_FAST_LOOP` toggle.
+
+- **Phase 8: dynamic EP selection, dead-end fix, speed levers, and de-nuance (DONE).**
+  Probe-verified execution-provider auto-selection (FEAT-002), the low-confidence-BLOCKED
+  dead-end fix (FEAT-003), CPU-measured speed levers plus a documented-and-skipped int8 path
+  (FEAT-004), and the collapse to one always-on loop with a pruned env-flag surface (FEAT-005).
+  See the "Phase 8 addendum" below and the updated ledger.
 
 ## Phase 6 addendum: full tool parity, capability gating, cross-browser, faster Autopilot
 
@@ -229,6 +242,113 @@ target heads) than the trained single-shared-list `systemOne` call this checkpoi
 INDEPENDENT of the four fast-loop levers above** (they are perception/act mechanics; the fan-out is a
 decision-shape change), and it is recorded here as the honest scope boundary for a future phase.
 
+## Phase 8 addendum: dynamic EP selection, dead-end fix, speed levers, de-nuance
+
+### FEAT-002: dynamic execution-provider auto-selection (probe-verified)
+
+A mostly-pure resolver `src/laya/execution-provider.ts` (no `ort`/`playwright` imports) drives
+EP selection. `candidateExecutionProviders(platform, arch, override?)` is a PURE function that
+returns an ordered `EpCandidate[]` of `{ name, providers }`, where `name` is the human label
+for the log line (`cuda` | `directml` | `webgpu` | `cpu`) and `providers` is the onnxruntime
+list passed to `Laya.load` (each GPU candidate includes a CPU fallback entry, e.g. cuda ->
+`['cuda','cpu']`). When an override (`LAYA_EXECUTION_PROVIDERS`) is supplied it returns exactly
+ONE candidate wrapping that list verbatim, so auto-selection is skipped. Otherwise it gates by
+the `onnxruntime-node@1.30.0` prebuilt matrix: CUDA first on Linux x64, DirectML first on
+win32 x64/arm64, WebGPU where applicable, and the list ALWAYS ends with a plain CPU candidate,
+so resolution can never fail.
+
+Selection is probe-verified: because `Laya.load` throws when a listed EP cannot initialize the
+model, attempting the load with a candidate's providers IS the probe. `resolveEngine(candidates,
+load, log?)` tries candidates in order, keeps the FIRST whose load resolves, catches each
+failure and falls through to the next, and rethrows the last error only when every candidate
+fails (so `createEngine` still degrades to `UnavailableEngine`, never crashing the server). The
+model loads exactly ONCE (the probe is the load). `src/index.ts` writes ONE stderr startup line
+naming the engaged EP: `[laya-browser-mcp] Autopilot engine loaded (execution provider: <name>).`
+(never on stdout). This is the ONE fast/decision path; there is no second selection mechanism.
+
+### FEAT-003: break the low-confidence-BLOCKED dead-end
+
+Previously a LOW-CONFIDENCE `BLOCKED` decision plus an UNREACHABLE client LLM (a client with no
+MCP sampling, e.g. opencode) trapped the run: `escalate()` dropped the fallback via the
+`options.fallback.operation !== 'BLOCKED'` filter, so there was no forward path. The fix adds a
+pure resolver `bestSafeProgress(state)` in `src/autopilot/policy.ts` with the resolution order
+(a) the policy layer's next action via `policySeed` when it is non-BLOCKED (a policy submit
+`CLICK` is offered only when it PASSES `checkDestructiveSubmit`, so best-safe-progress NEVER
+proposes a destructive click); (b) a bounded, targetless `SCROLL_DOWN` nudge when the page still
+has controls or visible text; (c) `undefined` for a genuinely dead page (the caller keeps the
+graceful BLOCKED). The loop injects `bestSafeProgress` into `escalate()` ONLY for the
+low-confidence-BLOCKED case. Preserved hard stops: a CONFIDENT `BLOCKED` (operationConfidence >=
+gate) still stops, the loop detector still stops a genuinely dead page, and the destructive-form
+guard remains the final authority. The R2 no-weights BLOCKED placeholder still degrades
+gracefully.
+
+### FEAT-004: CPU speed levers + int8 documented-and-skipped
+
+Two speed properties were VERIFIED in the existing code (no change needed): (1) the ONNX session
+is created ONCE by `Laya.load` (stored as `this.session`) and reused across every
+`LayaEngine.decide` call (the EP probe is the single load), so there is no per-decision reload;
+(2) the state token budget (`stateTextLimit`, default `1200`, bounds `200..8000`) is applied on
+the DECIDE hot path: `buildState` clamps `visibleText` and caps controls, and `renderState`
+(consumed by `engine.decide`) serializes exactly that clamped state, not only the escalation
+prompt. Measured on CPU this session (Node 22.23.2, 8 CPUs): `LayaEngine.decide` median
+**407 ms** (min 396, max 419) for the web-agent bundle, extending the existing ~440-490 ms
+web-agent / ~810-870 ms reference figures.
+
+`scripts/prepare-model.sh` gained an `int8 [OUT_DIR]` mode that builds the fp32 web-agent bundle
+then runs onnxruntime dynamic quantization (`quantize_dynamic`, `QuantType.QInt8`) into a
+sibling drop-in `LAYA_MODEL_DIR`. int8 is **documented-and-skipped**: quantization of this
+ModernBERT-shaped graph is infeasible with onnxruntime 1.30.0 / onnx 1.23.0 here. `quantize_dynamic`
+aborts in its internal strict shape inference with
+`onnx...InferenceError: [ShapeInferenceError] Inferred shape and existing shape differ in
+dimension 0: (772) vs (256)`. This is NOT a missing-preprocessing issue (`quant_pre_process(...,
+skip_symbolic_shape=True)` succeeds on the same model, but `quantize_dynamic` re-runs strict
+shape inference and fails identically). The scaffolding is kept intact so it works once a
+compatible export or a tolerant onnxruntime version exists. No int8 number was fabricated.
+
+### FEAT-005: collapse to one loop + prune the flag surface
+
+The fast loop (merged in PR #8) is now the SINGLE always-on browser path: the `LAYA_FAST_LOOP`
+toggle and the legacy pre-fast-loop capture/prefetch/settle branch in `src/autopilot/loop.ts`
+were removed (the fast body runs unconditionally, keeping the F4 speculative-decision reuse and
+the FEAT-002 freshness/occlusion guard as the single act path). The decision pipeline was
+consolidated into one well-named helper `resolveStepDecision` (rule seed -> local-model decide
+-> confidence check -> escalate-if-a-channel-exists -> best-safe-progress); rules stay first and
+`RULE_CONFIDENCE 0.97` is unchanged, `src/types.ts` stays pure, config is still parsed once.
+
+Env-knob count went **44 -> 41**. Keep/inline/delete ledger:
+
+- **DELETE `LAYA_FAST_LOOP`** (`fastLoop`): the fast loop is the single always-on path; removed
+  the field/override/parse/default const, the `RunGoalOptions`/`RunGoalContext` option, the
+  `server.ts` + `run_goal.ts` threading, and the whole `if (fastLoop) {...} else { legacy }`
+  branch.
+- **INLINE `LAYA_FAST_WAIT_CAP_MS`**: it was only an internal adaptive-wait/settle-probe timing
+  cap with no operator-tuning need; inlined to a module constant `FAST_WAIT_CAP_MS = 200` and
+  removed the config field/override/parse/default/clamp-test.
+- **DELETE `LAYA_CONFIRM_DESTRUCTIVE`** (`confirmDestructive`): dead flag. It was parsed and
+  threaded but the loop no longer consulted it: the destructive-submit ask now follows the
+  confirmation callback alone. Removed the field/override/parse/threading, the doc/README rows,
+  and the parse-only test. Behavior is unchanged (confirm-callback presence alone gates the ask).
+- **KEEP (37 others)**: each remaining knob is threaded to real behavior and covered by a
+  meaningful test, so none were deleted just to hit a number.
+
+The `bench:fastloop` package.json script and `benchmark/before-after.mjs` (the A/B harness that
+toggled `LAYA_FAST_LOOP`) were retired; the last recorded before/after numbers are kept in
+`benchmark/RESULTS.md` as a historical record and `bench:compare` remains. Net deletion bias:
+16 files changed, 310 insertions, 948 deletions (net 638 lines deleted). Suite green: 318 passed
+/ 3 skipped (baseline 322 / 3; the 4 fewer tests were 3 removed flag-parse assertions + 1 removed
+confirmDestructive parse test, all meaningful coverage preserved).
+
+### Model-first stays a documented Phase 3 follow-up (NOT implemented)
+
+Rules stay FIRST today (option b): the deterministic rule seed at `RULE_CONFIDENCE 0.97` runs
+before the local model and clears the `0.85` gate on structured pages, so the FEAT-003 real-
+weights probes show the model is a low-confidence signal behind the gate (see the VERIFIED
+FEAT-003 block: on the benchmark fixtures the per-step source breakdown is
+`rule/laya/stub/llm = 3/0/0/0` for BOTH real models). Going model-first is a LATER, benchmarked
+step, gated on the local model being both FAST and CONFIDENT enough to beat the rules on
+structured pages. It is recorded here as a scope boundary and is deliberately NOT implemented in
+this phase.
+
 ## Verified / inferred / guessed ledger
 
 - **VERIFIED (ran it):**
@@ -239,12 +359,12 @@ decision-shape change), and it is recorded here as the honest scope boundary for
     ref boundary via our own DOM walk.
   - `@modelcontextprotocol/sdk@1.30.1` sampling: `McpServer.server.createMessage(params)`
     (result `content` is a single block with `.type`/`.text`) and
-    `McpServer.server.getClientCapabilities()?.sampling` for capability detection — confirmed
+    `McpServer.server.getClientCapabilities()?.sampling` for capability detection, confirmed
     against the installed SDK type declarations.
   - The full offline test suite + `pnpm run bench` are green with the stub (3/3 fixtures
-    end-to-end success via the independent final-page check, 100% expected-ops COVERAGE —
-    a subsequence match that does not penalize extra/wrong ops, so it is not a precision
-    figure), headless Chromium, no weights. Latest run: 134 passed, 3 skipped.
+    end-to-end success via the independent final-page check, 100% expected-ops COVERAGE, which
+    is a subsequence match that does not penalize extra/wrong ops, so it is not a precision
+    figure; headless Chromium, no weights). Latest run: 134 passed, 3 skipped.
   - **Full tool parity + capability gating.** All 71 tools register under the expected
     capabilities and `assistToolNames` matches the tables in the README (cross-checked in
     tests and at doc time).
@@ -293,8 +413,65 @@ decision-shape change), and it is recorded here as the honest scope boundary for
     asks operation + target as two `choice` questions in ONE `systemOne` pass over ONE shared
     control list, so it cannot express jev's separate per-operation target-head fan-out as coded;
     this is independent of the fast-loop levers (see the Phase 7 addendum).
+  - **FEAT-002 EP auto-selection ordering + fall-through (VERIFIED BY UNIT TEST, fake factory,
+    no GPU).** `test/execution-provider.test.ts` (10 tests) asserts `candidateExecutionProviders`
+    returns CPU-last on every platform, the expected GPU-first order per platform/arch (CUDA on
+    Linux x64, DirectML on win32 x64/arm64), does not offer a GPU the platform cannot host,
+    returns exactly the override candidate when `LAYA_EXECUTION_PROVIDERS` is set, and that
+    `resolveEngine` keeps the first candidate whose fake load resolves, LOADS THE MODEL EXACTLY
+    ONCE on the happy path (spy call count 1), FALLS THROUGH to the next candidate when the first
+    fake load rejects (chosen name reflects the fallback), REJECTS only when all fake loads
+    reject, and emits the single startup line naming the engaged provider. The probe reuses the
+    real load, so a broken listed EP falls through instead of crashing; resolution always ends at
+    CPU. Verified with a fake session factory: no GPU is used or required for these tests.
+  - **FEAT-004 CPU decision-ms + session-once + hot-path token budget (VERIFIED ON CPU, this
+    session, Node 22.23.2, 8 CPUs).** Reproduce: `scripts/prepare-model.sh web-agent` (or the
+    `int8` mode, which builds the same fp32 bundle first), then a timing probe of
+    `LayaEngine.decide` (3 warmup + 15 timed) over a realistic clamped search-page `PageState`.
+    Result: median **407 ms** (min 396, max 419), deterministic output across runs, extending the
+    existing ~440-490 ms web-agent / ~810-870 ms reference figures. Session-once is VERIFIED from
+    `node_modules/@receptron/laya/dist/laya.js` (`ort.InferenceSession.create` called once,
+    stored on `this.session`, reused by every `systemOne`) and `src/laya/engine.ts` (one `Laya`
+    instance per `LayaEngine`, never reloaded). The `stateTextLimit` budget is VERIFIED applied on
+    the decide hot path (config -> server -> run_goal -> `buildState` at the loop's decide call ->
+    `renderState` -> `laya.systemOne`), asserted by `test/tier1-token-latency.test.ts` and
+    `test/config.test.ts`. The gated real-weights `test/autopilot.test.ts` passes on the fp32
+    bundle (real independent final-page verification, not just a DONE decision).
+  - **FEAT-003 dead-end fix (VERIFIED, unit + loop with real chromium).** A LOW-CONFIDENCE
+    `BLOCKED` with no MCP sampler now resolves to a NON-BLOCKED best-safe-progress step (policy
+    next action, else a bounded `SCROLL_DOWN`) instead of trapping the run; a CONFIDENT `BLOCKED`,
+    the loop detector, and the destructive-form guard still hard-stop; a genuinely dead page still
+    degrades to `BLOCKED` without looping forever; best-safe-progress never emits a destructive
+    `CLICK` (it reuses `checkDestructiveSubmit`). Asserted by `test/dead-end.test.ts` (11 tests:
+    resolver units + `escalate()` units + loop tests on `search-form.html`/`dead-button.html`);
+    the existing T4 escalation and T1-T5 autonomy tests stay green with no assertion changes.
+  - **FEAT-005 single-loop collapse + flag prune (VERIFIED, ran it).** `git grep
+    'LAYA_FAST_LOOP|fastLoop' -- src/*` returns nothing live: the fast loop is the single
+    always-on browser path and the legacy branch is gone. Env-knob count 44 -> 41 (DELETE
+    `LAYA_FAST_LOOP`, INLINE `LAYA_FAST_WAIT_CAP_MS` to the 200 ms `FAST_WAIT_CAP_MS` constant,
+    DELETE dead `LAYA_CONFIRM_DESTRUCTIVE`; 37 knobs kept, each threaded + tested). The decision
+    pipeline is one helper `resolveStepDecision`; rules-first and `RULE_CONFIDENCE 0.97` unchanged;
+    `src/types.ts` pure; config parsed once. Net 638 lines deleted (16 files, 310+/948-);
+    `benchmark/before-after.mjs` + the `bench:fastloop` script retired. Suite green: typecheck
+    clean, build exit 0, `pnpm test` = 318 passed / 3 skipped. See the Phase 8 addendum ledger.
 - **INFERRED (from docs/patterns, not run here):**
-  - Real per-step accuracy (~97.7% clean forms, ~1 step in 5 on real Mind2Web) — from the
+  - **FEAT-002 GPU speedup (INFERRED / UNVERIFIED-HERE, to-be-measured on the user's RTX 4050).**
+    This project's CI has NO NVIDIA GPU, so the CUDA / DirectML / WebGPU execution providers
+    cannot be exercised here and no GPU decision-ms number is published. The resolver, probe,
+    fall-through, and CPU path are all VERIFIED by unit test with a fake factory (see the VERIFIED
+    block), and the actual GPU speedup is expected but must be measured on supported hardware.
+    Reproduce on an RTX 4050: `scripts/prepare-model.sh web-agent`, then
+    `LAYA_MODEL_DIR=.cache/laya-work/webagent-onnx pnpm start`, and confirm the engaged EP from
+    the single stderr line `[laya-browser-mcp] Autopilot engine loaded (execution provider: cuda).`;
+    compare the per-step `inferenceMs` against the ~407 ms CPU web-agent baseline. We do not
+    extrapolate a GPU number we did not measure.
+  - **FEAT-004 int8 speedup (NOT MEASURED, int8 documented-and-skipped).** int8 dynamic
+    quantization of the ModernBERT-shaped web-agent graph is infeasible with onnxruntime 1.30.0 /
+    onnx 1.23.0 here (`quantize_dynamic` aborts with `[ShapeInferenceError] Inferred shape and
+    existing shape differ in dimension 0: (772) vs (256)`); the `scripts/prepare-model.sh int8`
+    scaffolding is kept for when a compatible export or tolerant onnxruntime version exists. No
+    int8 number was fabricated (see the Phase 8 addendum FEAT-004 note).
+  - Real per-step accuracy (~97.7% clean forms, ~1 step in 5 on real Mind2Web), from the
     checkpoint's reported figures; not reproduced offline. FEAT-003's direct `decide` probes are
     consistent with the "not reliable step-by-step on its own" side of this (see the VERIFIED
     FEAT-003 block), but were not a full accuracy benchmark.
@@ -418,32 +595,32 @@ decision-shape change), and it is recorded here as the honest scope boundary for
   redistributed. The live-web accuracy figures quoted in this repo remain **INFERRED** from the
   checkpoint's reported numbers (see the INFERRED bullet above), not reproduced here.
 
-## Core data shapes (designed first — `src/types.ts`)
+## Core data shapes (designed first in `src/types.ts`)
 
 The type module is **pure**: it imports neither `playwright` nor any ONNX / `@receptron/laya`
 runtime, so it type-checks and unit-tests in isolation and keeps the ref/snapshot boundary
 decoupled from the decision layer.
 
-- **`Ref`** — a branded `string` (`e5`), so a raw string cannot be passed where a resolved ref
+- **`Ref`**: a branded `string` (`e5`), so a raw string cannot be passed where a resolved ref
   is expected. Refs are assigned by our own in-page DOM walk, not by any Playwright private API.
-- **`Control`** — one interactive/landmark element: `{ ref, index (1-based), role, name, tag,
+- **`Control`**: one interactive/landmark element: `{ ref, index (1-based), role, name, tag,
   type?, value?, options?, editable, checked?, disabled? }`. `index` is the position in the
   numbered control list the model sees; `ref` resolves the element back on the page.
-- **`PageState`** — the compact snapshot handed to Laya: `{ goal, url, title, visibleText,
+- **`PageState`**: the compact snapshot handed to Laya: `{ goal, url, title, visibleText,
   controls, recentActions }`. Mirrors the web-agent `jev_ultrafast` input format (goal + title +
   visible text + numbered controls with current values + recent actions), kept within `max_len`.
-- **`Operation`** — the base set `'CLICK' | 'TYPE_TEXT' | 'SELECT' | 'SCROLL_DOWN' | 'WAIT' |
+- **`Operation`**: the base set `'CLICK' | 'TYPE_TEXT' | 'SELECT' | 'SCROLL_DOWN' | 'WAIT' |
   'DONE' | 'BLOCKED'` mirrors `abedinia/laya-web-agent` exactly. Part 2 broadens it with
   `'HOVER' | 'NAVIGATE_BACK' | 'PRESS_KEY' | 'FILL_FORM' | 'SCREENSHOT' | 'VERIFY'` so Autopilot
   can drive the richer toolset faster (see the Phase 6 addendum).
-- **`Decision`** — modelled as a **discriminated union so illegal states are unrepresentable**:
+- **`Decision`**: modelled as a **discriminated union so illegal states are unrepresentable**:
   a `CLICK`/`TYPE_TEXT`/`SELECT`/`HOVER` decision must carry a `target: Ref`; `DONE`/`BLOCKED`/
   `SCROLL_DOWN`/`WAIT`/`NAVIGATE_BACK`/`SCREENSHOT` carry no target; `PRESS_KEY` carries a
   `key`; `FILL_FORM` carries a `fields[]` list and no single `target`; `VERIFY` carries a
   marker. Carries `operationConfidence`, `targetConfidence` (both in `[0,1]`, used to decide
   escalation), an optional `value` (text to type / option to choose), and a `source` of
   `'laya' | 'rule' | 'llm' | 'stub'` for observability.
-- **`LayaDecisionEngine`** — `{ decide(state): Promise<Decision>; readonly available: boolean;
+- **`LayaDecisionEngine`**: `{ decide(state): Promise<Decision>; readonly available: boolean;
   close(): Promise<void> }`. The real engine and the stub are interchangeable behind this
   interface (Boundary Discipline). `available: false` is how Autopilot knows to degrade
   gracefully (deterministic rules + LLM escalation) instead of failing.
@@ -471,7 +648,7 @@ What was done (Python 3.12 via `uv`; `torch` 2.14, `transformers` 5.17, `onnx`, 
    `email_utils.py`, so those model-building modules were pulled from `convaiinnovations/laya`.
 2. Ran the reference `export_onnx.py` unmodified against the web-agent files.
    **It exported successfully.** Parity vs. the PyTorch reference: `max |dlogits| = 2.48e-05`,
-   `max |dact| = 0.0`. Output bundle: `laya.onnx` (1291 MB, weights inline —
+   `max |dact| = 0.0`. Output bundle: `laya.onnx` (1291 MB, weights inline:
    `external_data=False`, so no separate `laya.onnx.data` is needed for the `modelDir` path),
    `laya_config.json` (`max_len` 2048, `head_max_len` 512), and `tokenizer/`.
 3. Loaded the bundle in **Node** via `Laya.load({ modelDir })`. This initially **failed** with
@@ -496,7 +673,7 @@ not export cleanly, a thin local Python sidecar using the `laya` pip package can
 over a local socket. This loses the no-Python-at-runtime property and is a last resort.
 
 **Independent of weights either way:** the product and its whole test suite run without any
-weights — Assist mode is fully standalone, Autopilot degrades gracefully (deterministic rules +
+weights: Assist mode is fully standalone, Autopilot degrades gracefully (deterministic rules +
 LLM escalation), and tests use a stubbed `LayaDecisionEngine`. The reference receptron checkpoint
 also loads directly via `modelDir` / the default download for anyone who wants real decisions
 without the export step.
@@ -530,12 +707,12 @@ without the export step.
   grammar (assignments + `expect`/`see`/`until` markers). Unquoted values stop at punctuation,
   so values containing dots (e.g. emails) should be quoted; the benchmark and docs reflect this.
 - **Safety heuristics are keyword-based and Autopilot-only.** The destructive-form guard
-  matches a keyword set against a scoped set of signals — the target control's own name /
-  value / option labels and the names of the other actionable controls (buttons/links) — plus
+  matches a keyword set against a scoped set of signals (the target control's own name /
+  value / option labels and the names of the other actionable controls, buttons/links), plus
   the password+payment combination. It deliberately does NOT scan the whole page's visible
   body text (that would over-trigger on any prose mentioning "delete"), so it can still miss
   unusual phrasings or off-screen/image-only signals; it errs toward refusing (fail-safe). It
-  covers the Autopilot auto-submit (`CLICK`) path only — the human-driven Assist tools apply
+  covers the Autopilot auto-submit (`CLICK`) path only: the human-driven Assist tools apply
   no destructive check by design. It is a guard rail requiring explicit confirmation, not a
   proof, and is configurable (`LAYA_DESTRUCTIVE_GUARD`).
 - **Benchmark metric is coverage, not precision.** The `pnpm run bench` `ops-cov` column is
@@ -547,4 +724,4 @@ without the export step.
 ## Licensing / attribution
 
 Project code MIT. Laya weights Apache-2.0 (Convai Innovations). Any Mind2Web-derived material is
-CC BY 4.0 — attribute Deng et al., NeurIPS 2023; do not redistribute the test set.
+CC BY 4.0; attribute Deng et al., NeurIPS 2023; do not redistribute the test set.

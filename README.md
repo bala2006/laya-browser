@@ -1,11 +1,19 @@
 # laya-browser-mcp
 
-**A superset of [Playwright MCP](https://github.com/microsoft/playwright-mcp) with a local,
-sub-100ms Laya on-device decision engine.** It exposes the familiar ref-based Playwright
+**A superset of [Playwright MCP](https://github.com/microsoft/playwright-mcp) with a local
+Laya on-device decision engine.** It exposes the familiar ref-based Playwright
 browser tools (Assist mode) and adds an Autopilot loop (`laya_run_goal`) that resolves each
 step's element/action choice **on-device** with a local Laya "System 1" model, so the client
 LLM is invoked far less often. When the local model is not confident, Autopilot escalates the
 single step to the client's own LLM via **MCP sampling**.
+
+The on-device decision is one signal behind the `0.85` escalation gate, not a sub-100ms
+fast path: measured on CPU, `LayaEngine.decide` takes hundreds of ms per step (median ~407 ms
+web-agent / ~810-870 ms reference; see [Weights](#weights)). It picks the best available
+onnxruntime execution provider automatically (CUDA, DirectML, WebGPU, else CPU); on a machine
+with a supported GPU the per-decide cost is expected to drop, but that speedup is
+to-be-measured on your hardware (this project's CI has no GPU). See
+[Execution provider selection](#execution-provider-selection).
 
 - [What it is and honest positioning](#what-it-is-and-honest-positioning)
 - [Quick start (easy setup)](#quick-start-easy-setup)
@@ -13,6 +21,7 @@ single step to the client's own LLM via **MCP sampling**.
 - [Benchmark results](#benchmark-results)
 - [Autopilot](#autopilot)
 - [How it works](#how-it-works)
+- [Execution provider selection](#execution-provider-selection)
 - [Configuration reference](#configuration-reference)
 - [Development](#development)
 - [Weights](#weights)
@@ -516,8 +525,8 @@ B1 redaction applied to the transcript also applies to everything exported or st
   no `progressToken` is supplied, no progress notifications are emitted and behaviour is
   unchanged.
 - **Live token/step-cost meter in the HUD (T3.1).** When the overlay is active, the banner
-  shows a running meter — cumulative steps, LLM-escalation count, and an estimated token spend
-  for the run (estimated from the escalation prompt/response sizes at ~4 chars/token) — so the
+  shows a running meter (cumulative steps, LLM-escalation count, and an estimated token spend
+  for the run, estimated from the escalation prompt/response sizes at ~4 chars/token), so the
   cost of the automation is visible at a glance.
 - **Self-contained scrubbable replay (T3.3).** `laya_export_run`'s HTML output is a single
   file with no external dependencies: it inlines the step data (screenshots as base64) and a
@@ -526,7 +535,7 @@ B1 redaction applied to the transcript also applies to everything exported or st
   by double-clicking the file.
 - **One HUD for both modes.** The agentLens HUD looks the same whether you drive the page with
   the Assist tools or with a goal run: the same pill (glass, ink, radius, shadow), the same
-  single-row shape (42px tall in both modes — the goal command's step counter, progress bar and
+  single-row shape (42px tall in both modes; the goal command's step counter, progress bar and
   cost meter no longer wrap it onto a second row), and the four-corner gradient frame is armed
   for every document the HUD is injected into instead of only during a goal run.
 - **Cursor trail + new overlay states (T3.2/T3.4).** The synthetic cursor leaves a fading
@@ -549,7 +558,7 @@ B1 redaction applied to the transcript also applies to everything exported or st
   directory + suggested filename), so file-producing flows (invoices, exports) are usable.
 - **Stateless-handle readiness (T4.2).** A `laya_run_goal` call is fully addressable from its
   own arguments plus server-scoped resources (a lazily-built engine + the shared session), with
-  no per-connection protocol-session state required — compatible with the newer stateless MCP
+  no per-connection protocol-session state required, compatible with the newer stateless MCP
   model (the 2026-07-28 revision dropped protocol sessions). Audited in
   `test/tier4-architecture.test.ts`.
 
@@ -632,7 +641,7 @@ own 60s `-32001` RequestTimeout fires.
 Autopilot offers the narrow operation set the local model was trained on
 (`CLICK`/`TYPE_TEXT`/`SELECT`/`HOVER`/`SCROLL_DOWN`/`WAIT`/`NAVIGATE_BACK`/`DONE`/`BLOCKED`)
 plus the payload operations the deterministic layer emits (`FILL_FORM`, `PRESS_KEY`) and the
-terminal ones (`SCREENSHOT`, `VERIFY`). `NAVIGATE` — go to an explicit http(s) URL mid-run — is
+terminal ones (`SCREENSHOT`, `VERIFY`). `NAVIGATE` (go to an explicit http(s) URL mid-run) is
 a **planner-only** operation: it is reachable through the client-LLM planner, while the local
 model's choice question keeps exactly the options its checkpoint was trained on. An
 LLM-supplied URL is validated at the boundary (absolute `http(s)` only) and is subject to the
@@ -654,7 +663,7 @@ Three always-on (by default) reliability behaviours keep a run robust and bounde
   (~120ms) instead of always sleeping out its cap (~400ms), so a page that had already settled
   costs roughly the quiet period: measured 407–420ms → ~135ms per step. Genuine mutations keep
   re-arming the quiet timer, and the cap remains a hard upper bound, so a page that is still
-  settling is observed for just as long as before — and the wait can never grow. It uses **no**
+  settling is observed for just as long as before, and the wait can never grow. It uses **no**
   `networkidle` and **no** `slowMo`. The probe is purely observational: it records `settled` on
   the step (and toasts "No change detected" when nothing moved) but never changes the decision
   path or the run outcome.
@@ -690,7 +699,7 @@ relevant controls without changing the `Snapshot` / `Control[]` contract:
   put the **stable** role/instructions/response-format prefix FIRST and the **volatile** page
   state (url/title/controls/diff) LAST, so an LLM/provider that caches by shared prompt prefix
   can reuse the attention KV for the leading ~240 tokens across every step and run. Pure
-  reorder — the same information reaches the model and parsing is unchanged.
+  reorder: the same information reaches the model and parsing is unchanged.
 - **Bounded state text (`LAYA_STATE_TEXT_LIMIT`, default `1200`; T1.3).** The visible text
   carried into the Autopilot state (and the escalation prompt) is clamped to this budget so a
   huge page has a predictable token cost. When the text is truncated the rendered state adds a
@@ -717,9 +726,9 @@ relevant controls without changing the `Snapshot` / `Control[]` contract:
   early exit above compounds with this: together they cut the end-of-step overhead from ~400ms
   to ~135ms.) The settle probe
   ignores our own `data-laya-ref` attribute writes so the concurrent capture never pollutes its
-  observation — observed semantics are unchanged.
+  observation: observed semantics are unchanged.
 - **Batched HUD narration.** The per-step overlay chatter (progress, state, caption, toasts,
-  activity-log lines, cursor/spotlight aiming) used to cost one `page.evaluate` per call — ~13
+  activity-log lines, cursor/spotlight aiming) used to cost one `page.evaluate` per call: ~13
   round-trips per step, each carrying ~1.4ms of pure round-trip before any in-page work happened.
   The calls a step emits back-to-back are now applied in ONE round-trip through the in-page
   `batch([...])` API, and focusing a target is a single compound round-trip that resolves the ref,
@@ -742,7 +751,7 @@ relevant controls without changing the `Snapshot` / `Control[]` contract:
   transcript's recent-actions log, and returned in `RunResult.warnings`. An explicit refusal
   still blocks the run.
 - **Destructive-form guard.** This guard covers the **Autopilot auto-submit (`CLICK`) path
-  only** — the human-driven Assist tools (`browser_click`, `browser_type`, …) apply no
+  only**: the human-driven Assist tools (`browser_click`, `browser_type`, ...) apply no
   destructive check by design. Before Autopilot auto-submits, it inspects a **scoped** set of
   signals for a destructive keyword
   (`delete`/`remove`/`pay`/`purchase`/`confirm order`/`transfer`/`deactivate`): the target
@@ -879,6 +888,72 @@ MEASURED per-step costs:
   per-operation target fan-out. That is a genuine architectural difference, independent of the
   four fast-loop levers above.
 
+## Execution provider selection
+
+When the on-device engine loads real weights, the server picks the onnxruntime execution
+provider (EP) automatically. It is **probe-verified**: it tries the candidates in preference
+order and keeps the FIRST one that actually initializes a working session. A listed-but-broken
+EP (for example "DirectML unsupported by this model") does not crash the server; the load
+throws and resolution falls through to the next candidate. The list always ends with plain
+**CPU**, so selection can never fail.
+
+The preference order is:
+
+```
+CUDA -> DirectML -> WebGPU -> CPU
+```
+
+Only the providers your platform can host are offered, per the `onnxruntime-node@1.30.0`
+prebuilt support matrix:
+
+| Provider | Where it is offered |
+| --- | --- |
+| CPU | every platform (always the final fallback) |
+| DirectML | Windows x64 / arm64 |
+| CUDA | Linux x64 (CUDA v12) |
+| WebGPU | experimental |
+
+On startup the server writes exactly ONE line to **stderr** naming the engaged EP (stdout is
+reserved for the JSON-RPC stream):
+
+```
+[laya-browser-mcp] Autopilot engine loaded (execution provider: cuda).
+```
+
+The `<name>` is the resolved provider (`cuda`, `directml`, `webgpu`, or `cpu`).
+
+### Overriding auto-selection
+
+Set `LAYA_EXECUTION_PROVIDERS` (comma-separated) to skip auto-selection entirely and pass an
+explicit provider list to onnxruntime verbatim. For example `LAYA_EXECUTION_PROVIDERS=cuda,cpu`
+forces the CUDA-then-CPU list and does not probe any other candidate.
+
+### Confirming the GPU path on your hardware (to-be-measured)
+
+The EP resolver, the probe-verified fall-through, and the CPU path are implemented and covered
+by unit tests with a fake session factory. The GPU speedup itself is **UNVERIFIED in this
+project's CI** because there is no NVIDIA GPU there. To measure it on your own machine (for
+example an RTX 4050):
+
+```sh
+# 1. Build a real model bundle into a scratch dir (never committed).
+scripts/prepare-model.sh web-agent
+
+# 2. Point the server at the bundle and start it.
+LAYA_MODEL_DIR=.cache/laya-work/webagent-onnx pnpm start
+```
+
+Then confirm which EP engaged by reading the single startup line on stderr:
+
+```
+[laya-browser-mcp] Autopilot engine loaded (execution provider: cuda).
+```
+
+If it names `cuda` (or `directml`/`webgpu`), the GPU path is active. Compare the per-step
+`inferenceMs` in a `laya_run_goal` transcript against the CPU baseline
+(median ~407 ms web-agent on CPU, see [Weights](#weights)) to measure the actual speedup on
+your hardware. We publish no GPU number we did not measure.
+
 ## Configuration reference
 
 All configuration is parsed **once** (`src/config.ts`) from environment + tool args +
@@ -887,7 +962,7 @@ constructor options, then handed inward as typed config.
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `LAYA_BROWSER_HEADLESS` | `false` (headed) | Set `true` to run headless. A headed launch on a machine with no display server auto-falls-back to headless (one stderr warning). |
-| `LAYA_BROWSER_CHANNEL` | — | Chromium channel (e.g. `chrome`). |
+| `LAYA_BROWSER_CHANNEL` | (none) | Chromium channel (e.g. `chrome`). |
 | `LAYA_BROWSER_VIEWPORT` | `1280x800` | Viewport `WIDTHxHEIGHT`. |
 | `LAYA_BROWSER_OVERLAY` | `auto` | agentLens visual overlay: `auto` (on when headed, off when headless), `on`, or `off`. |
 | `LAYA_BROWSER_OVERLAY_ACCENT` | `#3b82f6` | Overlay brand accent as a `#rgb`/`#rrggbb` hex (invalid falls back to the default). |
@@ -897,13 +972,13 @@ constructor options, then handed inward as typed config.
 | `LAYA_BROWSER_OVERLAY_LOG` | `true` | `false` hides the collapsible activity-log panel. |
 | `LAYA_AUTOPILOT_WAIT_MS` | `300` | Autopilot `WAIT` duration in ms (clamped `0..5000`). |
 | `LAYA_ENGINE` | `auto` | `stub` forces the deterministic engine; `auto` uses weights when present. |
-| `LAYA_MODEL_DIR` | — | Local ONNX bundle directory (skips download). |
-| `LAYA_REPO` / `LAYA_SUBFOLDER` / `LAYA_REVISION` | — | Hugging Face source coordinates. |
+| `LAYA_MODEL_DIR` | (none) | Local ONNX bundle directory (skips download). |
+| `LAYA_REPO` / `LAYA_SUBFOLDER` / `LAYA_REVISION` | (none) | Hugging Face source coordinates. |
 | `LAYA_CACHE` | `~/.cache/receptron-laya` | Download cache root. |
-| `LAYA_EXECUTION_PROVIDERS` | `cpu` | onnxruntime execution providers (comma-separated). |
-| `LAYA_CONFIDENCE_THRESHOLD` | `0.6` | Escalate below this operation/target confidence. |
+| `LAYA_EXECUTION_PROVIDERS` | (auto) | Explicit onnxruntime execution providers (comma-separated). Unset auto-selects CUDA -> DirectML -> WebGPU -> CPU (probe-verified); setting it skips auto-selection and passes the list verbatim. See [Execution provider selection](#execution-provider-selection). |
+| `LAYA_CONFIDENCE_THRESHOLD` | `0.85` | Escalate below this operation/target confidence (OR semantics). |
 | `LAYA_MAX_STEPS` | `15` | Autopilot step budget. |
-| `LAYA_ALLOWED_DOMAINS` | — (allow all) | Comma-separated navigation allow-list. Fail-closed for `browser_navigate`; **advisory** for Autopilot, which confirms (when it can) or proceeds off-list with a warning recorded in `RunResult.warnings`. |
+| `LAYA_ALLOWED_DOMAINS` | (allow all) | Comma-separated navigation allow-list. Fail-closed for `browser_navigate`; **advisory** for Autopilot, which confirms (when it can) or proceeds off-list with a warning recorded in `RunResult.warnings`. |
 | `LAYA_DESTRUCTIVE_GUARD` | `true` | `false` disables the destructive-form guard. |
 | `LAYA_CAPS` | (core-only) | Comma/space-separated tool capability groups to enable. |
 | `LAYA_BROWSER` | `chromium` | Browser engine: `chromium`, `firefox`, or `webkit`. |
@@ -921,10 +996,10 @@ constructor options, then handed inward as typed config.
 | `LAYA_BROWSER_OVERLAY_TRAIL` | `6` | **(T3.4)** Length of the synthetic-cursor breadcrumb trail drawn between successive positions (fading dots), so multi-field actions read as continuous motion. `0` disables it (clamped `0..24`). |
 | `LAYA_STATE_TEXT_LIMIT` | `1200` | **(T1.3)** Max characters of the page's visible text carried into the Autopilot state (and thus the escalation prompt). Bounds token cost on big pages; the model is pointed at `browser_extract` for large reads. Clamped `200..8000`. |
 | `LAYA_LOOP_SCREENSHOTS` | `false` | **(T1.4)** `true` captures a per-step screenshot in the Autopilot loop even without artifact recording. Default off keeps the loop a text-first, no-per-step-screenshot pipeline (vision is opt-in). Enabling `LAYA_RECORD_ARTIFACTS` implies step screenshots for the replay independently of this. |
-| `LAYA_STORAGE_STATE` | — | **(T2.1)** Path to a Playwright storage-state JSON file for automatic session persistence: if the file exists it is loaded on launch (cookies + per-origin `localStorage` restored, so an authenticated session resumes), and it is auto-saved on `browser_close`/shutdown. Unset is a complete no-op. |
+| `LAYA_STORAGE_STATE` | (none) | **(T2.1)** Path to a Playwright storage-state JSON file for automatic session persistence: if the file exists it is loaded on launch (cookies + per-origin `localStorage` restored, so an authenticated session resumes), and it is auto-saved on `browser_close`/shutdown. Unset is a complete no-op. |
 | `LAYA_AUTO_DISMISS` | `false` | **(T2.2)** `true` runs a bounded, conservative heuristic before each Autopilot step to auto-dismiss cookie/consent banners and blocking modal overlays (never clicks destructive controls). Each dismissal is surfaced on the overlay ("Closed cookie banner") and noted in the transcript. |
 | `LAYA_FRAME_DEPTH` | `0` | **(T2.3)** How many levels of **same-origin** iframe and **open** shadow root the DOM walk descends into to discover controls. `0` walks only the top document (unchanged). Cross-origin frames are skipped cleanly. Controls found deeper get `data-laya-ref` stamps that Autopilot can act on. Clamped `0..5`. |
-| `LAYA_DOWNLOAD_DIR` | — | **(T2.4)** Default directory `browser_download_file` saves into when no explicit `path` is given (the browser-suggested filename is appended). |
+| `LAYA_DOWNLOAD_DIR` | (none) | **(T2.4)** Default directory `browser_download_file` saves into when no explicit `path` is given (the browser-suggested filename is appended). |
 
 ### Cross-browser (`LAYA_BROWSER`)
 
@@ -959,9 +1034,9 @@ pnpm run bench:compare # full comparison vs the real Playwright MCP (writes benc
 
 The offline goal benchmark (`pnpm run bench`) runs `laya_run_goal` with the StubEngine over the
 local structured-form fixtures under `test/fixtures/`, and prints a summary with two columns:
-**end-to-end success** (via the independent final-page check — the trustworthy signal) and
-**expected-ops coverage** (`ops-cov`). The coverage column is a subsequence match — the fraction
-of each fixture's expected operations that appear, in order, in the transcript — so it does
+**end-to-end success** (via the independent final-page check, the trustworthy signal) and
+**expected-ops coverage** (`ops-cov`). The coverage column is a subsequence match (the fraction
+of each fixture's expected operations that appear, in order, in the transcript), so it does
 **not** penalize extra or wrong steps and should not be read as precision/accuracy. When
 `LAYA_MODEL_DIR` is set, it also benchmarks the real engine.
 
