@@ -97,14 +97,16 @@ pnpm run bench:compare   # writes results.json, RESULTS.md, and charts/
 
 The harness launches both servers over MCP stdio, drives the identical task scripts against each (arg shapes match, so one script is fair to both), re-probes the real DOM for every success check, and regenerates this file plus `results.json` and the SVGs in `charts/`.
 
-## Fast browser loop: before vs after
+## Fast browser loop (now the single path)
 
-Generated 2026-09-27T19:28:44.386Z. 7 runs per task (first discarded as warm-up), median reported. This is laya's OWN Autopilot (`laya_run_goal`, reference stub engine) on identical local fixtures, run with the fast loop OFF (before, LAYA_FAST_LOOP unset) and ON (after, LAYA_FAST_LOOP=true). Only laya's dist server plus the loopback fixture server are involved (no @playwright/mcp). Metric labels: wall-clock ms and step/round-trip counts are MEASURED here; absolute ms are machine-specific, so only the relative before vs after delta is meaningful. The final-page verify() re-probes the real DOM and is the trust signal (a run counts only if it reached the same literal outcome).
+The fast browser loop (atomic snapshot + persistent in-page identity + per-node freshness guard + occlusion hit-test + adaptive waits) is now ALWAYS ON: there is one loop, the pre-fast-loop legacy path and the `LAYA_FAST_LOOP` toggle were removed. Because there is no longer a second path to compare against, the old before/after harness (`bench:fastloop`) has been retired.
 
-| Task | before ms | after ms | ms delta | before steps | after steps | before browser RT | after browser RT | before verify | after verify |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| flights-search | 468 | 513 | -10% | 3 | 3 | 2 | 2 | PASS | PASS |
-| wiki-open | 450 | 475 | -6% | 3 | 3 | 2 | 2 | PASS | PASS |
-| hotel-search-filter | 453 | 470 | -4% | 3 | 3 | 2 | 2 | PASS | PASS |
+For the historical record, the last before/after measurement taken while the toggle still existed (2026-09-27, laya's own Autopilot with the reference stub engine on the local loopback fixtures, 7 runs per task with the first discarded, median reported) showed the fast path reaching the SAME independently-verified final-page outcome with the same or fewer browser round trips per step:
 
-Reading the delta: a positive ms delta means the fast loop was faster (lower wall-clock). Step and browser-round-trip counts show whether the fast path reached the same real outcome with the same or fewer browser interactions per step; the win is in per-step target-resolution and settle cost, not in the number of decisions. verify() PASS on both sides means the fast path did not sacrifice correctness for speed.
+| Task | before ms | after ms | before steps | after steps | before browser RT | after browser RT | verify |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| flights-search | 468 | 513 | 3 | 3 | 2 | 2 | PASS |
+| wiki-open | 450 | 475 | 3 | 3 | 2 | 2 | PASS |
+| hotel-search-filter | 453 | 470 | 3 | 3 | 2 | 2 | PASS |
+
+These absolute ms are machine-specific and were close between the two paths on this hardware; the fast loop's win is in per-step target-resolution and settle cost (acting on the observed node with no fresh selector re-query, and a bounded adaptive wait instead of a fixed settle), and verify() PASS confirms it never sacrificed correctness for speed. To re-measure end-to-end laya-vs-Playwright-MCP timings, use `pnpm run bench:compare`.

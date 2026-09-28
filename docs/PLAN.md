@@ -205,10 +205,13 @@ deterministic fixtures were added under `benchmark/fixtures/` (a Google-Flights-
 multi-field search `flights.html`, a Wikipedia-open search flow `wiki.html` + `wiki-article.html`,
 and a hotel search/filter flow `hotels.html`), each with a registered task in `benchmark/tasks.mjs`
 whose `verify()` re-probes the real DOM for a literal outcome. A dedicated script
-`benchmark/before-after.mjs` (`pnpm run bench:fastloop`) runs laya's Autopilot (`laya_run_goal`,
-reference stub engine) over the fast-path-eligible tasks TWICE (flag off, then flag on), using only
-laya's dist server plus the loopback fixture server (no `@playwright/mcp`), and writes a BEFORE vs
-AFTER block into `benchmark/RESULTS.md` and `benchmark/results.json`.
+`benchmark/before-after.mjs` (`pnpm run bench:fastloop`) originally ran laya's Autopilot
+(`laya_run_goal`, reference stub engine) over the fast-path-eligible tasks TWICE (flag off, then
+flag on) and wrote a BEFORE vs AFTER block into `benchmark/RESULTS.md` and `benchmark/results.json`.
+NOTE (Phase 2 reorg): the fast loop is now the single, always-on browser path, so the
+`LAYA_FAST_LOOP` toggle and that before/after harness were retired; the last recorded numbers are
+kept in `benchmark/RESULTS.md` as a historical record, and `pnpm run bench:compare` remains for
+end-to-end laya-vs-Playwright-MCP timings.
 
 Commands run this session and their REAL results are recorded in the ledger below.
 
