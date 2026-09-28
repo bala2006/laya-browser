@@ -194,8 +194,6 @@ export function createServer(options: CreateServerOptions = {}): CreatedServer {
       loopWindow: config.loopWindow,
       // (B1) Mask secret values/patterns out of the transcript/overlay/logs.
       redactSecrets: config.redactSecrets,
-      // (B2) Require inline confirmation before a destructive auto-submit CLICK.
-      confirmDestructive: config.confirmDestructive,
       // (C1) Which snapshot backend the loop captures with (domwalk default vs aria).
       snapshotBackend: config.snapshotBackend,
       // (C3) Order/cap controls by viewport visibility first.

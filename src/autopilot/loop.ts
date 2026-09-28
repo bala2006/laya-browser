@@ -304,14 +304,6 @@ export interface RunGoalOptions {
    */
   redactSecrets?: boolean;
   /**
-   * (B2) Retained for compatibility and still parsed/validated by the config layer, but no
-   * longer consulted by the loop: (R3) makes the ask follow {@link confirm} alone, because
-   * requiring a second flag turned a configurable confirmation into a hard block. Kept so
-   * existing callers and the LAYA_CONFIRM_DESTRUCTIVE env var keep
-   * working; {@link confirm} alone now decides whether the loop can ask.
-   */
-  confirmDestructive?: boolean;
-  /**
    * (B2) Optional human-in-the-loop confirmation callback. When present, a destructive CLICK the
    * guard would refuse triggers an inline approval request (amber "awaiting confirmation"
    * overlay) instead of an immediate block: approval proceeds with the CLICK, refusal keeps the
@@ -1650,9 +1642,8 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
             // hard-blocking the goal, so an autonomous run can finish a destructive submit once
             // a human approves it. Approval proceeds with the CLICK; a refusal keeps the block.
             // Only when there is nobody to ask does the refuse-by-default fail-safe apply, which
-            // is exactly the previous behaviour. (`confirmDestructive` no longer gates the ask:
-            // asking whenever it is possible is what makes the flag redundant rather than
-            // silently ignored - see the option's doc comment.)
+            // is exactly the previous behaviour. The presence of a confirm callback alone
+            // decides whether the loop can ask (no separate opt-in flag gates it).
             let approved = false;
             if (confirm) {
               const targetName = String(target.name || target.role);

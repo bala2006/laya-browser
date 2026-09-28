@@ -768,10 +768,10 @@ relevant controls without changing the `Snapshot` / `Control[]` contract:
   `About to click "…" - approve?` prompt). Approval proceeds with the click and records
   `approved via confirmation` on the step; a decline, cancel, or a client that lacks
   elicitation resolves to a refusal, so the **refuse-by-default** fail-safe is preserved
-  whenever there is nobody to ask. The ask follows the confirmation callback alone;
-  `LAYA_CONFIRM_DESTRUCTIVE` is retained for compatibility but no longer gates it (requiring a
-  second flag turned a configurable confirmation into a hard block, which made the goal command
-  unable to finish a destructive submit autonomously even when the client could be asked).
+  whenever there is nobody to ask. The ask follows the confirmation callback alone, with no
+  separate opt-in flag: requiring a second flag turned a configurable confirmation into a hard
+  block, which made the goal command unable to finish a destructive submit autonomously even
+  when the client could be asked.
 - **Assist-tool destructive guard (`LAYA_ASSIST_DESTRUCTIVE_GUARD`, default `false`).** Opt-in
   extension of the destructive guard to the human-driven `browser_click` Assist tool. When on,
   `browser_click` captures a snapshot, resolves the target control, runs the same pure
@@ -913,7 +913,6 @@ constructor options, then handed inward as typed config.
 | `LAYA_LOOP_DETECTION` | `true` | `false` disables loop detection; when on, an Autopilot run that repeats the identical step stops early with the `stuck` outcome. |
 | `LAYA_LOOP_WINDOW` | `3` | How many recent steps the loop detector compares before declaring a run `stuck` (clamped `2..6`). |
 | `LAYA_REDACT_SECRETS` | `true` | `false` disables masking of secret values/patterns in the transcript, overlay, and rendered output. The real value is always typed into the page regardless. |
-| `LAYA_CONFIRM_DESTRUCTIVE` | `false` | Retained for compatibility. The Autopilot confirmation hook now fires whenever the client supports MCP elicitation, so a destructive auto-submit `CLICK` the guard would refuse asks for inline approval instead of hard-blocking the run. Falls back to refuse-by-default when the client lacks elicitation. |
 | `LAYA_CLIENT_REQUEST_TIMEOUT_MS` | `20000` | **(R1)** Budget for a client-bound MCP request the server sends to its own client (the `sampling/createMessage` escalation and the `elicitation/create` confirmation) before degrading. The SDK's client-side request timeout is 60s and surfaces as `-32001` `RequestTimeout`, so bounding each request well inside it turns a stalled client model into a graceful `BLOCKED` instead of a lost run. Clamped `1000..30000`. |
 | `LAYA_ASSIST_DESTRUCTIVE_GUARD` | `false` | `true` applies the destructive guard to the Assist `browser_click` tool (refuses a destructive click); default `false` leaves Assist-tool behaviour unchanged. |
 | `LAYA_SNAPSHOT_BACKEND` | `domwalk` | Which backend enumerates page controls: `domwalk` (the in-house DOM walk) or `aria` (Playwright's accessibility tree). Both produce the same `Control[]` contract and stamp `data-laya-ref="eN"`, so ref resolution is identical either way. |

@@ -40,7 +40,6 @@
  *   LAYA_LOOP_DETECTION=true           detect repeated no-progress steps and stop (default: true)
  *   LAYA_LOOP_WINDOW=3                 how many recent steps the loop detector compares (clamped 2..6)
  *   LAYA_REDACT_SECRETS=true           redact secret values/patterns in logs + step details (default: true)
- *   LAYA_CONFIRM_DESTRUCTIVE=false     require confirmation before destructive submits (default: false)
  *   LAYA_ASSIST_DESTRUCTIVE_GUARD=false   apply the destructive guard to Assist click/type (default: false)
  *   LAYA_SNAPSHOT_BACKEND=domwalk|aria    snapshot capture backend (default: domwalk)
  *   LAYA_VIEWPORT_PRIORITY=true        order/cap controls by viewport visibility first (default: true)
@@ -245,11 +244,6 @@ export interface LayaBrowserConfig {
    */
   redactSecrets: boolean;
   /**
-   * (B2) Whether a destructive submit (e.g. delete/pay/purchase) requires an explicit
-   * confirmation before the Autopilot proceeds. Default off.
-   */
-  confirmDestructive: boolean;
-  /**
    * (B3) Whether the destructive-action guard also applies to Assist-mode `click`/`type`
    * tools (opt-in), not just the Autopilot auto-submit path. Default off.
    */
@@ -352,7 +346,6 @@ export interface ConfigOverrides {
   loopDetection?: boolean;
   loopWindow?: number;
   redactSecrets?: boolean;
-  confirmDestructive?: boolean;
   assistDestructiveGuard?: boolean;
   snapshotBackend?: SnapshotBackend;
   viewportPriority?: boolean;
@@ -593,9 +586,6 @@ export function loadConfig(
   const redactSecrets =
     overrides.redactSecrets ?? envBoolDefaultTrue(env.LAYA_REDACT_SECRETS);
 
-  const confirmDestructive =
-    overrides.confirmDestructive ?? envBoolDefaultFalse(env.LAYA_CONFIRM_DESTRUCTIVE);
-
   const assistDestructiveGuard =
     overrides.assistDestructiveGuard ??
     envBoolDefaultFalse(env.LAYA_ASSIST_DESTRUCTIVE_GUARD);
@@ -746,7 +736,6 @@ export function loadConfig(
     loopDetection,
     loopWindow,
     redactSecrets,
-    confirmDestructive,
     assistDestructiveGuard,
     snapshotBackend,
     viewportPriority,

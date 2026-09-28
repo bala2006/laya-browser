@@ -62,11 +62,9 @@ export interface RunGoalContext extends ToolContext {
   loopWindow?: number;
   /** (B1) Whether secret values/patterns are masked in details/logs/overlay. Defaults true. */
   redactSecrets?: boolean;
-  /** (B2) Whether a destructive submit requires inline confirmation. Defaults false. */
-  confirmDestructive?: boolean;
   /**
-   * (B2) Human-in-the-loop confirmation callback used when {@link confirmDestructive} is on
-   * and the destructive guard would refuse. When omitted, the refuse-by-default fail-safe is
+   * (B2) Human-in-the-loop confirmation callback used when the destructive guard would refuse.
+   * When present, the loop asks for approval; when omitted, the refuse-by-default fail-safe is
    * preserved. Wired to MCP elicitation in src/server.ts.
    */
   confirm?: ConfirmFn;
@@ -288,9 +286,6 @@ export function makeHandler(ctx: RunGoalContext) {
         ...(ctx.loopWindow !== undefined ? { loopWindow: ctx.loopWindow } : {}),
         ...(ctx.redactSecrets !== undefined
           ? { redactSecrets: ctx.redactSecrets }
-          : {}),
-        ...(ctx.confirmDestructive !== undefined
-          ? { confirmDestructive: ctx.confirmDestructive }
           : {}),
         ...(ctx.confirm !== undefined ? { confirm: ctx.confirm } : {}),
         ...(ctx.snapshotBackend !== undefined

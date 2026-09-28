@@ -132,7 +132,6 @@ describe("loadConfig reliability/trust/perf knobs (A1/A2/A3/B1/B2/B3/C1/C3)", ()
     expect(config.loopDetection).toBe(true);
     expect(config.loopWindow).toBe(3);
     expect(config.redactSecrets).toBe(true);
-    expect(config.confirmDestructive).toBe(false);
     expect(config.assistDestructiveGuard).toBe(false);
     expect(config.snapshotBackend).toBe("domwalk");
     expect(config.viewportPriority).toBe(true);
@@ -173,12 +172,6 @@ describe("loadConfig reliability/trust/perf knobs (A1/A2/A3/B1/B2/B3/C1/C3)", ()
     expect(loadConfig({}, { LAYA_REDACT_SECRETS: "false" }).redactSecrets).toBe(false);
     expect(loadConfig({}, { LAYA_REDACT_SECRETS: "true" }).redactSecrets).toBe(true);
     expect(loadConfig({ redactSecrets: false }, {}).redactSecrets).toBe(false);
-  });
-
-  it("(B2) parses LAYA_CONFIRM_DESTRUCTIVE as default-false (only 'true' enables)", () => {
-    expect(loadConfig({}, { LAYA_CONFIRM_DESTRUCTIVE: "true" }).confirmDestructive).toBe(true);
-    expect(loadConfig({}, { LAYA_CONFIRM_DESTRUCTIVE: "1" }).confirmDestructive).toBe(false);
-    expect(loadConfig({ confirmDestructive: true }, {}).confirmDestructive).toBe(true);
   });
 
   it("(B3) parses LAYA_ASSIST_DESTRUCTIVE_GUARD as default-false (only 'true' enables)", () => {
