@@ -1,7 +1,14 @@
 {
   "task_id": "task-gpu-ep-deadend-cleanup",
   "task_description": "Fix laya-browser-mcp's real issues and organize the codebase. Phase 1 fixes: (1a) dynamic execution-provider auto-selection with probe-verified fallback + one startup log line + LAYA_EXECUTION_PROVIDERS override; (1b) CPU-measurable speed levers (verify session-once + token budget, add an int8 quantization path with real fp32-vs-int8 CPU numbers); (1c) break the low-confidence-BLOCKED + unreachable-LLM dead-end with best-safe-progress while preserving confident-BLOCKED/loop-detector/destructive hard stops. Phase 2 organize: collapse to ONE loop (remove LAYA_FAST_LOOP + legacy path), prune the LAYA_* flag surface, consolidate the decision pipeline. Phase 3 (model-first) is a documented follow-up only. Rules stay first (option b). GPU speedup is unverifiable in this GPU-less sandbox: EP selection/fallback + CPU path are implemented and unit-tested; GPU numbers are labelled to-be-measured on the user's RTX 4050. Deliver committed on branch fix/gpu-speed-dead-end-and-cleanup (base main); orchestrator publishes.",
-  "status": "in_progress",
+  "status": "completed",
   "feature_order": ["FEAT-001", "FEAT-002", "FEAT-003", "FEAT-004", "FEAT-005", "FEAT-006"],
-  "blocked_reason": null
+  "blocked_reason": null,
+  "verification": {
+    "build": "pass",
+    "tests": "pass",
+    "test_quality": "pass",
+    "docker_build": "skipped",
+    "summary": "tsc typecheck clean and build exit 0; vitest 44 files, 318 passed / 3 skipped (WebKit self-skip + two LAYA_MODEL_DIR-gated real-weights blocks). Test quality verified: test/execution-provider.test.ts asserts real ordering/override/fall-through/load-once against a fake factory; test/dead-end.test.ts asserts real resolved decision shapes (CLICK e2 / SCROLL_DOWN / BLOCKED) plus two real-chromium runGoal reproductions that would fail if the fix were reverted. No Dockerfile in this repo, so docker_build is not applicable. Semantic review v1 verdict APPROVED; the WebGPU doc/code accuracy gap and three intentional-asymmetry notes were addressed in a follow-up pass. No model weights committed; overall diff is deletion-biased (net loop/flag removal). GPU speedup is unverifiable in this GPU-less sandbox and is labelled to-be-measured on the user's RTX 4050; int8 quantization documented-and-skipped with a real ONNX shape-inference blocker."
+  }
 }
