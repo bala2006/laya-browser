@@ -62,11 +62,9 @@ export interface RunGoalContext extends ToolContext {
   loopWindow?: number;
   /** (B1) Whether secret values/patterns are masked in details/logs/overlay. Defaults true. */
   redactSecrets?: boolean;
-  /** (B2) Whether a destructive submit requires inline confirmation. Defaults false. */
-  confirmDestructive?: boolean;
   /**
-   * (B2) Human-in-the-loop confirmation callback used when {@link confirmDestructive} is on
-   * and the destructive guard would refuse. When omitted, the refuse-by-default fail-safe is
+   * (B2) Human-in-the-loop confirmation callback used when the destructive guard would refuse.
+   * When present, the loop asks for approval; when omitted, the refuse-by-default fail-safe is
    * preserved. Wired to MCP elicitation in src/server.ts.
    */
   confirm?: ConfirmFn;
@@ -92,10 +90,6 @@ export interface RunGoalContext extends ToolContext {
   autoDismiss?: boolean;
   /** (T2.3) Same-origin iframe / open shadow-root descent depth for per-step capture. */
   frameDepth?: number;
-  /** (F1) Whether the fast browser loop is active (persistent identity + guards + occlusion). */
-  fastLoop?: boolean;
-  /** (F1) The adaptive-wait cap in ms the fast loop uses when waiting for a control to settle. */
-  fastWaitCapMs?: number;
   /**
    * (D1) Shared holder for the most recent run's artifacts. When recording is enabled (see
    * {@link recordArtifacts}), the run stores its artifacts here for the laya_export_run tool
@@ -293,9 +287,6 @@ export function makeHandler(ctx: RunGoalContext) {
         ...(ctx.redactSecrets !== undefined
           ? { redactSecrets: ctx.redactSecrets }
           : {}),
-        ...(ctx.confirmDestructive !== undefined
-          ? { confirmDestructive: ctx.confirmDestructive }
-          : {}),
         ...(ctx.confirm !== undefined ? { confirm: ctx.confirm } : {}),
         ...(ctx.snapshotBackend !== undefined
           ? { snapshotBackend: ctx.snapshotBackend }
@@ -313,8 +304,6 @@ export function makeHandler(ctx: RunGoalContext) {
           : {}),
         ...(ctx.autoDismiss !== undefined ? { autoDismiss: ctx.autoDismiss } : {}),
         ...(ctx.frameDepth !== undefined ? { frameDepth: ctx.frameDepth } : {}),
-        ...(ctx.fastLoop !== undefined ? { fastLoop: ctx.fastLoop } : {}),
-        ...(ctx.fastWaitCapMs !== undefined ? { fastWaitCapMs: ctx.fastWaitCapMs } : {}),
         ...(onProgress !== undefined ? { onProgress } : {}),
       });
       // (D1) Persist the most recent run's artifacts into the shared holder so the

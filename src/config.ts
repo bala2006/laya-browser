@@ -40,7 +40,6 @@
  *   LAYA_LOOP_DETECTION=true           detect repeated no-progress steps and stop (default: true)
  *   LAYA_LOOP_WINDOW=3                 how many recent steps the loop detector compares (clamped 2..6)
  *   LAYA_REDACT_SECRETS=true           redact secret values/patterns in logs + step details (default: true)
- *   LAYA_CONFIRM_DESTRUCTIVE=false     require confirmation before destructive submits (default: false)
  *   LAYA_ASSIST_DESTRUCTIVE_GUARD=false   apply the destructive guard to Assist click/type (default: false)
  *   LAYA_SNAPSHOT_BACKEND=domwalk|aria    snapshot capture backend (default: domwalk)
  *   LAYA_VIEWPORT_PRIORITY=true        order/cap controls by viewport visibility first (default: true)
@@ -53,11 +52,6 @@
  *   LAYA_DOWNLOAD_DIR=/path            (T2.4) default directory browser_download_file saves into when no explicit path is given
  *   LAYA_CLIENT_REQUEST_TIMEOUT_MS=20000  (R1) budget for a client-bound MCP request (sampling escalation /
  *                                      elicitation confirm) before degrading (clamped 1000..30000)
- *   LAYA_FAST_LOOP=false               (F1) enable the fast browser loop (persistent in-page identity,
- *                                      per-node freshness guards, occlusion hit-test, adaptive waits).
- *                                      Default OFF: the default path stays byte-identical to main.
- *   LAYA_FAST_WAIT_CAP_MS=200          (F1) adaptive-wait cap in ms for the fast loop (e.g. combobox/
- *                                      autocomplete settle). Clamped 0..2000; mirrors jev's 200ms cap.
  */
 
 /** How the Autopilot engine is selected. `auto` decides from the presence of weights. */
@@ -250,11 +244,6 @@ export interface LayaBrowserConfig {
    */
   redactSecrets: boolean;
   /**
-   * (B2) Whether a destructive submit (e.g. delete/pay/purchase) requires an explicit
-   * confirmation before the Autopilot proceeds. Default off.
-   */
-  confirmDestructive: boolean;
-  /**
    * (B3) Whether the destructive-action guard also applies to Assist-mode `click`/`type`
    * tools (opt-in), not just the Autopilot auto-submit path. Default off.
    */
@@ -329,20 +318,6 @@ export interface LayaBrowserConfig {
    * {@link DEFAULT_CLIENT_REQUEST_TIMEOUT_MS}.
    */
   clientRequestTimeoutMs: number;
-  /**
-   * (F1) Whether the fast browser loop is active. The fast loop captures an atomic snapshot
-   * with persistent in-page node identity, re-checks a per-node semantic freshness guard plus
-   * an occlusion hit-test before acting, and uses adaptive (bounded) waits instead of a fixed
-   * settle. Default OFF so main's behavior is unchanged; the legacy path stays byte-identical.
-   */
-  fastLoop: boolean;
-  /**
-   * (F1) The adaptive-wait cap, in milliseconds, the fast loop uses when waiting for a control
-   * to settle (e.g. a combobox/autocomplete list to populate) before inputting. Bounded so a
-   * slow control cannot stall a step. Clamped to `[0, 2000]`. Defaults to
-   * {@link DEFAULT_FAST_WAIT_CAP_MS} (200), mirroring jev's 200ms autocomplete cap.
-   */
-  fastWaitCapMs: number;
 }
 
 /** Overrides supplied programmatically (constructor options / tool arguments). */
@@ -371,7 +346,6 @@ export interface ConfigOverrides {
   loopDetection?: boolean;
   loopWindow?: number;
   redactSecrets?: boolean;
-  confirmDestructive?: boolean;
   assistDestructiveGuard?: boolean;
   snapshotBackend?: SnapshotBackend;
   viewportPriority?: boolean;
@@ -383,8 +357,6 @@ export interface ConfigOverrides {
   frameDepth?: number;
   downloadDir?: string;
   clientRequestTimeoutMs?: number;
-  fastLoop?: boolean;
-  fastWaitCapMs?: number;
 }
 
 /**
@@ -434,17 +406,6 @@ export const FRAME_DEPTH_MAX = 5;
 export const DEFAULT_CLIENT_REQUEST_TIMEOUT_MS = 20000;
 export const CLIENT_REQUEST_TIMEOUT_MS_MIN = 1000;
 export const CLIENT_REQUEST_TIMEOUT_MS_MAX = 30000;
-
-/** (F1) Whether the fast browser loop is on by default. Off, so main's behavior is unchanged. */
-export const DEFAULT_FAST_LOOP = false;
-
-/**
- * (F1) Default adaptive-wait cap (ms) for the fast loop, and its inclusive bounds. Mirrors
- * jev's 200ms autocomplete cap: a control gets at most this long to settle before input.
- */
-export const DEFAULT_FAST_WAIT_CAP_MS = 200;
-export const FAST_WAIT_CAP_MS_MIN = 0;
-export const FAST_WAIT_CAP_MS_MAX = 2000;
 
 /** Parse a boolean env var: only the literal string `"false"` disables a default-true flag. */
 function envBoolDefaultTrue(value: string | undefined): boolean {
@@ -625,9 +586,6 @@ export function loadConfig(
   const redactSecrets =
     overrides.redactSecrets ?? envBoolDefaultTrue(env.LAYA_REDACT_SECRETS);
 
-  const confirmDestructive =
-    overrides.confirmDestructive ?? envBoolDefaultFalse(env.LAYA_CONFIRM_DESTRUCTIVE);
-
   const assistDestructiveGuard =
     overrides.assistDestructiveGuard ??
     envBoolDefaultFalse(env.LAYA_ASSIST_DESTRUCTIVE_GUARD);
@@ -709,25 +667,6 @@ export function loadConfig(
     CLIENT_REQUEST_TIMEOUT_MS_MAX,
   );
 
-  // (F1) Fast browser loop is off by default (default path stays byte-identical to main): only
-  // the literal string "true" turns it on.
-  const fastLoop = overrides.fastLoop ?? envBoolDefaultFalse(env.LAYA_FAST_LOOP);
-
-  // (F1) Adaptive-wait cap for the fast loop. Out-of-range env falls back to the default; an
-  // override is clamped into range.
-  const fastWaitCapMs = clamp(
-    Math.trunc(
-      overrides.fastWaitCapMs ??
-        parseNumber(env.LAYA_FAST_WAIT_CAP_MS, {
-          min: FAST_WAIT_CAP_MS_MIN,
-          max: FAST_WAIT_CAP_MS_MAX,
-        }) ??
-        DEFAULT_FAST_WAIT_CAP_MS,
-    ),
-    FAST_WAIT_CAP_MS_MIN,
-    FAST_WAIT_CAP_MS_MAX,
-  );
-
   // Overlay: parse each knob once. `auto` resolves to enabled = !headless (on when headed);
   // `on`/`off` force it regardless. Overrides win per-field over the env-derived values.
   const overlayMode = overrides.overlay?.mode ?? parseOverlayMode(env.LAYA_BROWSER_OVERLAY);
@@ -797,7 +736,6 @@ export function loadConfig(
     loopDetection,
     loopWindow,
     redactSecrets,
-    confirmDestructive,
     assistDestructiveGuard,
     snapshotBackend,
     viewportPriority,
@@ -807,8 +745,6 @@ export function loadConfig(
     autoDismiss,
     frameDepth,
     clientRequestTimeoutMs,
-    fastLoop,
-    fastWaitCapMs,
   };
   if (storageStatePath !== undefined) config.storageStatePath = storageStatePath;
   if (downloadDir !== undefined) config.downloadDir = downloadDir;

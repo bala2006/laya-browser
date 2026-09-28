@@ -35,7 +35,7 @@ import { diffSnapshots, hasChanges } from "../snapshot-diff.js";
 import { buildState, renderState, type BuildStateOptions } from "../state-builder.js";
 import { fieldValueFromGoal, goalSuccessMarkers } from "../laya/goal.js";
 import { applyFieldValue, type FieldKind } from "../tools/fill.js";
-import { policySeed, refineWithGoalValue } from "./policy.js";
+import { bestSafeProgress, policySeed, refineWithGoalValue } from "./policy.js";
 import { escalate, type EscalationOptions, type SampleFn } from "./escalation.js";
 import { autoDismissOverlays } from "./dismiss.js";
 import { checkDestructiveSubmit, checkDomainAllowed } from "../safety.js";
@@ -46,7 +46,6 @@ import {
   DEFAULT_MAX_STEPS,
   DEFAULT_SELF_HEAL_RETRIES,
   DEFAULT_SNAPSHOT_BACKEND,
-  DEFAULT_FAST_WAIT_CAP_MS,
   type SnapshotBackend,
 } from "../config.js";
 import type {
@@ -57,6 +56,7 @@ import type {
   LayaDecisionEngine,
   NodeGuard,
   PageState,
+  SnapshotDiff,
 } from "../types.js";
 
 /**
@@ -305,14 +305,6 @@ export interface RunGoalOptions {
    */
   redactSecrets?: boolean;
   /**
-   * (B2) Retained for compatibility and still parsed/validated by the config layer, but no
-   * longer consulted by the loop: (R3) makes the ask follow {@link confirm} alone, because
-   * requiring a second flag turned a configurable confirmation into a hard block. Kept so
-   * existing callers and the LAYA_CONFIRM_DESTRUCTIVE env var keep
-   * working; {@link confirm} alone now decides whether the loop can ask.
-   */
-  confirmDestructive?: boolean;
-  /**
    * (B2) Optional human-in-the-loop confirmation callback. When present, a destructive CLICK the
    * guard would refuse triggers an inline approval request (amber "awaiting confirmation"
    * overlay) instead of an immediate block: approval proceeds with the CLICK, refusal keeps the
@@ -391,26 +383,20 @@ export interface RunGoalOptions {
    * caller's concern; keep it defensive).
    */
   onProgress?: (info: { step: number; total: number; message: string }) => void | Promise<void>;
-  /**
-   * (F1) Whether the FAST browser loop is active. When ON: per-step capture uses the atomic
-   * {@link captureFast} (persistent in-page node identity + per-node semantic guards + a
-   * page-level marker + pageKey in ONE evaluate); a targeted CLICK/TYPE_TEXT/SELECT/FILL_FORM
-   * re-checks the target's guard+pageKey and acts on the OBSERVED node via
-   * {@link BrowserSession.actOnNode} (no fresh selector re-query, with a pre-input occlusion
-   * hit-test); and the fixed post-action settle is replaced by {@link BrowserSession.adaptiveWait}
-   * on the hot path. When OFF (default) the code path is EXACTLY as today
-   * (capture / resolveRef / locate / probeSettle), so main's behavior is byte-identical.
-   */
-  fastLoop?: boolean;
-  /**
-   * (F1) The adaptive-wait cap in ms the fast loop uses (e.g. for a combobox/autocomplete list
-   * to populate) before inputting. Only consulted when {@link fastLoop} is on. Defaults to
-   * {@link DEFAULT_FAST_WAIT_CAP_MS}.
-   */
-  fastWaitCapMs?: number;
 }
 
 const DEFAULT_WAIT_MS = 500;
+
+/**
+ * (F1) The adaptive-wait cap in ms the (always-on) fast browser loop uses before inputting
+ * (e.g. for a combobox/autocomplete list to populate) and as the settle-probe timeout,
+ * mirroring jev's 200ms autocomplete cap. An internal timing constant, not an operator knob.
+ *
+ * (De-nuance) This was formerly the `LAYA_FAST_WAIT_CAP_MS` env override; it is now fixed on
+ * purpose. No consumer relied on tuning it (the fast loop is the single always-on path), and a
+ * single reviewed value keeps the settle behavior predictable. Do NOT re-add the env override.
+ */
+const FAST_WAIT_CAP_MS = 200;
 
 /** The Assist-mode hint returned when Autopilot cannot run (no weights). */
 export const DEGRADED_MESSAGE =
@@ -554,6 +540,9 @@ export async function resolveByNameRole(
 function looksLikeStaleRef(err: unknown): boolean {
   const msg = (err as Error)?.message ?? "";
   if (msg === "") return false;
+  // The fast path raises a soft, self-heal-shaped error via softError() when a target is
+  // stale/covered/gone (see fastAct); match those phrasings too so the retry budget re-observes.
+  if (/^fast path: target is (?:stale|covered|gone)/i.test(msg)) return true;
   return /Timeout|not (?:visible|attached|found|stable)|no element|detached|zero elements|resolve to no elements|element is not/i.test(
     msg,
   );
@@ -1234,6 +1223,126 @@ async function speculativeTargetFresh(
   }
 }
 
+/** Inputs the per-step decision pipeline needs (see {@link resolveStepDecision}). */
+interface DecisionContext {
+  state: PageState;
+  engine: LayaDecisionEngine;
+  confidenceThreshold: number;
+  sample: SampleFn | undefined;
+  narrator: Narrator;
+  /** A cached speculative decision (F4) already confirmed fresh for THIS step, or undefined. */
+  reused: { decision: Decision; note: string | undefined } | undefined;
+  /** Delta-prompt inputs: enabled flag + this step's diff + whether this is the first step. */
+  deltaPrompt: boolean;
+  diff: SnapshotDiff;
+  isFirstStep: boolean;
+}
+
+/** The resolved per-step decision plus the observability signals the loop meters. */
+interface ResolvedDecision {
+  decision: Decision;
+  note: string | undefined;
+  /** True only when the client LLM actually answered an escalation (not the degraded path). */
+  escalated: boolean;
+  /** Chars of the state text sent on escalation (0 when no escalation happened), for metering. */
+  promptChars: number;
+}
+
+/**
+ * The per-step decision pipeline, as ONE readable flow:
+ *   1. reuse a fresh speculative decision (F4) when one exists, else
+ *   2. seed a high-confidence deterministic RULE (policySeed), else
+ *   3. ask the local model to DECIDE (or, with no weights, stand in a BLOCKED placeholder), then
+ *   4. CHECK confidence: a rule seed never escalates; anything else that is low-confidence or
+ *      BLOCKED escalates to the client LLM (which, when unreachable, degrades to the Laya
+ *      fallback, or to best-safe-progress for a low-confidence BLOCKED - the FEAT-003 fix).
+ *
+ * Pure with respect to the loop's mutable counters: it returns the escalation signals for the
+ * caller to meter, so the flow here has no side effects beyond narration and the injected
+ * sample()/engine.decide() calls. Behavior is identical to the previous inline pipeline.
+ */
+async function resolveStepDecision(ctx: DecisionContext): Promise<ResolvedDecision> {
+  const { state, engine, confidenceThreshold, sample, narrator, reused } = ctx;
+
+  // 1./2./3. Seed the decision: reuse a fresh speculative one, then a deterministic rule, then
+  // the local model, then (no weights) a BLOCKED placeholder that step 4 routes to escalation.
+  let decision: Decision;
+  let note: string | undefined;
+  if (reused !== undefined) {
+    decision = reused.decision;
+    note = reused.note;
+  } else {
+    const seed = policySeed(state);
+    if (seed) {
+      decision = seed.decision;
+      note = `rule: ${seed.reason}`;
+    } else if (engine.available) {
+      // Laya answers the narrow question; fill goal-stated values it did not supply.
+      decision = refineWithGoalValue(await engine.decide(state), state);
+    } else {
+      // (R2) LLM-planned step. With no local weights there is nothing to ask, so the step is
+      // deliberately left below the confidence threshold with a BLOCKED placeholder: the
+      // confidence check below then routes it through the SAME escalation path, which is where
+      // the client LLM chooses the step. Same plumbing, same parsing, same guards.
+      decision = {
+        operation: "BLOCKED",
+        operationConfidence: 0,
+        targetConfidence: 0,
+        source: "laya",
+      };
+    }
+  }
+
+  // 4. Confidence check: escalate on low confidence or BLOCKED (never for rule seeds, which are
+  // high-confidence-deterministic by construction).
+  const lowConfidence =
+    decision.operationConfidence < confidenceThreshold ||
+    decision.targetConfidence < confidenceThreshold;
+  if (decision.source === "rule" || !(lowConfidence || decision.operation === "BLOCKED")) {
+    return { decision, note, escalated: false, promptChars: 0 };
+  }
+
+  // Tier 3: colour the HUD amber to signal low-confidence escalation to the LLM.
+  await narrator.stateWithToast(
+    "uncertain",
+    "Low confidence \u2014 asking the LLM\u2026",
+    "Escalating to the LLM for the next step",
+    "uncertain",
+  );
+  // (C2) When delta prompting is enabled and a meaningful diff exists (and this is not the
+  // first step), escalate with a delta-only prompt to cut tokens; otherwise the full-snapshot
+  // prompt is used (the default).
+  // (T4) Thread Laya's ORIGINAL (pre-escalation) decision through as the fallback so an
+  // UNREACHABLE client LLM (no sampling, or the request throws/times out) degrades to Laya's
+  // best guess instead of hard-BLOCKING the run. escalate() only uses the fallback when the LLM
+  // is unreachable AND the fallback is not itself BLOCKED (so the R2 no-weights placeholder
+  // still degrades gracefully to BLOCKED).
+  //
+  // (FEAT-003) Break the low-confidence-BLOCKED dead-end: when the pre-escalation decision is a
+  // LOW-CONFIDENCE BLOCKED (this branch is only reached when lowConfidence is true or the op is
+  // BLOCKED, so a BLOCKED reaching here that is ALSO low-confidence is exactly the trap), inject
+  // a best-safe-progress resolver bound to THIS page. escalate() consults it ONLY when the LLM
+  // is unreachable AND there is no usable non-BLOCKED fallback, so a CONFIDENT BLOCKED
+  // (deliberate stop) is never softened - we only pass the resolver for a low-confidence BLOCKED.
+  // A genuinely dead page yields undefined and stays BLOCKED, and the loop detector still
+  // terminates a run that cannot make real progress.
+  const lowConfidenceBlocked = decision.operation === "BLOCKED" && lowConfidence;
+  const escalationOptions: EscalationOptions = {
+    fallback: decision,
+    ...(ctx.deltaPrompt && !ctx.isFirstStep && hasChanges(ctx.diff) ? { diff: ctx.diff } : {}),
+    ...(lowConfidenceBlocked ? { bestSafeProgress: () => bestSafeProgress(state) } : {}),
+  };
+  const result = await escalate(state, sample, escalationOptions);
+  return {
+    decision: refineWithGoalValue(result.decision, state),
+    note: result.note,
+    escalated: result.escalated,
+    // (T3.1) Only a real (client-answered) escalation contributes prompt tokens; the degraded
+    // path does not. renderState length is measured here so the caller can meter it.
+    promptChars: result.escalated ? renderState(state).length : 0,
+  };
+}
+
 function redactSnapshot(snapshot: Snapshot, redact: (text: string) => string): Snapshot {
   return {
     ...snapshot,
@@ -1286,8 +1395,6 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
     autoDismiss = false,
     frameDepth = 0,
     onProgress,
-    fastLoop = false,
-    fastWaitCapMs = DEFAULT_FAST_WAIT_CAP_MS,
   } = options;
 
   // (T1.4) Whether ANY per-step screenshot is captured. Recording artifacts implies a
@@ -1403,18 +1510,13 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
   const artifacts: RunStepArtifact[] = [];
   let outcome: RunOutcome = "max_steps";
   let lastSnapshot: Snapshot | undefined;
-  // (T4.1) A snapshot captured concurrently WITH the previous step's settle probe. Reused at
-  // the top of the next iteration only when the probe observed no change (so it is current),
-  // saving a capture round-trip on the common already-settled path. Undefined otherwise.
-  let prefetchedSnapshot: Snapshot | undefined;
   // (F4) The FAST-path speculative overlap. During the previous step's settle probe, when the
   // page was already settled AND an engine is available, we ALSO capture a speculative
   // FastSnapshot and pre-compute the next decision against it (both overlapping the probe wait).
   // At the top of the next iteration, when the prefetched fast snapshot is reused (page proven
   // unchanged) and the FEAT-002 freshness re-check confirms the cached decision's target is
   // still fresh, the cached decision is used instead of recomputing. DISCARDED on ANY drift
-  // (probe changed / auto-dismiss ran / guard stale). Only ever populated when fastLoop is on,
-  // so the default (legacy) path is byte-identical. This is a PURE optimization: the observed
+  // (probe changed / auto-dismiss ran / guard stale). This is a PURE optimization: the observed
   // decision sequence is identical to not speculating; only wall-clock overlap changes.
   let prefetchedFast: { snapshot: Snapshot; ctx: FastContext } | undefined;
   let speculativeDecision: SpeculativeDecision | undefined;
@@ -1443,13 +1545,6 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
       // (D1) Start-of-step wall clock, used for the per-step timing artifact.
       const stepStart = Date.now();
 
-      // (T4.1) Reuse a snapshot prefetched during the previous step's settle probe, but ONLY
-      // when that probe observed NO change (so the prefetched DOM is still current) AND no
-      // auto-dismiss will mutate the page this step. This cuts a capture round-trip on the
-      // common "page already settled" path WITHOUT changing observed semantics: on any change
-      // (or when auto-dismiss might click something) we discard it and capture fresh below.
-      const prefetched = prefetchedSnapshot;
-      prefetchedSnapshot = undefined;
       // (F4) Grab and clear the speculative fast prefetch + cached decision computed during the
       // previous step's settle window. Consumed below only on the fast path and only when the
       // page is proven unchanged and the cached target is still fresh; discarded otherwise.
@@ -1474,33 +1569,23 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
         }
       }
 
-      // (T4.1) Use the prefetched snapshot when it is safe (settled + no auto-dismiss); this
-      // is byte-identical to capturing here because the probe confirmed the page did not
-      // change between the prefetch and now. Otherwise capture fresh (unchanged behaviour).
-      // (F1) Fast loop: capture the atomic FastSnapshot (persistent identity + guards + marker
-      // + pageKey in ONE evaluate) and project it to the plain Snapshot the state builder / the
-      // engine consume, keeping the nodeId/guard/rect on a side map keyed by ref. The prefetch
-      // reuse (a legacy-path optimization) is not used on the fast path. When fastLoop is OFF
-      // this branch is skipped entirely and the path is byte-identical to before.
-      let fastCtx: FastContext | undefined;
+      // (F1) Capture the atomic FastSnapshot (persistent identity + guards + marker + pageKey
+      // in ONE evaluate) and project it to the plain Snapshot the state builder / the engine
+      // consume, keeping the nodeId/guard/rect on a side map keyed by ref.
+      let fastCtx: FastContext;
       let snapshot: Snapshot;
       // (F4) Whether the speculative fast prefetch is safe to reuse this step: it exists, the
       // previous probe reported no change (that is the only condition under which it is kept),
       // and no auto-dismiss ran this step (which could mutate the page). On reuse we skip the
       // captureFast round-trip; otherwise we capture fresh and DISCARD any cached decision.
-      const canReuseFast = fastLoop && speculatedFast !== undefined && !autoDismiss;
-      if (fastLoop) {
-        if (canReuseFast) {
-          snapshot = speculatedFast!.snapshot;
-          fastCtx = speculatedFast!.ctx;
-        } else {
-          const projected = projectFast(await captureFast(page, captureOptions));
-          snapshot = projected.snapshot;
-          fastCtx = projected.ctx;
-        }
+      const canReuseFast = speculatedFast !== undefined && !autoDismiss;
+      if (canReuseFast) {
+        snapshot = speculatedFast!.snapshot;
+        fastCtx = speculatedFast!.ctx;
       } else {
-        const canReusePrefetch = prefetched !== undefined && !autoDismiss;
-        snapshot = canReusePrefetch ? prefetched! : await capture(page, captureOptions);
+        const projected = projectFast(await captureFast(page, captureOptions));
+        snapshot = projected.snapshot;
+        fastCtx = projected.ctx;
       }
       lastSnapshot = snapshot;
 
@@ -1530,10 +1615,10 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
       // Advance the previous-snapshot pointer AFTER computing the diff for this step.
       prevSnapshot = snapshot;
 
-      // Decision pipeline (order matters):
-      //   1. deterministic-rule SEED — high-confidence rules per the laya-ultrafast lesson;
-      //   2. Laya NARROW decision — the engine resolves the element/operation otherwise;
-      //   3. confidence CHECK — escalate to the client LLM (MCP sampling) when low/BLOCKED.
+      // Decision pipeline (order matters), factored into resolveStepDecision below:
+      //   1. deterministic-rule SEED - high-confidence rules per the laya-ultrafast lesson;
+      //   2. Laya NARROW decision - the engine resolves the element/operation otherwise;
+      //   3. confidence CHECK - escalate to the client LLM (MCP sampling) when low/BLOCKED.
       let note: string | undefined;
 
       // (T5) Measure the DECISION wall-time (policy seed + Laya inference + escalation), so the
@@ -1544,81 +1629,38 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
       // (F4) Reuse the speculative decision computed during the previous settle window, but
       // ONLY when the fast prefetch it was computed against is the very snapshot we are using
       // now (canReuseFast) AND the FEAT-002 freshness re-check confirms the cached decision's
-      // target is still fresh on the live page. On any drift we fall through to the ordinary
-      // pipeline and decide fresh, so the observed decision is identical to not speculating.
-      let reused: Decision | undefined;
-      if (canReuseFast && speculatedDecision !== undefined && fastCtx !== undefined) {
-        const fresh = await speculativeTargetFresh(
-          session,
-          page,
-          speculatedDecision.decision,
-          fastCtx,
-        );
-        if (fresh) {
-          reused = speculatedDecision.decision;
-          note = speculatedDecision.note;
-        }
+      // target is still fresh on the live page. On any drift we decide fresh in the pipeline
+      // below, so the observed decision is identical to not speculating.
+      let reused: { decision: Decision; note: string | undefined } | undefined;
+      if (
+        canReuseFast &&
+        speculatedDecision !== undefined &&
+        (await speculativeTargetFresh(session, page, speculatedDecision.decision, fastCtx))
+      ) {
+        reused = { decision: speculatedDecision.decision, note: speculatedDecision.note };
       }
 
-      const seed = reused === undefined ? policySeed(state) : undefined;
-      let decision: Decision;
-      if (reused !== undefined) {
-        // Cached speculative decision reused; skip the (redundant) recompute.
-        decision = reused;
-      } else if (seed) {
-        decision = seed.decision;
-        note = `rule: ${seed.reason}`;
-      } else if (engine.available) {
-        // Laya answers the narrow question; fill goal-stated values it did not supply.
-        decision = refineWithGoalValue(await engine.decide(state), state);
-      } else {
-        // (R2) LLM-planned step. With no local weights there is nothing to ask, so the step is
-        // deliberately left below the confidence threshold with a BLOCKED placeholder: the
-        // confidence check below then routes it through the SAME escalation path, which is where
-        // the client LLM chooses the step. Same plumbing, same parsing, same guards.
-        decision = {
-          operation: "BLOCKED",
-          operationConfidence: 0,
-          targetConfidence: 0,
-          source: "laya",
-        };
-      }
-
-      // Confidence check: escalate on low confidence or BLOCKED (never for rule seeds,
-      // which are high-confidence-deterministic by construction).
-      const lowConfidence =
-        decision.operationConfidence < confidenceThreshold ||
-        decision.targetConfidence < confidenceThreshold;
-      if (decision.source !== "rule" && (lowConfidence || decision.operation === "BLOCKED")) {
-        // Tier 3: colour the HUD amber to signal low-confidence escalation to the LLM.
-        await narrator.stateWithToast(
-          "uncertain",
-          "Low confidence \u2014 asking the LLM\u2026",
-          "Escalating to the LLM for the next step",
-          "uncertain",
-        );
-        // (C2) When delta prompting is enabled and a meaningful diff exists (and this is not
-        // the first step), escalate with a delta-only prompt to cut tokens; otherwise the
-        // full-snapshot prompt is used (the default).
-        // (T4) Thread Laya's ORIGINAL (pre-escalation) decision through as the fallback so an
-        // UNREACHABLE client LLM (no sampling, or the request throws/times out) degrades to
-        // Laya's best guess instead of hard-BLOCKING the run. escalate() only uses the fallback
-        // when the LLM is unreachable AND the fallback is not itself BLOCKED (so the R2
-        // no-weights placeholder still degrades gracefully to BLOCKED).
-        const escalationOptions: EscalationOptions =
-          deltaPrompt && !isFirstStep && hasChanges(diff)
-            ? { diff, fallback: decision }
-            : { fallback: decision };
-        const result = await escalate(state, sample, escalationOptions);
-        decision = refineWithGoalValue(result.decision, state);
-        note = result.note;
-        // (T3.1) Count a real escalation (the client produced a decision) and estimate its
-        // token cost from the state text sent plus a small allowance for the reply. Only
-        // counts when the client actually answered (result.escalated), not the degraded path.
-        if (result.escalated) {
-          escalationCount += 1;
-          estimatedTokens += estimateTokens(renderState(state).length) + 64;
-        }
+      // The decision pipeline as ONE flow (rule seed -> local model -> confidence check ->
+      // escalate-if-a-channel-exists -> best-safe-progress). See resolveStepDecision.
+      const resolved = await resolveStepDecision({
+        state,
+        engine,
+        confidenceThreshold,
+        sample,
+        narrator,
+        reused,
+        deltaPrompt,
+        diff,
+        isFirstStep,
+      });
+      let decision = resolved.decision;
+      note = resolved.note;
+      // (T3.1) Count a real escalation (the client produced a decision) and estimate its token
+      // cost from the state text sent plus a small allowance for the reply. Only a real,
+      // client-answered escalation contributes (promptChars is 0 otherwise).
+      if (resolved.escalated) {
+        escalationCount += 1;
+        estimatedTokens += estimateTokens(resolved.promptChars) + 64;
       }
 
       // (T5) The decision is now final for this step; record how long deciding it took.
@@ -1668,9 +1710,8 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
             // hard-blocking the goal, so an autonomous run can finish a destructive submit once
             // a human approves it. Approval proceeds with the CLICK; a refusal keeps the block.
             // Only when there is nobody to ask does the refuse-by-default fail-safe apply, which
-            // is exactly the previous behaviour. (`confirmDestructive` no longer gates the ask:
-            // asking whenever it is possible is what makes the flag redundant rather than
-            // silently ignored - see the option's doc comment.)
+            // is exactly the previous behaviour. The presence of a confirm callback alone
+            // decides whether the loop can ask (no separate opt-in flag gates it).
             let approved = false;
             if (confirm) {
               const targetName = String(target.name || target.role);
@@ -1796,10 +1837,8 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
           redactSecrets,
           secrets,
           captureOptions,
-          // (F1) Thread the fast context for this step's targeted execution when fastLoop is on.
-          ...(fastLoop && fastCtx !== undefined
-            ? { fast: { ctx: fastCtx, capMs: fastWaitCapMs } }
-            : {}),
+          // (F1) Thread the fast context for this step's targeted execution.
+          fast: { ctx: fastCtx, capMs: FAST_WAIT_CAP_MS },
         },
         session,
         narrator,
@@ -1853,12 +1892,10 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
 
       // A2: purely-observational settle probe. It NEVER changes the decision path or outcome;
       // it only records `settled` on the step and narrates a hint. Terminal ops already broke
-      // out above, so this runs only for the continuing loop.
-      // (F1) On the fast path the targeted action already did its own bounded adaptiveWait and
-      // the next iteration always captures a fresh FastSnapshot, so the legacy fixed settle
-      // probe + speculative prefetch are skipped (they are a legacy-path optimization keyed to
-      // the prefetch reuse this branch does not use). `settled` is recorded observationally.
-      if (settleProbe && fastLoop) {
+      // out above, so this runs only for the continuing loop. The targeted action already did
+      // its own bounded adaptiveWait and the next iteration captures a fresh FastSnapshot, so
+      // this probe only records `settled` observationally and overlaps a speculative prefetch.
+      if (settleProbe) {
         const beforeUrlFast = beforeUrl;
         // (F4) Overlap the settle probe with a speculative fast capture for the NEXT step, and
         // (when the page is already settled and an engine is available) a speculative DECIDE
@@ -1870,7 +1907,7 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
         // at the next step top is the final guard before the cached decision is actually used.
         const [probe, speculativeFast] = await Promise.all([
           session
-            .probeSettle(page, { beforeUrl: beforeUrlFast, timeoutMs: fastWaitCapMs })
+            .probeSettle(page, { beforeUrl: beforeUrlFast, timeoutMs: FAST_WAIT_CAP_MS })
             .catch(() => ({ changed: false, urlChanged: false, mutations: 0 })),
           captureFast(page, captureOptions)
             .then((f) => projectFast(f))
@@ -1892,23 +1929,6 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
             engine,
             confidenceThreshold,
           ).catch(() => undefined);
-        }
-      } else if (settleProbe) {
-        await narrator.setState("acting", "Waiting for page to settle\u2026");
-        // (T4.1) Overlap the settle probe with a speculative capture for the NEXT step. Both
-        // are independent reads against the page; running them together hides the capture cost
-        // inside the probe's wait window. We only KEEP the speculative snapshot when the probe
-        // reports NO change (page already settled, so the snapshot is current) — on any change
-        // we discard it and the next iteration captures fresh, preserving observed semantics.
-        const [probe, speculative] = await Promise.all([
-          session.probeSettle(page, { beforeUrl }),
-          capture(page, captureOptions).catch(() => undefined),
-        ]);
-        record.settled = probe.changed;
-        prefetchedSnapshot =
-          !probe.changed && speculative !== undefined ? speculative : undefined;
-        if (!probe.changed) {
-          await narrator.toast("No change detected", "uncertain");
         }
       }
 

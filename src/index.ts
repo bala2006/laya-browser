@@ -36,7 +36,16 @@ async function main(): Promise<void> {
       : {}),
   });
   if (engine.available) {
-    process.stderr.write("[laya-browser-mcp] Autopilot engine loaded.\n");
+    // Name the engaged execution provider so the user can confirm which EP initialized
+    // (e.g. "cuda" on their RTX 4050 vs the "cpu" fallback here). Written to STDERR only;
+    // stdout carries the JSON-RPC stream. The resolver sets `executionProvider` on the
+    // loaded LayaEngine; guard for engines that do not expose it (stub).
+    const ep = (engine as { executionProvider?: string }).executionProvider;
+    process.stderr.write(
+      ep !== undefined
+        ? `[laya-browser-mcp] Autopilot engine loaded (execution provider: ${ep}).\n`
+        : "[laya-browser-mcp] Autopilot engine loaded.\n",
+    );
   } else {
     process.stderr.write(
       "[laya-browser-mcp] no Laya weights; Autopilot will degrade to Assist mode.\n",

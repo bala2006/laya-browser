@@ -6,11 +6,16 @@
  *   - the untrusted eval-output validator rejects a malformed structure;
  *   - freshGuard reports fresh vs stale for a targeted node and the whole-page marker;
  *   - actOnNode rejects an occluded control and succeeds once it is uncovered;
- *   - an end-to-end runGoal (StubEngine, flag ON) reaches the SAME verified final-page success
- *     as the flag-off run in FEWER-or-equal browser round trips (the actOnNode path is taken,
- *     not resolveRef/locate).
+ *   - an end-to-end runGoal (StubEngine) reaches a verified final-page success while the
+ *     actOnNode path is taken instead of resolveRef/locate (fewer browser round trips).
  *
  * They MUST fail if the fast-path behavior regresses. No em dashes anywhere in this file.
+ *
+ * (De-nuance) These assert the fast path's OWN behavior directly against expected sequences.
+ * They used to A/B the fast loop against the legacy `fastLoop=off` branch to prove the two
+ * paths decided identically; that legacy branch is now deleted (single always-on path), so
+ * the cross-path identity guarantee is retired BY CONSTRUCTION, not lost coverage. There is
+ * no second path left to diverge from, so direct assertions are the right shape now.
  */
 import { BrowserSession } from "../src/browser.js";
 import { captureFast, isRawFastSnapshot } from "../src/snapshot.js";
@@ -401,7 +406,7 @@ describe("fast loop: adaptive combobox wait (real headless chromium)", () => {
   });
 });
 
-describe("fast loop: end-to-end runGoal parity + round-trip reduction (StubEngine)", () => {
+describe("fast loop: end-to-end runGoal verified success + round-trip reduction (StubEngine)", () => {
   let fixtures: FixtureServer;
   let session: BrowserSession;
 
@@ -415,9 +420,10 @@ describe("fast loop: end-to-end runGoal parity + round-trip reduction (StubEngin
     await fixtures.close();
   });
 
-  it("reaches the SAME verified success with the flag ON as OFF, taking the actOnNode path", async () => {
-    // Count the browser round trips that resolve a target: the legacy path uses
-    // resolveRef/locate per action, the fast path uses actOnNode instead.
+  it("reaches a verified success taking the actOnNode path (no per-action locator re-query)", async () => {
+    // Count the browser round trips that resolve a target: a locator re-query would go through
+    // resolveRef/locate per action, whereas the (always-on) fast path acts on the OBSERVED node
+    // via actOnNode instead.
     let locateCalls = 0;
     let actOnNodeCalls = 0;
     const realLocate = session.locate.bind(session);
@@ -439,63 +445,26 @@ describe("fast loop: end-to-end runGoal parity + round-trip reduction (StubEngin
     const goal =
       'email is "user@example.com" and password is "hunter2" and expect "Signed in as user@example.com"';
 
-    const fastResult = await runGoal({
+    const result = await runGoal({
       goal,
       session,
       engine: new StubEngine(),
       url: fixtures.url("login.html"),
       maxSteps: 8,
-      fastLoop: true,
     });
 
-    // The fast run reaches DONE and the INDEPENDENT final-page verification passes.
-    expect(fastResult.outcome).toBe("done");
-    expect(fastResult.verification.verified).toBe(true);
-    // The persistent-identity execution path was taken (no legacy locator re-query for the
-    // filled fields / submit click).
+    // The run reaches DONE and the INDEPENDENT final-page verification passes.
+    expect(result.outcome).toBe("done");
+    expect(result.verification.verified).toBe(true);
+    // The persistent-identity execution path was taken for the filled fields / submit click:
+    // targeted actions resolve via actOnNode, so it makes MORE actOnNode calls than legacy
+    // locator round trips (that is the fast path's round-trip win).
     expect(actOnNodeCalls).toBeGreaterThan(0);
-    const fastLocateCalls = locateCalls;
+    expect(actOnNodeCalls).toBeGreaterThan(locateCalls);
     // The real DOM reflects the filled fields and the signed-in outcome.
-    let page = await session.getPage();
+    const page = await session.getPage();
     expect(await page.locator("#email").inputValue()).toBe("user@example.com");
     expect(await page.locator("#status").textContent()).toBe("Signed in as user@example.com");
-
-    // Now run the SAME goal on a fresh session with the flag OFF and compare.
-    await session.close();
-    await fixtures.close();
-    fixtures = await startFixtureServer();
-    session = new BrowserSession({ headless: true });
-    locateCalls = 0;
-    actOnNodeCalls = 0;
-    const realLocate2 = session.locate.bind(session);
-    const realResolveRef2 = session.resolveRef.bind(session);
-    session.locate = ((target: string) => {
-      locateCalls += 1;
-      return realLocate2(target);
-    }) as typeof session.locate;
-    session.resolveRef = ((target: string) => {
-      locateCalls += 1;
-      return realResolveRef2(target);
-    }) as typeof session.resolveRef;
-
-    const slowResult = await runGoal({
-      goal,
-      session,
-      engine: new StubEngine(),
-      url: fixtures.url("login.html"),
-      maxSteps: 8,
-      fastLoop: false,
-    });
-
-    // SAME independently-verified final-page success as the fast run.
-    expect(slowResult.outcome).toBe("done");
-    expect(slowResult.verification.verified).toBe(true);
-    page = await session.getPage();
-    expect(await page.locator("#status").textContent()).toBe("Signed in as user@example.com");
-
-    // The fast path resolves targets WITHOUT the legacy locator round trips, so it makes
-    // FEWER-or-equal target-resolution round trips than the flag-off run.
-    expect(fastLocateCalls).toBeLessThan(locateCalls);
   });
 });
 
@@ -536,10 +505,10 @@ describe("fast loop: speculative decide during settle (real headless chromium)",
     await fixtures.close();
   });
 
-  it("reuses the speculative decision on a settled page (no double decide) with an identical sequence", async () => {
+  it("reuses the speculative decision on a settled page (no double decide)", async () => {
     // A WAIT-returning engine never mutates the DOM, so the page stays settled between steps
-    // and the whole-page marker freshness holds. With speculation ON, the decision computed
-    // during step N's settle is reused at step N+1 instead of being recomputed there.
+    // and the whole-page marker freshness holds. The decision computed during step N's settle
+    // is reused at step N+1 instead of being recomputed there.
     const maxSteps = 4;
     const wait: Decision = {
       operation: "WAIT",
@@ -548,26 +517,6 @@ describe("fast loop: speculative decide during settle (real headless chromium)",
       source: "laya",
     };
 
-    // Flag OFF: no speculation. decide() is called exactly once per step.
-    const slowSession = new BrowserSession({ headless: true });
-    const slowEngine = countingEngine(wait);
-    const slow = await runGoal({
-      goal: "wait on the page",
-      session: slowSession,
-      engine: slowEngine,
-      url: fixtures.url("search-form.html"),
-      maxSteps,
-      waitMs: 5,
-      // Disable loop detection so the WAIT loop uses the full step budget (a repeated WAIT
-      // would otherwise be flagged as stuck) and the decide counts are predictable.
-      loopDetection: false,
-      fastLoop: false,
-    });
-    await slowSession.close();
-
-    // Flag ON: speculation reuses each step's decision from the previous settle. The loop must
-    // NOT decide twice per step (once speculatively during settle, once at the top): the
-    // top-of-iteration decide is skipped on reuse.
     const fastSession = new BrowserSession({ headless: true });
     const fastEngine = countingEngine(wait);
     const fast = await runGoal({
@@ -577,27 +526,28 @@ describe("fast loop: speculative decide during settle (real headless chromium)",
       url: fixtures.url("search-form.html"),
       maxSteps,
       waitMs: 5,
+      // Disable loop detection so the WAIT loop uses the full step budget (a repeated WAIT
+      // would otherwise be flagged as stuck) and the decide counts are predictable.
       loopDetection: false,
-      fastLoop: true,
     });
     await fastSession.close();
 
-    // The OBSERVED decision sequence and outcome are IDENTICAL with and without speculation.
-    expect(fast.outcome).toBe(slow.outcome);
-    expect(decisionSequence(fast.transcript)).toEqual(decisionSequence(slow.transcript));
+    // The observed decision sequence is a WAIT per step, and the run exhausts the step budget.
+    expect(fast.outcome).toBe("max_steps");
+    expect(decisionSequence(fast.transcript)).toEqual(
+      Array.from({ length: maxSteps }, () => `WAIT\u0000\u0000\u0000laya`),
+    );
 
     // Reuse actually happened: had the loop decided twice per step (speculative + a redundant
-    // top-of-iteration decide), the count would be about 2x the non-speculating count. It stays
+    // top-of-iteration decide), the count would be about 2x the step count. Instead it stays
     // within one extra decide (the final settle speculates a decision that is never used).
-    expect(slowEngine.calls).toBe(maxSteps);
-    expect(fastEngine.calls).toBeLessThanOrEqual(slowEngine.calls + 1);
-    expect(fastEngine.calls).toBeLessThan(slowEngine.calls * 2);
+    expect(fastEngine.calls).toBeLessThanOrEqual(maxSteps + 1);
+    expect(fastEngine.calls).toBeLessThan(maxSteps * 2);
   });
 
   it("discards the speculative decision on drift (probe observed a change)", async () => {
     // A SCROLL_DOWN-returning engine changes scrollY on every step, so the settle probe always
     // observes a change: the speculative prefetch is discarded and every step decides fresh.
-    // The observed sequence must STILL be identical to the non-speculating run.
     const maxSteps = 3;
     const scroll: Decision = {
       operation: "SCROLL_DOWN",
@@ -605,19 +555,6 @@ describe("fast loop: speculative decide during settle (real headless chromium)",
       targetConfidence: 1,
       source: "laya",
     };
-
-    const slowSession = new BrowserSession({ headless: true });
-    const slowEngine = countingEngine(scroll);
-    const slow = await runGoal({
-      goal: "scroll the page",
-      session: slowSession,
-      engine: slowEngine,
-      url: fixtures.url("big-text.html"),
-      maxSteps,
-      loopDetection: false,
-      fastLoop: false,
-    });
-    await slowSession.close();
 
     const fastSession = new BrowserSession({ headless: true });
     const fastEngine = countingEngine(scroll);
@@ -628,18 +565,18 @@ describe("fast loop: speculative decide during settle (real headless chromium)",
       url: fixtures.url("big-text.html"),
       maxSteps,
       loopDetection: false,
-      fastLoop: true,
     });
     await fastSession.close();
 
-    // Identical observed decision sequence and outcome despite (discarded) speculation.
-    expect(fast.outcome).toBe(slow.outcome);
-    expect(decisionSequence(fast.transcript)).toEqual(decisionSequence(slow.transcript));
+    // The observed decision sequence is a SCROLL_DOWN per step, over the full step budget.
+    expect(fast.outcome).toBe("max_steps");
+    expect(decisionSequence(fast.transcript)).toEqual(
+      Array.from({ length: maxSteps }, () => `SCROLL_DOWN\u0000\u0000\u0000laya`),
+    );
 
-    // On drift the cached decision is never reused, so each step decides fresh: the same number
-    // of real decides as the non-speculating run (plus at most the speculative attempts that a
-    // changed probe discards, which never REPLACE a real top-of-iteration decide).
-    expect(slowEngine.calls).toBe(maxSteps);
-    expect(fastEngine.calls).toBeGreaterThanOrEqual(slowEngine.calls);
+    // On drift the cached decision is never reused, so each step decides fresh: at least one
+    // real top-of-iteration decide per step (plus any speculative attempts that a changed probe
+    // discards, which never REPLACE a real decide).
+    expect(fastEngine.calls).toBeGreaterThanOrEqual(maxSteps);
   });
 });

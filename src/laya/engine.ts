@@ -132,6 +132,14 @@ function clampProb(p: number): number {
 export class LayaEngine implements LayaDecisionEngine {
   readonly available = true;
 
+  /**
+   * The human label of the onnxruntime execution provider that actually initialized this
+   * engine (e.g. "cuda" | "directml" | "cpu"). Set by the resolver in src/laya/index.ts
+   * after a candidate loads; undefined when the engine was loaded directly without EP
+   * resolution. Used only for the single startup log line in src/index.ts.
+   */
+  executionProvider?: string;
+
   private constructor(private readonly laya: Laya) {}
 
   /** Load the ONNX bundle (from `modelDir` or download) and wrap it in an engine. */

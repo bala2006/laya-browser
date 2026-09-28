@@ -5,7 +5,7 @@
  * the engine returns BLOCKED, Autopilot escalates: it asks the CLIENT's own LLM (through the
  * MCP `sampling/createMessage` request) to choose the next step given the compact page
  * state, then PARSES the structured answer back into a {@link Decision} (with
- * `source = "llm"`). All parsing/guarding happens at THIS boundary — the loop only ever sees
+ * `source = "llm"`). All parsing/guarding happens at THIS boundary, so the loop only ever sees
  * a well-formed Decision or a graceful BLOCKED.
  *
  * Testability: escalation depends only on an injected {@link SampleFn} (a function that takes
@@ -73,7 +73,7 @@ export const LLM_CONFIDENCE = 0.75;
  * (it never interpolates the page state), so an LLM/provider that caches by shared prompt
  * prefix can reuse the attention KV for these tokens across steps and across runs. The
  * VOLATILE browser state (url/title/controls/diff) is appended AFTER this prefix by the
- * prompt builders, so only the changing suffix busts the cache. Reordering only — the SAME
+ * prompt builders, so only the changing suffix busts the cache. Reordering only, so the SAME
  * information reaches the model, and the parser (which scans for a JSON object anywhere in
  * the answer) is unaffected.
  */
@@ -124,7 +124,7 @@ export function buildDeltaEscalationPrompt(
       ? []
       : [`${label}:`, ...controls.map((c) => controlLabel(c))];
 
-  // (T1.1) STABLE prefix FIRST, VOLATILE delta/state LAST — same KV-cache-friendly ordering
+  // (T1.1) STABLE prefix FIRST, VOLATILE delta/state LAST, same KV-cache-friendly ordering
   // as the full prompt. The response-format spec references "CURRENT CONTROLS", which appears
   // below; a pure reorder that preserves every piece of information the old prompt carried.
   return [
@@ -296,6 +296,23 @@ export interface EscalationOptions {
    * the R2 no-weights placeholder) the existing graceful BLOCKED is preserved.
    */
   fallback?: Decision;
+  /**
+   * (FEAT-003) A resolver for BEST-SAFE-PROGRESS, consulted ONLY when the LLM is unreachable
+   * (no sampler, or the sampler threw/timed out) AND there is no usable non-BLOCKED
+   * {@link fallback} to continue on. It returns a NON-DESTRUCTIVE next step (the policy layer's
+   * next action, else a bounded SCROLL_DOWN) for THIS page, or `undefined` when the page is
+   * genuinely dead. This breaks the low-confidence-BLOCKED dead-end: rather than hard-BLOCKING a
+   * run that a client without MCP sampling cannot escalate, escalation resolves an observable,
+   * safe move and lets the loop continue (the loop detector still terminates a run that cannot
+   * make real progress).
+   *
+   * Boundary discipline: escalation NEVER imports the loop or the policy layer. The caller
+   * (the loop) injects this callback already bound to the current {@link PageState} and its
+   * policy layer, so escalation stays a thin, unit-testable boundary over injected functions.
+   * The caller supplies it ONLY for a LOW-CONFIDENCE BLOCKED, so a CONFIDENT (deliberate)
+   * BLOCKED is never softened. When omitted, the existing graceful-BLOCKED behaviour is exact.
+   */
+  bestSafeProgress?: () => Decision | undefined;
 }
 
 /** The outcome of an escalation attempt. */
@@ -312,11 +329,14 @@ export interface EscalationResult {
  * Escalate a decision to the client LLM via the injected sampler.
  *
  * When `sample` is `undefined` (client lacks sampling support) or the sampling request throws
- * / times out, the LLM is UNREACHABLE. In that case, if a non-BLOCKED Laya fallback was
- * supplied (T4), escalation returns THAT decision with `escalated: false` and a warning note
- * so the run continues on Laya's best guess; otherwise it degrades to a clear BLOCKED result
- * WITHOUT throwing. When the sampler IS reachable it prompts the client, parses the answer,
- * and returns the resulting Decision (or BLOCKED if the answer was unusable).
+ * / times out, the LLM is UNREACHABLE. In that case the degraded outcome is, in order: (1) a
+ * non-BLOCKED Laya fallback (T4), returned with `escalated: false` and a warning note so the
+ * run continues on Laya's best guess; (2) FEAT-003 best-safe-progress - when the fallback is a
+ * (low-confidence) BLOCKED and a {@link EscalationOptions.bestSafeProgress} resolver was
+ * injected, escalation returns its NON-DESTRUCTIVE next step so the run keeps progressing
+ * instead of dead-ending; (3) a clear BLOCKED result (never throws) when neither applies. When
+ * the sampler IS reachable it prompts the client, parses the answer, and returns the resulting
+ * Decision (or BLOCKED if the answer was unusable).
  */
 export async function escalate(
   state: PageState,
@@ -330,12 +350,24 @@ export async function escalate(
       ? options.fallback
       : undefined;
 
-  if (!sample) {
+  // (FEAT-003) The degraded outcome when the LLM is UNREACHABLE. Preference order: (1) Laya's
+  // non-BLOCKED best guess (T4); (2) best-safe-progress for a low-confidence BLOCKED, so the run
+  // makes an observable, non-destructive move instead of dead-ending; (3) the graceful BLOCKED.
+  // `reason` names why the LLM was unreachable so the transcript note stays informative.
+  const unreachable = (reason: string): EscalationResult => {
     if (fallback) {
       return {
         decision: fallback,
         escalated: false,
-        note: "Low confidence but the client does not support MCP sampling; the LLM is unreachable, so continuing with Laya's best guess.",
+        note: `${reason}; the LLM is unreachable, so continuing with Laya's best guess.`,
+      };
+    }
+    const safe = options.bestSafeProgress?.();
+    if (safe && safe.operation !== "BLOCKED") {
+      return {
+        decision: safe,
+        escalated: false,
+        note: `${reason}; the LLM is unreachable, so taking the best safe next step (${safe.operation}) to keep making progress.`,
       };
     }
     return {
@@ -346,8 +378,12 @@ export async function escalate(
         source: "llm",
       },
       escalated: false,
-      note: "Low confidence and the client does not support MCP sampling; blocked. Use the Assist-mode tools to proceed manually.",
+      note: `${reason}; blocked. Use the Assist-mode tools to proceed manually.`,
     };
+  };
+
+  if (!sample) {
+    return unreachable("Low confidence and the client does not support MCP sampling");
   }
 
   const knownRefs = new Set<string>(state.controls.map((c) => c.ref));
@@ -365,25 +401,10 @@ export async function escalate(
   try {
     raw = await sample(prompt);
   } catch (err) {
-    // (T4) The sampling request threw / timed out: the LLM is unreachable. Prefer Laya's best
-    // guess (when one exists) so a single unreachable step does not kill autonomy.
-    if (fallback) {
-      return {
-        decision: fallback,
-        escalated: false,
-        note: `MCP sampling request failed (${(err as Error).message}); the LLM is unreachable, so continuing with Laya's best guess.`,
-      };
-    }
-    return {
-      decision: {
-        operation: "BLOCKED",
-        operationConfidence: 1,
-        targetConfidence: 1,
-        source: "llm",
-      },
-      escalated: false,
-      note: `MCP sampling request failed (${(err as Error).message}); blocked.`,
-    };
+    // (T4/FEAT-003) The sampling request threw / timed out: the LLM is unreachable. Prefer
+    // Laya's best guess, else best-safe-progress for a low-confidence BLOCKED, else a graceful
+    // BLOCKED - so a single unreachable step neither kills autonomy nor dead-ends the run.
+    return unreachable(`MCP sampling request failed (${(err as Error).message})`);
   }
 
   const decision = parseDecision(raw, knownRefs);

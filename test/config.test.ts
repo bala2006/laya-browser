@@ -132,7 +132,6 @@ describe("loadConfig reliability/trust/perf knobs (A1/A2/A3/B1/B2/B3/C1/C3)", ()
     expect(config.loopDetection).toBe(true);
     expect(config.loopWindow).toBe(3);
     expect(config.redactSecrets).toBe(true);
-    expect(config.confirmDestructive).toBe(false);
     expect(config.assistDestructiveGuard).toBe(false);
     expect(config.snapshotBackend).toBe("domwalk");
     expect(config.viewportPriority).toBe(true);
@@ -173,12 +172,6 @@ describe("loadConfig reliability/trust/perf knobs (A1/A2/A3/B1/B2/B3/C1/C3)", ()
     expect(loadConfig({}, { LAYA_REDACT_SECRETS: "false" }).redactSecrets).toBe(false);
     expect(loadConfig({}, { LAYA_REDACT_SECRETS: "true" }).redactSecrets).toBe(true);
     expect(loadConfig({ redactSecrets: false }, {}).redactSecrets).toBe(false);
-  });
-
-  it("(B2) parses LAYA_CONFIRM_DESTRUCTIVE as default-false (only 'true' enables)", () => {
-    expect(loadConfig({}, { LAYA_CONFIRM_DESTRUCTIVE: "true" }).confirmDestructive).toBe(true);
-    expect(loadConfig({}, { LAYA_CONFIRM_DESTRUCTIVE: "1" }).confirmDestructive).toBe(false);
-    expect(loadConfig({ confirmDestructive: true }, {}).confirmDestructive).toBe(true);
   });
 
   it("(B3) parses LAYA_ASSIST_DESTRUCTIVE_GUARD as default-false (only 'true' enables)", () => {
@@ -258,33 +251,5 @@ describe("loadConfig Tier 1-4 knobs (token/latency, robustness, UX)", () => {
     expect(loadConfig({}, { LAYA_BROWSER_OVERLAY_TRAIL: "0" }).overlay.cursorTrail).toBe(0);
     // Out-of-range falls back to the default 6.
     expect(loadConfig({}, { LAYA_BROWSER_OVERLAY_TRAIL: "100" }).overlay.cursorTrail).toBe(6);
-  });
-});
-
-describe("loadConfig fast browser loop knobs (F1)", () => {
-  it("defaults fastLoop off and fastWaitCapMs to 200", () => {
-    const c = loadConfig({}, {});
-    expect(c.fastLoop).toBe(false);
-    expect(c.fastWaitCapMs).toBe(200);
-  });
-
-  it("parses LAYA_FAST_LOOP as default-false (only 'true' enables)", () => {
-    expect(loadConfig({}, { LAYA_FAST_LOOP: "true" }).fastLoop).toBe(true);
-    expect(loadConfig({}, { LAYA_FAST_LOOP: "1" }).fastLoop).toBe(false);
-    expect(loadConfig({}, { LAYA_FAST_LOOP: "false" }).fastLoop).toBe(false);
-    expect(loadConfig({}, { LAYA_FAST_LOOP: "garbage" }).fastLoop).toBe(false);
-    expect(loadConfig({ fastLoop: true }, {}).fastLoop).toBe(true);
-  });
-
-  it("parses and clamps LAYA_FAST_WAIT_CAP_MS into [0, 2000]", () => {
-    expect(loadConfig({}, { LAYA_FAST_WAIT_CAP_MS: "500" }).fastWaitCapMs).toBe(500);
-    expect(loadConfig({}, { LAYA_FAST_WAIT_CAP_MS: "0" }).fastWaitCapMs).toBe(0);
-    expect(loadConfig({}, { LAYA_FAST_WAIT_CAP_MS: "2000" }).fastWaitCapMs).toBe(2000);
-    // Out-of-parse-range env falls back to the default; an override is clamped into range.
-    expect(loadConfig({}, { LAYA_FAST_WAIT_CAP_MS: "9999" }).fastWaitCapMs).toBe(200);
-    expect(loadConfig({}, { LAYA_FAST_WAIT_CAP_MS: "-5" }).fastWaitCapMs).toBe(200);
-    expect(loadConfig({}, { LAYA_FAST_WAIT_CAP_MS: "garbage" }).fastWaitCapMs).toBe(200);
-    expect(loadConfig({ fastWaitCapMs: 9999 }, {}).fastWaitCapMs).toBe(2000);
-    expect(loadConfig({ fastWaitCapMs: -5 }, {}).fastWaitCapMs).toBe(0);
   });
 });

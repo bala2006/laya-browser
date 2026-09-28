@@ -785,8 +785,8 @@ function domWalk(args: {
 // (F1) The fast snapshot: one atomic page.evaluate that carries persistent node
 // identity + per-node semantic guards + a page-level marker + a pageKey. This adopts the
 // MECHANICS of the jev fast path (window.__jevFast identity WeakMap, guard array, page_key,
-// marker) in TypeScript/Playwright. It is used ONLY when the LAYA_FAST_LOOP flag is on; the
-// legacy capture()/domWalk() path is untouched.
+// marker) in TypeScript/Playwright. It is the per-step capture the (always-on) fast browser
+// loop uses; the plain capture()/domWalk() path still backs final verification and Assist mode.
 // ---------------------------------------------------------------------------
 
 /** Raw guard record returned from the in-page fast walk (validated before trusting). */
@@ -836,11 +836,11 @@ interface RawFastSnapshot {
 /**
  * (F1) Capture an ATOMIC fast snapshot in ONE page.evaluate.
  *
- * Unlike {@link capture} (which the legacy loop uses), this single evaluate initializes or
- * reuses a window-scoped identity cache (`window.__layaFast`), prunes disconnected nodes,
- * assigns each visible interactive element a PERSISTENT integer `nodeId` (stable across
- * captures for the same live node), ALSO stamps `data-laya-ref="eN"` in DOM order (so
- * `resolveRef` still works and the legacy path is unaffected), and computes for each control
+ * Unlike {@link capture} (which still backs final verification and Assist mode), this single
+ * evaluate initializes or reuses a window-scoped identity cache (`window.__layaFast`), prunes
+ * disconnected nodes, assigns each visible interactive element a PERSISTENT integer `nodeId`
+ * (stable across captures for the same live node), ALSO stamps `data-laya-ref="eN"` in DOM
+ * order (so `resolveRef` still works for that path), and computes for each control
  * a {@link NodeGuard} plus its viewport rect. It also builds a page-level `marker` (whole-page
  * freshness token) and a `pageKey` (form-field identity token), mirroring the jev mechanics.
  *
@@ -996,7 +996,7 @@ function assertRawFastSnapshot(value: unknown): asserts value is RawFastSnapshot
  *   - per-node semantic guards (role, name, value, checked, selectedIndex, disabled, the
  *     aria state attributes, href, and scopeText) captured at observation time;
  *   - a page-level `marker` (whole-page freshness) and a `pageKey` (form-field identity).
- * It also stamps `data-laya-ref="eN"` in DOM order so the legacy resolveRef path is unaffected.
+ * It also stamps `data-laya-ref="eN"` in DOM order so the resolveRef path still works.
  */
 function fastWalk(args: { visibleTextLimit: number }): unknown {
   const { visibleTextLimit } = args;

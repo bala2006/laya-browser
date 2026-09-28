@@ -194,8 +194,6 @@ export function createServer(options: CreateServerOptions = {}): CreatedServer {
       loopWindow: config.loopWindow,
       // (B1) Mask secret values/patterns out of the transcript/overlay/logs.
       redactSecrets: config.redactSecrets,
-      // (B2) Require inline confirmation before a destructive auto-submit CLICK.
-      confirmDestructive: config.confirmDestructive,
       // (C1) Which snapshot backend the loop captures with (domwalk default vs aria).
       snapshotBackend: config.snapshotBackend,
       // (C3) Order/cap controls by viewport visibility first.
@@ -214,10 +212,6 @@ export function createServer(options: CreateServerOptions = {}): CreatedServer {
       autoDismiss: config.autoDismiss,
       // (T2.3) Descend into same-origin iframes / open shadow roots up to this depth.
       frameDepth: config.frameDepth,
-      // (F1) Fast browser loop (persistent in-page identity + per-node freshness guards +
-      // occlusion hit-test + adaptive waits). Default OFF via config so main is byte-identical.
-      fastLoop: config.fastLoop,
-      fastWaitCapMs: config.fastWaitCapMs,
       // (D1) Share the artifacts holder so a run records per-step artifacts for the
       // laya_export_run replay tool WHEN recording is enabled above. The holder alone does
       // NOT enable recording.
