@@ -288,6 +288,16 @@ export function bestSafeProgress(state: PageState): Decision | undefined {
     const decision = seed.decision;
     // Never hand back a destructive CLICK: if the policy's next move is a submit CLICK on a
     // control the destructive-form guard would refuse, fall through to the safe nudge instead.
+    //
+    // INTENTIONAL ASYMMETRY: this checks with the guard's default enabled=true, whereas the
+    // loop's own CLICK guard uses the configurable `destructiveFormGuard` flag. When an
+    // operator turns that flag OFF, best-safe-progress stays STRICTER than the loop: it still
+    // refuses to PROPOSE a destructive submit here and falls through to SCROLL_DOWN. This is
+    // the safe direction and deliberate. best-safe-progress fires only on the dead-end
+    // recovery path (unreachable LLM + low-confidence BLOCKED), where the goal is to keep the
+    // run alive with an unambiguously safe move, not to auto-submit a form the local model was
+    // unsure about; the loop's configurable guard remains the final authority on the CLICK it
+    // ultimately executes. Do not thread the flag in here just for exact parity.
     if (decision.operation === "CLICK") {
       const target = state.controls.find((c) => c.ref === decision.target);
       if (target && !checkDestructiveSubmit(target, state).allowed) {

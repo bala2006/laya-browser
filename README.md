@@ -10,7 +10,8 @@ single step to the client's own LLM via **MCP sampling**.
 The on-device decision is one signal behind the `0.85` escalation gate, not a sub-100ms
 fast path: measured on CPU, `LayaEngine.decide` takes hundreds of ms per step (median ~407 ms
 web-agent / ~810-870 ms reference; see [Weights](#weights)). It picks the best available
-onnxruntime execution provider automatically (CUDA, DirectML, WebGPU, else CPU); on a machine
+onnxruntime execution provider automatically (CUDA on Linux x64, DirectML on Windows x64/arm64,
+else CPU; WebGPU is experimental and override-only); on a machine
 with a supported GPU the per-decide cost is expected to drop, but that speedup is
 to-be-measured on your hardware (this project's CI has no GPU). See
 [Execution provider selection](#execution-provider-selection).
@@ -897,21 +898,23 @@ EP (for example "DirectML unsupported by this model") does not crash the server;
 throws and resolution falls through to the next candidate. The list always ends with plain
 **CPU**, so selection can never fail.
 
-The preference order is:
+The auto-selection order is GPU-first per platform, then plain CPU:
 
 ```
-CUDA -> DirectML -> WebGPU -> CPU
+CUDA (Linux x64) -> DirectML (Windows x64/arm64) -> CPU
 ```
 
 Only the providers your platform can host are offered, per the `onnxruntime-node@1.30.0`
-prebuilt support matrix:
+prebuilt support matrix. **WebGPU is experimental and is NOT part of auto-selection**; it is
+reachable only by naming it explicitly in `LAYA_EXECUTION_PROVIDERS` (see
+[Overriding auto-selection](#overriding-auto-selection)):
 
 | Provider | Where it is offered |
 | --- | --- |
 | CPU | every platform (always the final fallback) |
 | DirectML | Windows x64 / arm64 |
 | CUDA | Linux x64 (CUDA v12) |
-| WebGPU | experimental |
+| WebGPU | experimental, override-only (not auto-selected) |
 
 On startup the server writes exactly ONE line to **stderr** naming the engaged EP (stdout is
 reserved for the JSON-RPC stream):

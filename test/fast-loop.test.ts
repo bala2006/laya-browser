@@ -10,6 +10,12 @@
  *     actOnNode path is taken instead of resolveRef/locate (fewer browser round trips).
  *
  * They MUST fail if the fast-path behavior regresses. No em dashes anywhere in this file.
+ *
+ * (De-nuance) These assert the fast path's OWN behavior directly against expected sequences.
+ * They used to A/B the fast loop against the legacy `fastLoop=off` branch to prove the two
+ * paths decided identically; that legacy branch is now deleted (single always-on path), so
+ * the cross-path identity guarantee is retired BY CONSTRUCTION, not lost coverage. There is
+ * no second path left to diverge from, so direct assertions are the right shape now.
  */
 import { BrowserSession } from "../src/browser.js";
 import { captureFast, isRawFastSnapshot } from "../src/snapshot.js";

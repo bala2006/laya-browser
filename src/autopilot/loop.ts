@@ -391,6 +391,10 @@ const DEFAULT_WAIT_MS = 500;
  * (F1) The adaptive-wait cap in ms the (always-on) fast browser loop uses before inputting
  * (e.g. for a combobox/autocomplete list to populate) and as the settle-probe timeout,
  * mirroring jev's 200ms autocomplete cap. An internal timing constant, not an operator knob.
+ *
+ * (De-nuance) This was formerly the `LAYA_FAST_WAIT_CAP_MS` env override; it is now fixed on
+ * purpose. No consumer relied on tuning it (the fast loop is the single always-on path), and a
+ * single reviewed value keeps the settle behavior predictable. Do NOT re-add the env override.
  */
 const FAST_WAIT_CAP_MS = 200;
 

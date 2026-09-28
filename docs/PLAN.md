@@ -8,7 +8,8 @@ and MCP-sampling escalation to the client LLM when confidence is low. The on-dev
 one signal behind the `0.85` escalation gate, not a sub-100ms path: measured on CPU,
 `LayaEngine.decide` costs hundreds of ms per step (median ~407 ms web-agent / ~810-870 ms
 reference; see the FEAT-004 ledger). It auto-selects the best available onnxruntime execution
-provider (CUDA -> DirectML -> WebGPU -> CPU); the GPU speedup is to-be-measured on hardware with
+provider (CUDA on Linux x64 -> DirectML on Windows x64/arm64 -> CPU; WebGPU is experimental and
+override-only, not auto-selected); the GPU speedup is to-be-measured on hardware with
 a supported GPU (this project's CI has none).
 
 Honest positioning: this is a **fast local decision layer with LLM fallback**. It is strong
@@ -254,8 +255,9 @@ list passed to `Laya.load` (each GPU candidate includes a CPU fallback entry, e.
 `['cuda','cpu']`). When an override (`LAYA_EXECUTION_PROVIDERS`) is supplied it returns exactly
 ONE candidate wrapping that list verbatim, so auto-selection is skipped. Otherwise it gates by
 the `onnxruntime-node@1.30.0` prebuilt matrix: CUDA first on Linux x64, DirectML first on
-win32 x64/arm64, WebGPU where applicable, and the list ALWAYS ends with a plain CPU candidate,
-so resolution can never fail.
+win32 x64/arm64, and the list ALWAYS ends with a plain CPU candidate, so resolution can never
+fail. WebGPU is experimental and is NOT emitted by auto-selection; it is reachable only via an
+explicit `LAYA_EXECUTION_PROVIDERS` override (the `webgpu` label above exists for that path).
 
 Selection is probe-verified: because `Laya.load` throws when a listed EP cannot initialize the
 model, attempting the load with a candidate's providers IS the probe. `resolveEngine(candidates,
