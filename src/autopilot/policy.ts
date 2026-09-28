@@ -206,7 +206,7 @@ export function policySeed(state: PageState): PolicySeed | undefined {
   // and in either case a submit control exists.
   //
   // Because Rule 1 runs first and returns as soon as any goal field is still empty, reaching
-  // this point already implies no goal-mapped field is unfilled — so submitting here never
+  // this point already implies no goal-mapped field is unfilled, so submitting here never
   // races ahead of filling.
   const submit = state.controls.find(isSubmitControl);
   if (submit) {

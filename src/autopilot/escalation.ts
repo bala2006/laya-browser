@@ -5,7 +5,7 @@
  * the engine returns BLOCKED, Autopilot escalates: it asks the CLIENT's own LLM (through the
  * MCP `sampling/createMessage` request) to choose the next step given the compact page
  * state, then PARSES the structured answer back into a {@link Decision} (with
- * `source = "llm"`). All parsing/guarding happens at THIS boundary — the loop only ever sees
+ * `source = "llm"`). All parsing/guarding happens at THIS boundary, so the loop only ever sees
  * a well-formed Decision or a graceful BLOCKED.
  *
  * Testability: escalation depends only on an injected {@link SampleFn} (a function that takes
@@ -73,7 +73,7 @@ export const LLM_CONFIDENCE = 0.75;
  * (it never interpolates the page state), so an LLM/provider that caches by shared prompt
  * prefix can reuse the attention KV for these tokens across steps and across runs. The
  * VOLATILE browser state (url/title/controls/diff) is appended AFTER this prefix by the
- * prompt builders, so only the changing suffix busts the cache. Reordering only — the SAME
+ * prompt builders, so only the changing suffix busts the cache. Reordering only, so the SAME
  * information reaches the model, and the parser (which scans for a JSON object anywhere in
  * the answer) is unaffected.
  */
@@ -124,7 +124,7 @@ export function buildDeltaEscalationPrompt(
       ? []
       : [`${label}:`, ...controls.map((c) => controlLabel(c))];
 
-  // (T1.1) STABLE prefix FIRST, VOLATILE delta/state LAST — same KV-cache-friendly ordering
+  // (T1.1) STABLE prefix FIRST, VOLATILE delta/state LAST, same KV-cache-friendly ordering
   // as the full prompt. The response-format spec references "CURRENT CONTROLS", which appears
   // below; a pure reorder that preserves every piece of information the old prompt carried.
   return [
