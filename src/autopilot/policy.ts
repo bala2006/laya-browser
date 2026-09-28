@@ -29,6 +29,7 @@ import {
   isSubmitControl,
   unfilledGoalFields,
 } from "../laya/goal.js";
+import { checkDestructiveSubmit } from "../safety.js";
 
 /** Confidence assigned to a high-confidence deterministic rule decision. */
 export const RULE_CONFIDENCE = 0.97;
@@ -253,4 +254,63 @@ export function refineWithGoalValue(decision: Decision, state: PageState): Decis
   const value = fieldValueFromGoal(control, state.goal, state.controls);
   if (value === undefined) return decision;
   return { ...decision, value };
+}
+
+/**
+ * (FEAT-003) Resolve the BEST SAFE next step when the run would otherwise dead-end.
+ *
+ * This is the pure resolver used to break the escalation dead-end: when the client LLM is
+ * UNREACHABLE (no MCP sampler, or the sampler threw/timed out) AND the local decision is a
+ * LOW-CONFIDENCE BLOCKED, hard-blocking traps the run. Instead we compute a NON-DESTRUCTIVE,
+ * observable move so the run keeps progressing. Resolution order, first that applies wins:
+ *
+ *   (a) the deterministic policy layer's next sensible action for THIS page ({@link policySeed}) -
+ *       the rules already know how to fill/select/submit and are the reliable path. A policy
+ *       CLICK is only offered when it PASSES the same destructive-form guard the loop applies
+ *       ({@link checkDestructiveSubmit}), so best-safe-progress never proposes a destructive
+ *       submit (the loop's guard remains the final authority regardless);
+ *   (b) a bounded, targetless {@link "SCROLL_DOWN"} nudge when the page still has controls or
+ *       visible text to move toward - a safe, non-destructive observable move that reveals more
+ *       of the page rather than ending the run.
+ *
+ * Returns `undefined` for a GENUINELY DEAD page (no policy action AND nothing to scroll toward),
+ * so the caller preserves the graceful BLOCKED. It never targets a phantom ref: every returned
+ * decision either reuses a policy target (already resolved against the live controls) or is the
+ * targetless SCROLL_DOWN. Pure and side-effect-free.
+ *
+ * NOTE: this resolver deliberately does NOT rescue a CONFIDENT BLOCKED; the caller only invokes
+ * it for a low-confidence BLOCKED, so a deliberate confident stop is never softened.
+ */
+export function bestSafeProgress(state: PageState): Decision | undefined {
+  // (a) The policy layer's next action, when it is a real (non-BLOCKED) progress step.
+  const seed = policySeed(state);
+  if (seed && seed.decision.operation !== "BLOCKED") {
+    const decision = seed.decision;
+    // Never hand back a destructive CLICK: if the policy's next move is a submit CLICK on a
+    // control the destructive-form guard would refuse, fall through to the safe nudge instead.
+    if (decision.operation === "CLICK") {
+      const target = state.controls.find((c) => c.ref === decision.target);
+      if (target && !checkDestructiveSubmit(target, state).allowed) {
+        // fall through to the SCROLL_DOWN nudge below
+      } else {
+        return decision;
+      }
+    } else {
+      return decision;
+    }
+  }
+
+  // (b) A bounded, non-destructive SCROLL_DOWN nudge, but only when there is something to move
+  // toward (controls or visible text). A genuinely empty page has nothing to reveal.
+  if (state.controls.length > 0 || state.visibleText.trim().length > 0) {
+    return {
+      operation: "SCROLL_DOWN",
+      operationConfidence: RULE_CONFIDENCE,
+      targetConfidence: 1,
+      source: "rule",
+    };
+  }
+
+  // Genuinely dead: no policy action and nothing to scroll toward -> preserve graceful BLOCKED.
+  return undefined;
 }

@@ -35,7 +35,7 @@ import { diffSnapshots, hasChanges } from "../snapshot-diff.js";
 import { buildState, renderState, type BuildStateOptions } from "../state-builder.js";
 import { fieldValueFromGoal, goalSuccessMarkers } from "../laya/goal.js";
 import { applyFieldValue, type FieldKind } from "../tools/fill.js";
-import { policySeed, refineWithGoalValue } from "./policy.js";
+import { bestSafeProgress, policySeed, refineWithGoalValue } from "./policy.js";
 import { escalate, type EscalationOptions, type SampleFn } from "./escalation.js";
 import { autoDismissOverlays } from "./dismiss.js";
 import { checkDestructiveSubmit, checkDomainAllowed } from "../safety.js";
@@ -1605,10 +1605,24 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
         // Laya's best guess instead of hard-BLOCKING the run. escalate() only uses the fallback
         // when the LLM is unreachable AND the fallback is not itself BLOCKED (so the R2
         // no-weights placeholder still degrades gracefully to BLOCKED).
-        const escalationOptions: EscalationOptions =
-          deltaPrompt && !isFirstStep && hasChanges(diff)
-            ? { diff, fallback: decision }
-            : { fallback: decision };
+        //
+        // (FEAT-003) Break the low-confidence-BLOCKED dead-end: when the pre-escalation decision
+        // is a LOW-CONFIDENCE BLOCKED (this branch is only reached when lowConfidence is true or
+        // the op is BLOCKED, so a BLOCKED reaching here that is ALSO low-confidence is exactly
+        // the trap), inject a best-safe-progress resolver bound to THIS page. escalate() consults
+        // it ONLY when the LLM is unreachable AND there is no usable non-BLOCKED fallback, so a
+        // CONFIDENT BLOCKED (deliberate stop) is never softened - we only pass the resolver for a
+        // low-confidence BLOCKED. A genuinely dead page yields undefined and stays BLOCKED, and
+        // the loop detector still terminates a run that cannot make real progress.
+        const lowConfidenceBlocked =
+          decision.operation === "BLOCKED" && lowConfidence;
+        const escalationOptions: EscalationOptions = {
+          fallback: decision,
+          ...(deltaPrompt && !isFirstStep && hasChanges(diff) ? { diff } : {}),
+          ...(lowConfidenceBlocked
+            ? { bestSafeProgress: () => bestSafeProgress(state) }
+            : {}),
+        };
         const result = await escalate(state, sample, escalationOptions);
         decision = refineWithGoalValue(result.decision, state);
         note = result.note;
