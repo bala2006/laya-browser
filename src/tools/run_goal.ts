@@ -34,6 +34,8 @@ export interface RunGoalContext extends ToolContext {
   engine: LayaDecisionEngine;
   /** Confidence threshold below which the loop escalates to the client LLM. */
   confidenceThreshold?: number;
+  /** Per-operation gates that take precedence over {@link confidenceThreshold}. */
+  operationThresholds?: Partial<Record<string, number>>;
   /**
    * Sampling callback for confidence escalation. When omitted, escalation degrades to a
    * clear BLOCKED result (the client lacks MCP sampling support).
@@ -264,6 +266,9 @@ export function makeHandler(ctx: RunGoalContext) {
         ...(args.maxSteps !== undefined ? { maxSteps: args.maxSteps } : {}),
         ...(ctx.confidenceThreshold !== undefined
           ? { confidenceThreshold: ctx.confidenceThreshold }
+          : {}),
+        ...(ctx.operationThresholds !== undefined
+          ? { operationThresholds: ctx.operationThresholds }
           : {}),
         ...(ctx.sample !== undefined ? { sample: ctx.sample } : {}),
         ...(ctx.plannerAvailable !== undefined

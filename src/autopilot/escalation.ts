@@ -174,34 +174,53 @@ function extractJsonObject(text: string): string | undefined {
  * than producing an illegal decision. `knownRefs` is the set of resolvable refs on the page.
  */
 export function parseDecision(raw: string, knownRefs: ReadonlySet<string>): Decision {
-  const blocked = (): Decision => ({
+  return parseAnswer(raw, knownRefs) ?? {
     operation: "BLOCKED",
     operationConfidence: LLM_CONFIDENCE,
     targetConfidence: 1,
     source: "llm",
-  });
+  };
+}
+
+/**
+ * Normalize a ref the way LLMs commonly echo it back: `[ref=e5]`, `ref=e5`, `[e5]`, `E5`.
+ */
+function normalizeRef(raw: unknown): string {
+  if (typeof raw !== "string") return "";
+  const m = raw.trim().match(/^\[?\s*(?:ref\s*=\s*)?(e\d+)\s*\]?$/i);
+  return m ? m[1]!.toLowerCase() : raw.trim();
+}
+
+/**
+ * {@link parseDecision} without the collapse: `undefined` means the answer was UNUSABLE (no
+ * JSON, unknown operation, unresolvable ref, missing payload), as opposed to a deliberate
+ * BLOCKED. The distinction matters: an unusable answer is treated like an unreachable LLM
+ * (fall back to the local model), while a deliberate BLOCKED is respected.
+ */
+function parseAnswer(raw: string, knownRefs: ReadonlySet<string>): Decision | undefined {
+  const unusable = (): undefined => undefined;
 
   const json = extractJsonObject(raw);
-  if (!json) return blocked();
+  if (!json) return unusable();
 
   let parsed: unknown;
   try {
     parsed = JSON.parse(json);
   } catch {
-    return blocked();
+    return unusable();
   }
-  if (typeof parsed !== "object" || parsed === null) return blocked();
+  if (typeof parsed !== "object" || parsed === null) return unusable();
 
   const obj = parsed as Record<string, unknown>;
   const opRaw = typeof obj.operation === "string" ? obj.operation.trim().toUpperCase() : "";
   const operation = OPERATIONS.find((o) => o === opRaw);
-  if (!operation) return blocked();
+  if (!operation) return unusable();
 
   if (TARGETED.has(operation)) {
-    const target = typeof obj.target === "string" ? obj.target.trim() : "";
+    const target = normalizeRef(obj.target);
     if (!target || !knownRefs.has(target)) {
       // Targeted operation without a resolvable target -> cannot execute safely.
-      return blocked();
+      return unusable();
     }
     const value = typeof obj.value === "string" ? obj.value : undefined;
     const decision: Decision = {
@@ -220,7 +239,7 @@ export function parseDecision(raw: string, knownRefs: ReadonlySet<string>): Deci
   // protocol-relative hop into a navigation the page could execute.
   if (operation === "NAVIGATE") {
     const url = typeof obj.url === "string" ? obj.url.trim() : "";
-    if (!/^https?:\/\//i.test(url)) return blocked();
+    if (!/^https?:\/\//i.test(url)) return unusable();
     return {
       operation: "NAVIGATE",
       operationConfidence: LLM_CONFIDENCE,
@@ -233,7 +252,7 @@ export function parseDecision(raw: string, knownRefs: ReadonlySet<string>): Deci
   // PRESS_KEY: guard the required `key` payload; a missing/empty key collapses to BLOCKED.
   if (operation === "PRESS_KEY") {
     const key = typeof obj.key === "string" ? obj.key.trim() : "";
-    if (!key) return blocked();
+    if (!key) return unusable();
     return {
       operation: "PRESS_KEY",
       operationConfidence: LLM_CONFIDENCE,
@@ -248,14 +267,14 @@ export function parseDecision(raw: string, knownRefs: ReadonlySet<string>): Deci
   // non-array, a malformed entry, or ANY unknown ref collapses to a well-formed BLOCKED so
   // an illegal FILL_FORM is never constructed.
   if (operation === "FILL_FORM") {
-    if (!Array.isArray(obj.fields) || obj.fields.length === 0) return blocked();
+    if (!Array.isArray(obj.fields) || obj.fields.length === 0) return unusable();
     const fields: FieldFill[] = [];
     for (const entry of obj.fields) {
-      if (typeof entry !== "object" || entry === null) return blocked();
+      if (typeof entry !== "object" || entry === null) return unusable();
       const rec = entry as Record<string, unknown>;
-      const target = typeof rec.target === "string" ? rec.target.trim() : "";
-      if (!target || !knownRefs.has(target)) return blocked();
-      if (typeof rec.value !== "string") return blocked();
+      const target = normalizeRef(rec.target);
+      if (!target || !knownRefs.has(target)) return unusable();
+      if (typeof rec.value !== "string") return unusable();
       fields.push({ target: asRef(target) as Ref, value: rec.value });
     }
     return {
@@ -407,7 +426,10 @@ export async function escalate(
     return unreachable(`MCP sampling request failed (${(err as Error).message})`);
   }
 
-  const decision = parseDecision(raw, knownRefs);
+  const decision = parseAnswer(raw, knownRefs);
+  if (decision === undefined) {
+    return unreachable("The client LLM's answer was unusable");
+  }
   return {
     decision,
     escalated: true,
@@ -448,7 +470,8 @@ export function samplerFromServer(
             content: { type: "text", text: prompt },
           },
         ],
-        maxTokens: 256,
+        // A FILL_FORM answer lists every field; 256 tokens truncated larger forms mid-JSON.
+        maxTokens: 1024,
         systemPrompt:
           "You choose one browser automation step and reply with a single-line JSON object only.",
       },

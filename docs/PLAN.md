@@ -727,3 +727,67 @@ without the export step.
 
 Project code MIT. Laya weights Apache-2.0 (Convai Innovations). Any Mind2Web-derived material is
 CC BY 4.0; attribute Deng et al., NeurIPS 2023; do not redistribute the test set.
+
+## Phase 9 addendum: jev_ultrafast input format, model-driven autonomy, reliability fixes
+
+**Root cause of "the rules do everything, the model never helps" (measured).** The Phase 0 spike
+note above is superseded: `@receptron/laya` CAN express per-operation target heads (each head is
+just another `choice` question). The web-agent model card states its input is jev_ultrafast's;
+the engine was sending a custom text rendering, a one-line instruction, and one shared target
+list whose option text repeated role/name. Model-only closed-loop runs on six local fixtures:
+old input 0/6 verified (SELECT on buttons, endless SCROLL_DOWN), jev input 3/6.
+`src/laya/jev-format.ts` now builds the request exactly like jev's `choose()` and serializes it
+like the Python reference (`json.dumps` instructions, `repr`-rendered dict criteria), which
+`@receptron/laya` does not do for object values.
+
+**Latency (measured, 8-core CPU, web-agent ModernBERT-large 421M).** ~2.3 ms/token per forward
+row, independent of `intraOpNumThreads` (4/8/default all within 5%). Each question is a row
+over the full state, so the engine asks the operation, then only the chosen head: median
+decide 6.6 s -> 4.2 s, identical decisions. The speculative settle-window decide discarded
+low-confidence answers and then recomputed them: 14 engine calls for 8 model steps; caching
+the answer regardless of confidence (the real step still runs the confidence gate and
+escalation) gives 8 calls, engine time 38.9 s -> 22.3 s. CPU is compute-bound here; GPU EPs
+are the remaining lever (not measurable in this sandbox).
+
+**Autopilot end to end (rules + model, no client LLM):** 2/6 -> 6/6 verified with the web-agent,
+6/6 with the reference bundle. Fixed along the way, each reproduced first:
+- Rule 3 re-clicked the same submit every step (fields stay filled after a submit) -> skip once
+  that submit was clicked after the last fill.
+- Rule 0 declared DONE on the implicit search-echo marker (`search for "X", then open X` ended
+  on the results page) -> Rule 0 uses explicit markers only.
+- Goal-stated `<select>` values were never set before submit (login submitted without role) ->
+  batched into FILL_FORM / Rule 1c; goal-named checkboxes checked before submit (Rule 1d).
+- A model/LLM DONE the page refutes (explicit marker absent) ended the run -> treated as BLOCKED.
+- A low-confidence DONE/BLOCKED with no LLM ended the run -> ask the model for its best actionable op.
+- An action error (timeout, wrong element kind) aborted the whole run -> recorded, re-observed.
+- An engine exception aborted the run -> zero-confidence BLOCKED into the escalation path.
+- An unparseable/unresolvable LLM answer hard-BLOCKED -> treated as unreachable (local fallback);
+  refs like `[ref=e5]` normalized; sampling `maxTokens` 256 -> 1024 (FILL_FORM JSON truncated).
+- A two-step cycle (TYPE, CLICK, TYPE, CLICK...) never tripped the all-identical loop detector.
+- Fast-path fill/select wrote `.value` on the instance, which React's value tracker swallows:
+  a React form never updated (reproduced with React 18). Now the prototype setter; clicks are a
+  real `page.mouse.click` at the hit-tested point; contenteditable gets real text input.
+- A click that opened a new tab (`target=_blank`) left Autopilot observing the opener.
+- `prepare-model.sh` broke with a relative OUT_DIR and on re-run (existing venv).
+
+## Phase 10 addendum: shortlist, input fidelity, calibrated gate, browser robustness
+
+Measured with the new step-scored harness (`benchmark/eval`, 19 cases, 63 scored steps,
+web-agent checkpoint), one change at a time, keeping only improvements:
+- Relevance shortlist (`src/shortlist.ts`): 65.1% -> 69.8% step accuracy; correct target never
+  offered 3 -> 0. Tightening to goal matches + 5 others fixed the 55-link store case.
+- Password/file/hidden inputs left out of the model input only: -> 71.4% (fixed typing the
+  password first). They stay in the page state for rules and the LLM.
+- On-screen text only (jev), space-joined: -> 73.0%. The same text newline-joined lost
+  (66.7-68.3%) and was reverted; so was newline-preserving whole-page text.
+- aria checked/selected/expanded in the model input: neutral on this set; kept for fidelity.
+- Per-operation gate (config `DEFAULT_OPERATION_THRESHOLDS`): local 12/63 (100%) -> 27/63
+  (96.3%). Fitted on this same small set; re-derive on real tasks.
+
+Browser fixes, each reproduced first: off-screen targets were refused as "covered" (now
+scrolled into view); marker checks read text clamped to 1200/2000 chars so a confirmation at
+the bottom of a long page was never seen (verification false on a successful run); an element
+that dropped out of a capture kept its old `data-laya-ref`, duplicating the next one (2 -> 1);
+every FILL_FORM field after the first fell off the fast path because the batch's own writes
+changed the page key (2 -> 0 locator fallbacks). Typed text with no goal-grammar value now
+comes from the client LLM (jev's text helper).

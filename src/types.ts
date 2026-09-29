@@ -53,6 +53,8 @@ export interface Control {
   checked?: boolean;
   /** Whether the control is currently disabled. */
   disabled?: boolean;
+  /** Raw `aria-checked` / `aria-selected` / `aria-expanded` values, when the element sets them. */
+  aria?: { checked?: string; selected?: string; expanded?: string };
   /**
    * (F1) Optional persistent in-page identity assigned by the fast snapshot. Unlike {@link ref}
    * (an `eN` handle re-numbered per capture and only valid within one snapshot), `nodeId` is a
@@ -154,6 +156,10 @@ export interface FastSnapshot {
   pageKey: string;
   /** Whole-page freshness token, compared when a per-node guard does not apply. */
   marker: string;
+  /** Whether the page can scroll further down (gates the SCROLL_DOWN option). */
+  canScroll: boolean;
+  /** Visible text inside the viewport only, one text node per line (the model's page text). */
+  viewportText: string;
 }
 
 /**
@@ -172,10 +178,38 @@ export interface PageState {
   title: string;
   /** Condensed visible text of the page (truncated to fit the model budget). */
   visibleText: string;
+  /**
+   * The page text as captured, NOT clamped to the model budget. Success-marker checks read
+   * this: a confirmation below the first 1200 characters is still on the page.
+   */
+  pageText?: string;
   /** Numbered, current-valued interactive controls. */
   controls: Control[];
   /** Human-readable log of the most recent actions taken this task. */
   recentActions: string[];
+  /** Whether the page can scroll further down. Absent means unknown (SCROLL_DOWN is offered). */
+  canScroll?: boolean;
+  /**
+   * On-screen text only (jev_ultrafast's page text), for the model's input. Absent when the
+   * backend does not measure it; `visibleText` (whole page) still drives rules and checks.
+   */
+  viewportText?: string;
+  /**
+   * Structured action history in the jev_ultrafast `recent_actions` shape, which is what the
+   * web-agent checkpoint reads. Optional: states built outside the loop have none.
+   */
+  history?: ActionRecord[];
+}
+
+/** One executed action, as the jev_ultrafast `recent_actions` entry the checkpoint was trained on. */
+export interface ActionRecord {
+  /** The acted-on element's label (`Open <label>` for a click on an editable field). */
+  action: string;
+  kind: "click" | "fill" | "select" | "scroll" | "wait";
+  /** Text typed, for `fill`; else null. */
+  text: string | null;
+  /** Whether the next observation differed; null until that observation happens. */
+  pageChanged: boolean | null;
 }
 
 /**
@@ -357,6 +391,12 @@ export interface LayaDecisionEngine {
   readonly available: boolean;
   /** Release any underlying model/session resources. */
   close(): Promise<void>;
+  /**
+   * Optional: the model's best ACTIONABLE step (never DONE/BLOCKED/WAIT) for `state`. Used when
+   * a terminal answer was not earned and no client LLM can be asked. Undefined when nothing
+   * actionable is offered.
+   */
+  decideActionable?(state: PageState): Promise<Decision | undefined>;
 }
 
 /**

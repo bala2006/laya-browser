@@ -321,7 +321,10 @@ export function isSubmitControl(c: Control): boolean {
  * Recognises `expect "..."`, `until "..."`, and `see "..."`. Falls back to the quoted
  * `search for "x"` value being echoed on the page when no explicit marker is given.
  */
-export function goalSuccessMarkers(goal: string): string[] {
+export function goalSuccessMarkers(
+  goal: string,
+  { explicitOnly = false }: { explicitOnly?: boolean } = {},
+): string[] {
   const markers: string[] = [];
   const re = /(?:expect|until|see|shows?)\s+["']([^"']+)["']/gi;
   let m: RegExpExecArray | null;
@@ -332,7 +335,7 @@ export function goalSuccessMarkers(goal: string): string[] {
   // (`search for "x"`), treat the searched-for value being echoed on the page as the
   // success marker. This lets bare `search for "laptop"` goals be verified without an
   // explicit `expect "..."`, matching how a search result page echoes the query.
-  if (markers.length === 0) {
+  if (markers.length === 0 && !explicitOnly) {
     const search = goalAssignments(goal).get("search");
     if (search) markers.push(search);
   }
@@ -344,9 +347,59 @@ export function goalSuccessMarkers(goal: string): string[] {
  * or title. When the goal declares no explicit marker, returns false (DONE must be earned
  * by an explicit marker, not merely assumed).
  */
-export function goalSuccessMarkerPresent(state: PageState): boolean {
-  const markers = goalSuccessMarkers(state.goal);
+export function goalSuccessMarkerPresent(
+  state: PageState,
+  options: { explicitOnly?: boolean } = {},
+): boolean {
+  const markers = goalSuccessMarkers(state.goal, options);
   if (markers.length === 0) return false;
-  const haystack = norm(`${state.title} ${state.visibleText}`);
+  const haystack = norm(`${state.title} ${state.pageText ?? state.visibleText}`);
   return markers.every((mk) => haystack.includes(norm(mk)));
+}
+
+/**
+ * Goal-mapped native `<select>` controls whose current value is not yet the goal's option,
+ * paired with the matching option label. Only an option that exists (case-insensitively) is
+ * returned, so a value is never forced into a select that cannot hold it.
+ */
+export function unsetGoalSelects(
+  goal: string,
+  controls: readonly Control[],
+): { control: Control; value: string }[] {
+  const out: { control: Control; value: string }[] = [];
+  for (const c of controls) {
+    if (c.tag !== "select" || c.disabled) continue;
+    const value = fieldValueFromGoal(c, goal, controls);
+    if (value === undefined) continue;
+    const option = (c.options ?? []).find((o) => norm(o) === norm(value));
+    if (option === undefined) continue;
+    if (norm(c.value ?? "") === norm(option)) continue;
+    out.push({ control: c, value: option });
+  }
+  return out;
+}
+
+/**
+ * Unchecked checkboxes/radios the goal names verbatim (e.g. `check Free breakfast`), so a
+ * requested filter is set before the form is submitted. Conservative: the control's whole name
+ * must appear in the goal, and any negation (`uncheck`, `untick`, `without`, `no <name>`)
+ * disqualifies it, so a toggle is never flipped against the goal.
+ */
+export function goalToggles(goal: string, controls: readonly Control[]): Control[] {
+  const words = (t: string): string => norm(t).replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+  const g = ` ${words(goal)} `;
+  if (/ (?:uncheck|untick|deselect|without|disable) /.test(g)) return [];
+  // A name the goal uses as a field VALUE (`destination is "Paris"` vs a "Paris" filter
+  // checkbox) is not a request to tick that box. Radios are exempt: for a radio group the value
+  // IS the choice (`class is "Economy"`).
+  const values = new Set([...goalAssignments(goal).values()].map(words));
+  return controls.filter((c) => {
+    if (c.disabled || c.checked !== false) return false;
+    const radio = c.type === "radio" || c.role === "radio";
+    if (!radio && c.type !== "checkbox" && c.role !== "checkbox") return false;
+    const name = words(c.name);
+    if (name.length < 3 || !g.includes(` ${name} `)) return false;
+    if (!radio && values.has(name)) return false;
+    return !g.includes(` no ${name} `);
+  });
 }

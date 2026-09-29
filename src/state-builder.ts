@@ -18,6 +18,7 @@
  */
 import type { Control, PageState } from "./types.js";
 import type { Snapshot } from "./snapshot.js";
+import { shortlist } from "./shortlist.js";
 
 /** Options controlling how {@link buildState} clamps state to fit Laya's budgets. */
 export interface BuildStateOptions {
@@ -32,6 +33,8 @@ export interface BuildStateOptions {
   maxVisibleText?: number;
   /** Maximum number of recent actions retained (most recent kept). Defaults to 8. */
   maxRecentActions?: number;
+  /** Maximum characters of on-screen text for the model. Defaults to 1200. */
+  maxViewportText?: number;
 }
 
 /**
@@ -50,6 +53,7 @@ const DEFAULTS: Required<BuildStateOptions> = {
   maxOptionLen: 80,
   maxVisibleText: 1200,
   maxRecentActions: 8,
+  maxViewportText: 1200,
 };
 
 /** Collapse whitespace and clamp a string to `max` characters (with an ellipsis). */
@@ -88,7 +92,8 @@ export function buildState(
   const opts = { ...DEFAULTS, ...options };
 
   const actionable = snapshot.controls.filter(isActionable);
-  const capped = actionable.slice(0, opts.maxControls);
+  // Over budget: keep the controls most relevant to the goal, not the first N in DOM order.
+  const capped = shortlist(actionable, goal, opts.maxControls);
 
   const controls: Control[] = capped.map((c, i) => {
     const next: Control = {
@@ -106,6 +111,14 @@ export function buildState(
     }
     if (c.checked !== undefined) next.checked = c.checked;
     if (c.disabled !== undefined) next.disabled = c.disabled;
+    const guard = (c as Control & { guard?: { ariaChecked: string | null; ariaSelected: string | null; ariaExpanded: string | null } }).guard;
+    if (guard) {
+      const aria: NonNullable<Control["aria"]> = {};
+      if (guard.ariaChecked !== null) aria.checked = guard.ariaChecked;
+      if (guard.ariaSelected !== null) aria.selected = guard.ariaSelected;
+      if (guard.ariaExpanded !== null) aria.expanded = guard.ariaExpanded;
+      if (Object.keys(aria).length > 0) next.aria = aria;
+    }
     return next;
   });
 
@@ -116,8 +129,13 @@ export function buildState(
     url: snapshot.url,
     title: snapshot.title,
     visibleText: clamp(snapshot.visibleText, opts.maxVisibleText),
+    pageText: snapshot.visibleText,
     controls,
     recentActions: recent,
+    ...(snapshot.canScroll !== undefined ? { canScroll: snapshot.canScroll } : {}),
+    ...(snapshot.viewportText !== undefined
+      ? { viewportText: snapshot.viewportText.slice(0, opts.maxViewportText) }
+      : {}),
   };
 }
 

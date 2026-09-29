@@ -38,6 +38,8 @@ MODEL="${1:-reference}"
 OUT_DIR="${2:-$(cd "$(dirname "$0")/.." && pwd)/.cache/laya-work}"
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 mkdir -p "$OUT_DIR"
+# Absolute: build_web_agent_fp32 cd's into the work dir, so a relative path would break there.
+OUT_DIR="$(cd "$OUT_DIR" && pwd)"
 
 # build_web_agent_fp32 <work_dir>
 # Set up the uv Python 3.12 venv, export abedinia/laya-web-agent to ONNX, and apply the
@@ -46,7 +48,8 @@ mkdir -p "$OUT_DIR"
 build_web_agent_fp32() {
   local WORK="$1"
   echo "==> web-agent: setting up Python 3.12 venv in $WORK/.venv"
-  uv venv -p 3.12 "$WORK/.venv"
+  # Idempotent: reuse a venv left by an earlier (possibly interrupted) run.
+  [ -x "$WORK/.venv/bin/python" ] || uv venv -p 3.12 "$WORK/.venv"
   uv pip install -p "$WORK/.venv/bin/python" \
     torch transformers safetensors onnx onnxscript onnxruntime huggingface_hub
 

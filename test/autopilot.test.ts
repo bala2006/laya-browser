@@ -290,9 +290,10 @@ describe("Autopilot loop with the StubEngine (real headless chromium, no weights
     expect(result.verification.detail).toContain("Missing expected marker");
   });
 
-  it("treats a DONE decision as unverified when the final page lacks the marker", async () => {
-    // A rogue engine that immediately claims DONE. The loop must NOT accept DONE as proof:
-    // its independent final-page verification against the goal marker reports verified=false.
+  it("does not stop on a DONE the page refutes (explicit marker absent)", async () => {
+    // A rogue engine that always claims DONE, confidently. The page refutes it (the goal's
+    // explicit marker is absent), so the loop must not end the run as DONE, and the independent
+    // final-page verification still reports verified=false.
     const doneEngine: LayaDecisionEngine = {
       available: true,
       async decide() {
@@ -314,10 +315,10 @@ describe("Autopilot loop with the StubEngine (real headless chromium, no weights
       engine: doneEngine,
       url: fixtures.url("search-form.html"),
     });
-    expect(result.outcome).toBe("done");
-    // DONE was declared, but the page never ran the search, so verification fails.
+    expect(result.outcome).not.toBe("done");
+    expect(result.transcript.some((s) => s.operation === "DONE")).toBe(false);
+    // The page never ran the search, so verification fails.
     expect(result.verification.verified).toBe(false);
-    expect(result.message).toContain("verification FAILED");
   });
 
   it("degrades gracefully to an Assist-mode hint when the engine is unavailable", async () => {
