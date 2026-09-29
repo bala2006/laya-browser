@@ -64,6 +64,8 @@ export interface Snapshot {
   text: string;
   /** Whether the page can scroll further down. Absent when the backend does not measure it. */
   canScroll?: boolean;
+  /** Text of the visible text nodes inside the viewport only (the model's page text). */
+  viewportText?: string;
 }
 
 /** Default cap on the amount of visible text returned, in characters. */
@@ -834,6 +836,7 @@ interface RawFastSnapshot {
   pageKey: string;
   marker: string;
   canScroll: boolean;
+  viewportText: string;
 }
 
 /**
@@ -888,6 +891,7 @@ export async function captureFast(
     pageKey: rawSnap.pageKey,
     marker: rawSnap.marker,
     canScroll: rawSnap.canScroll === true,
+    viewportText: typeof rawSnap.viewportText === "string" ? rawSnap.viewportText : "",
   };
 }
 
@@ -1332,6 +1336,29 @@ function fastWalk(args: { visibleTextLimit: number }): unknown {
       ? bodyText.slice(0, visibleTextLimit) + "\n... [truncated]"
       : bodyText;
 
+  // jev_ultrafast's page text: only visible text nodes whose box intersects the viewport, so
+  // after a scroll the model reads what is on screen, not the top of the document again.
+  const viewportWords: string[] = [];
+  let viewportLength = 0;
+  if (document.body) {
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    const range = document.createRange();
+    let node: Node | null;
+    while ((node = walker.nextNode()) && viewportLength < 6000) {
+      const value = (node.textContent ?? "").replace(/\s+/g, " ").trim();
+      const parent = node.parentElement;
+      if (!value || !parent || parent.closest("script,style,noscript,template")) continue;
+      if (parent.closest("[aria-hidden='true'],[inert]")) continue;
+      range.selectNodeContents(node);
+      const r = range.getBoundingClientRect();
+      if (r.width > 0 && r.height > 0 && r.bottom > 0 && r.top < window.innerHeight && r.right > 0 && r.left < window.innerWidth) {
+        viewportWords.push(value);
+        viewportLength += value.length + 1;
+      }
+    }
+  }
+  const viewportText = viewportWords.join(" ").slice(0, 6000);
+
   // The compact human-readable text (same line format as the legacy snapshot).
   const lines: string[] = [];
   lines.push("URL: " + window.location.href);
@@ -1419,5 +1446,6 @@ function fastWalk(args: { visibleTextLimit: number }): unknown {
     marker,
     canScroll:
       window.scrollY + window.innerHeight < document.documentElement.scrollHeight - 2,
+    viewportText,
   } satisfies RawFastSnapshot;
 }

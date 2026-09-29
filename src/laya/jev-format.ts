@@ -139,10 +139,19 @@ function label(c: Control): string {
   return c.name || c.role;
 }
 
+/** jev's state attributes: aria-* when set, then the native checkbox/radio state wins. */
+function states(c: Control): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (c.aria?.checked !== undefined) out.checked = c.aria.checked;
+  if (c.aria?.selected !== undefined) out.selected = c.aria.selected;
+  if (c.aria?.expanded !== undefined) out.expanded = c.aria.expanded;
+  if (c.checked !== undefined) out.checked = String(c.checked);
+  return out;
+}
+
 /** A jev element entry, keys in jev's insertion order. */
 function element(c: Control, index: string, operations: TargetOp[]): Record<string, unknown> {
-  const e: Record<string, unknown> = { role: c.role, value: c.value ?? "" };
-  if (c.checked !== undefined) e.checked = String(c.checked);
+  const e: Record<string, unknown> = { role: c.role, value: c.value ?? "", ...states(c) };
   e.index = index;
   e.label = label(c);
   e.operations = operations;
@@ -189,11 +198,16 @@ export function buildJevRequest(state: PageState): JevRequest {
       .map((h) => h.action),
   );
 
-  state.controls.forEach((c, i) => {
+  // jev never shows password/file/hidden inputs, so the checkpoint never learned them (it
+  // clicked a password field instead of typing). Those stay in the page state for the rule
+  // layer and the LLM; they are only left out of the model's input.
+  const offered = state.controls.filter(
+    (c) => !(c.tag === "input" && ["password", "file", "hidden"].includes(c.type ?? "")),
+  );
+  offered.forEach((c, i) => {
     const index = String(i + 1);
     const current = c.value ?? "";
-    const extra: Record<string, string> = { role: c.role };
-    if (c.checked !== undefined) extra.checked = String(c.checked);
+    const extra: Record<string, string> = { role: c.role, ...states(c) };
     if (isNativeSelect(c)) {
       elements.push(element(c, index, ["SELECT"]));
       const options = (c.options ?? []).filter((o) => o !== current);
@@ -248,7 +262,7 @@ export function buildJevRequest(state: PageState): JevRequest {
   }
 
   const jevState = {
-    page: { url: state.url, title: state.title, text: state.visibleText },
+    page: { url: state.url, title: state.title, text: state.viewportText ?? state.visibleText },
     elements,
     recent_actions: recentActions(state.history ?? []),
   };

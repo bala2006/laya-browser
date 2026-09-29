@@ -53,6 +53,8 @@ export interface Control {
   checked?: boolean;
   /** Whether the control is currently disabled. */
   disabled?: boolean;
+  /** Raw `aria-checked` / `aria-selected` / `aria-expanded` values, when the element sets them. */
+  aria?: { checked?: string; selected?: string; expanded?: string };
   /**
    * (F1) Optional persistent in-page identity assigned by the fast snapshot. Unlike {@link ref}
    * (an `eN` handle re-numbered per capture and only valid within one snapshot), `nodeId` is a
@@ -156,6 +158,8 @@ export interface FastSnapshot {
   marker: string;
   /** Whether the page can scroll further down (gates the SCROLL_DOWN option). */
   canScroll: boolean;
+  /** Visible text inside the viewport only, one text node per line (the model's page text). */
+  viewportText: string;
 }
 
 /**
@@ -180,6 +184,11 @@ export interface PageState {
   recentActions: string[];
   /** Whether the page can scroll further down. Absent means unknown (SCROLL_DOWN is offered). */
   canScroll?: boolean;
+  /**
+   * On-screen text only (jev_ultrafast's page text), for the model's input. Absent when the
+   * backend does not measure it; `visibleText` (whole page) still drives rules and checks.
+   */
+  viewportText?: string;
   /**
    * Structured action history in the jev_ultrafast `recent_actions` shape, which is what the
    * web-agent checkpoint reads. Optional: states built outside the loop have none.

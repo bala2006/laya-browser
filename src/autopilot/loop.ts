@@ -258,6 +258,12 @@ export interface RunGoalOptions {
    */
   confidenceThreshold?: number;
   /**
+   * Per-operation gates that take precedence over {@link confidenceThreshold} for the listed
+   * operations (a value above 1 never trusts that operation locally). Defaults to none, so a
+   * direct caller gets the uniform threshold; the server passes the calibrated defaults.
+   */
+  operationThresholds?: Partial<Record<string, number>>;
+  /**
    * Sampling callback used for confidence escalation. When omitted, escalation degrades to
    * a clear BLOCKED result (the client lacks sampling). Injectable for tests.
    */
@@ -1137,6 +1143,7 @@ function projectFast(fast: FastSnapshot): { snapshot: Snapshot; ctx: FastContext
     controls: fast.controls,
     text: fast.text,
     canScroll: fast.canScroll,
+    viewportText: fast.viewportText,
   };
   return { snapshot, ctx: { byRef, pageKey: fast.pageKey, marker: fast.marker } };
 }
@@ -1249,7 +1256,8 @@ function doneRefuted(state: PageState): boolean {
 interface DecisionContext {
   state: PageState;
   engine: LayaDecisionEngine;
-  confidenceThreshold: number;
+  /** The confidence a decision of this operation needs to run without escalating. */
+  thresholdFor: (operation: Decision["operation"]) => number;
   sample: SampleFn | undefined;
   narrator: Narrator;
   /** A cached speculative decision (F4) already confirmed fresh for THIS step, or undefined. */
@@ -1284,7 +1292,7 @@ interface ResolvedDecision {
  * sample()/engine.decide() calls. Behavior is identical to the previous inline pipeline.
  */
 async function resolveStepDecision(ctx: DecisionContext): Promise<ResolvedDecision> {
-  const { state, engine, confidenceThreshold, sample, narrator, reused } = ctx;
+  const { state, engine, thresholdFor, sample, narrator, reused } = ctx;
 
   // 1./2./3. Seed the decision: reuse a fresh speculative one, then a deterministic rule, then
   // the local model, then (no weights) a BLOCKED placeholder that step 4 routes to escalation.
@@ -1343,9 +1351,8 @@ async function resolveStepDecision(ctx: DecisionContext): Promise<ResolvedDecisi
 
   // 4. Confidence check: escalate on low confidence or BLOCKED (never for rule seeds, which are
   // high-confidence-deterministic by construction).
-  const lowConfidence =
-    decision.operationConfidence < confidenceThreshold ||
-    decision.targetConfidence < confidenceThreshold;
+  const gate = thresholdFor(decision.operation);
+  const lowConfidence = decision.operationConfidence < gate || decision.targetConfidence < gate;
   if (decision.source === "rule" || !(lowConfidence || decision.operation === "BLOCKED")) {
     return { decision, note, escalated: false, promptChars: 0 };
   }
@@ -1393,7 +1400,7 @@ async function resolveStepDecision(ctx: DecisionContext): Promise<ResolvedDecisi
     !result.escalated &&
     resolved.source !== "rule" &&
     (resolved.operation === "BLOCKED" ||
-      (resolved.operation === "DONE" && resolved.operationConfidence < confidenceThreshold));
+      (resolved.operation === "DONE" && resolved.operationConfidence < thresholdFor("DONE")));
   if (unearnedTerminal && engine.available && engine.decideActionable) {
     const alt = await engine.decideActionable(state).catch(() => undefined);
     const refined = alt ? refineWithGoalValue(alt, state) : undefined;
@@ -1441,6 +1448,7 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
     scrollBy,
     stateOptions,
     confidenceThreshold = DEFAULT_CONFIDENCE_THRESHOLD,
+    operationThresholds = {},
     sample,
     plannerAvailable,
     allowedDomains = [],
@@ -1736,7 +1744,7 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
       const resolved = await resolveStepDecision({
         state,
         engine,
-        confidenceThreshold,
+        thresholdFor: (op) => operationThresholds[op] ?? confidenceThreshold,
         sample,
         narrator,
         reused,

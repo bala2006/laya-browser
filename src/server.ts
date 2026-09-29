@@ -185,6 +185,7 @@ export function createServer(options: CreateServerOptions = {}): CreatedServer {
       session,
       engine,
       confidenceThreshold: config.confidenceThreshold,
+      operationThresholds: config.operationThresholds,
       allowedDomains: config.allowedDomains,
       destructiveFormGuard: config.destructiveFormGuard,
       waitMs: config.autopilotWaitMs,

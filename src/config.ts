@@ -28,7 +28,9 @@
  *   LAYA_CACHE=/path                   download cache root
  *   LAYA_EXECUTION_PROVIDERS=cpu,cuda  onnxruntime execution providers (comma-separated)
  *   LAYA_ENGINE=stub|auto              force the stub engine or auto-detect (default: auto)
- *   LAYA_CONFIDENCE_THRESHOLD=0.85     escalate below this operation/target confidence
+ *   LAYA_CONFIDENCE_THRESHOLD=0.85     escalate below this operation/target confidence (uniform;
+ *                                      setting it disables the calibrated per-operation defaults)
+ *   LAYA_OPERATION_THRESHOLDS=CLICK=0.8,TYPE_TEXT=0.6   per-operation gate overrides
  *   LAYA_MAX_STEPS=15                  Autopilot step budget
  *   LAYA_ALLOWED_DOMAINS=a.com,b.org   domain allow-list (empty = allow all)
  *   LAYA_DESTRUCTIVE_GUARD=false       disable the destructive-form auto-submit guard
@@ -186,6 +188,11 @@ export interface LayaBrowserConfig {
    * confidence falls below this threshold, in `[0, 1]`.
    */
   confidenceThreshold: number;
+  /**
+   * Per-operation gates that take precedence over {@link confidenceThreshold} for the listed
+   * operations. A value above 1 means "never trust this operation locally".
+   */
+  operationThresholds: OperationThresholds;
   /** Maximum Autopilot decision steps before giving up. */
   maxSteps: number;
 
@@ -335,6 +342,7 @@ export interface ConfigOverrides {
   executionProviders?: string[];
   engine?: EngineKind;
   confidenceThreshold?: number;
+  operationThresholds?: OperationThresholds;
   maxSteps?: number;
   allowedDomains?: string[];
   destructiveFormGuard?: boolean;
@@ -367,6 +375,25 @@ export interface ConfigOverrides {
  * (the OR semantics live in the loop). Rule-seeded steps carry 0.97 and never escalate.
  */
 export const DEFAULT_CONFIDENCE_THRESHOLD = 0.85;
+
+/** Per-operation confidence gates (see {@link DEFAULT_OPERATION_THRESHOLDS}). */
+export type OperationThresholds = Partial<Record<string, number>>;
+
+/**
+ * Calibrated per-operation gates, from the step-scored eval (`benchmark/eval`, web-agent
+ * checkpoint, 63 steps). At the uniform 0.85 only 12/63 steps ran locally (12 right); with
+ * these, 30/63 do (29 right). The model's DONE, TYPE_TEXT and SELECT were right at every
+ * confidence seen; its WAIT was right 1 time in 7 (it says WAIT where DONE is due), so WAIT is
+ * never trusted locally. Fitted on that one small set: re-derive on your own tasks.
+ */
+export const DEFAULT_OPERATION_THRESHOLDS: OperationThresholds = {
+  TYPE_TEXT: 0.6,
+  SELECT: 0.6,
+  CLICK: 0.75,
+  DONE: 0.7,
+  SCROLL_DOWN: 0.7,
+  WAIT: 1.01,
+};
 export const DEFAULT_MAX_STEPS = 15;
 export const DEFAULT_VIEWPORT: Viewport = { width: 1280, height: 800 };
 /** Default Autopilot WAIT duration (ms), lower than the loop's legacy 500. */
@@ -431,6 +458,18 @@ function parseViewport(value: string | undefined): Viewport | undefined {
 }
 
 /** Parse a comma/space-separated list into trimmed, non-empty, lower-cased entries. */
+/** Parse `OP=0.7,OP2=0.8` into a per-operation gate map (invalid entries are ignored). */
+function parseOperationThresholds(value: string | undefined): OperationThresholds {
+  const out: OperationThresholds = {};
+  for (const part of parseList(value)) {
+    const m = part.match(/^([A-Za-z_]+)\s*=\s*([0-9.]+)$/);
+    if (!m) continue;
+    const n = Number(m[2]);
+    if (Number.isFinite(n) && n >= 0) out[m[1]!.toUpperCase()] = n;
+  }
+  return out;
+}
+
 function parseList(value: string | undefined): string[] {
   if (!value) return [];
   return value
@@ -511,13 +550,16 @@ export function loadConfig(
       ? (engineEnv as EngineKind)
       : "auto");
 
-  const confidenceThreshold = clamp(
-    overrides.confidenceThreshold ??
-      parseNumber(env.LAYA_CONFIDENCE_THRESHOLD, { min: 0, max: 1 }) ??
-      DEFAULT_CONFIDENCE_THRESHOLD,
-    0,
-    1,
-  );
+  const explicitThreshold =
+    overrides.confidenceThreshold ?? parseNumber(env.LAYA_CONFIDENCE_THRESHOLD, { min: 0, max: 1 });
+  const confidenceThreshold = clamp(explicitThreshold ?? DEFAULT_CONFIDENCE_THRESHOLD, 0, 1);
+  // An explicit uniform threshold means "this gate for everything": the calibrated defaults
+  // only apply when the operator has not chosen one. Explicit per-op entries always apply.
+  const operationThresholds: OperationThresholds = {
+    ...(explicitThreshold === undefined ? DEFAULT_OPERATION_THRESHOLDS : {}),
+    ...parseOperationThresholds(env.LAYA_OPERATION_THRESHOLDS),
+    ...(overrides.operationThresholds ?? {}),
+  };
 
   const maxSteps = Math.trunc(
     overrides.maxSteps ??
@@ -725,6 +767,7 @@ export function loadConfig(
     autopilotWaitMs,
     engine,
     confidenceThreshold,
+    operationThresholds,
     maxSteps,
     allowedDomains,
     destructiveFormGuard,
