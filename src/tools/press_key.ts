@@ -14,6 +14,7 @@ export function makeHandler(ctx: ToolContext) {
   return async (args: Args): Promise<ToolResult> => {
     try {
       const page = await ctx.session.getPage();
+      await ctx.session.narrate(undefined, `Pressing ${args.key}`);
       await page.keyboard.press(args.key);
     } catch (err) {
       return textResult(`Failed to press key ${args.key}: ${(err as Error).message}`, true);

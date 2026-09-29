@@ -22,6 +22,7 @@ export function makeHandler(ctx: ToolContext) {
       // when the browser is still launching (e.g. a pipelined navigate+hover). getPage() is
       // idempotent and serialises concurrent launches, matching the other tools' pattern.
       await ctx.session.getPage();
+      await ctx.session.narrate(args.target, `Hovering ${args.element ?? args.target}`);
       const locator = ctx.session.resolveRef(args.target);
       await locator.hover();
     } catch (err) {

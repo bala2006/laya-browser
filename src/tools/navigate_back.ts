@@ -8,6 +8,7 @@ type Args = Record<string, never>;
 export function makeHandler(ctx: ToolContext) {
   return async (_args?: Args): Promise<ToolResult> => {
     const page = await ctx.session.getPage();
+    await ctx.session.narrate(undefined, "Going back");
     try {
       await page.goBack({ waitUntil: "domcontentloaded" });
     } catch (err) {

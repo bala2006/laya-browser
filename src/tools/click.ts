@@ -86,6 +86,7 @@ export function makeHandler(ctx: ToolContext) {
       // when the browser is still launching (e.g. a pipelined navigate+click). getPage() is
       // idempotent and serialises concurrent launches, matching the other tools' pattern.
       await ctx.session.getPage();
+      await ctx.session.narrate(args.target, `Clicking ${args.element ?? args.target}`, { click: true });
       const locator = ctx.session.resolveRef(args.target);
       const options = args.button ? { button: args.button } : {};
       if (args.doubleClick) {

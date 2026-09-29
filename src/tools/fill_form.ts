@@ -40,6 +40,7 @@ export function makeHandler(ctx: ToolContext) {
     for (const field of args.fields) {
       const label = field.element ?? field.target;
       try {
+        await ctx.session.narrate(field.target, `Filling ${label}`);
         const locator = ctx.session.resolveRef(field.target);
         // Reuse the shared field-fill logic so the tool and the Autopilot batch fill match.
         await applyFieldValue(locator, field.value, field.type ?? "textbox");
