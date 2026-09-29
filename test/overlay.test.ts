@@ -300,7 +300,7 @@ describe("agentLens overlay end-to-end (real headless chromium, overlay forced O
     expect(s.caretOn).toBe(true);
     expect(s.targetOn).toBe(true);
     expect(s.targetHandles).toBe(4);
-    expect(s.targetLeft).toBe(`${rect!.x - 4}px`);
+    expect(parseFloat(s.targetLeft)).toBe(Math.round(rect!.x - 4));
     expect(s.progressOn).toBe(true);
     expect(s.progress).toBe("3/7");
     expect(s.meter).toContain("3 steps");
@@ -373,14 +373,18 @@ describe("agentLens overlay end-to-end (real headless chromium, overlay forced O
     const overlay = session.getOverlay();
     await overlay.beginRun(page);
     await overlay.setStatus(page, "drag me");
-    await page.waitForTimeout(450); // let the narration finish typing in
+    // Wait for the narration to finish typing in and the pill to settle (CI is slower).
+    await expect
+      .poll(async () => {
+        const s = (await hud(page))!;
+        return s.narration === "drag me" ? Math.abs(s.pillBox!.left + s.pillBox!.width / 2 - 640) : 99;
+      })
+      .toBeLessThanOrEqual(2);
     const grip = await page.evaluate((id) => {
       const r = document.getElementById(id)!.shadowRoot!.querySelector(".grip")!.getBoundingClientRect();
       return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
     }, HOST_ID);
     const before = (await hud(page))!;
-    // The pill rests top-centre by default.
-    expect(Math.abs(before.pillBox!.left + before.pillBox!.width / 2 - 640)).toBeLessThanOrEqual(2);
     await page.mouse.move(grip.x, grip.y);
     await page.mouse.down();
     await page.mouse.move(grip.x - 300, grip.y + 300, { steps: 8 });

@@ -115,6 +115,9 @@ export function overlayClient(cfg: OverlayClientConfig): void {
     shadow.appendChild(style);
     build(shadow);
     parent.appendChild(host);
+    // Re-centre whenever the pill's size changes (narration typing in, web font arriving),
+    // not only when our own code happens to call layout().
+    if (typeof ResizeObserver === "function") new ResizeObserver(() => layout()).observe(el.hud!);
     renderPill(false);
     layout();
     return true;
@@ -246,9 +249,13 @@ export function overlayClient(cfg: OverlayClientConfig): void {
 
   // --- layout: pill (top centre unless dragged), then takeover chip, then countdown ----------
   let pinned: { x: number; y: number } | null = null;
+  /** The pill's layout size. Not getBoundingClientRect: the pop-in scale would shrink it mid-animation. */
+  function hudSize(): { width: number; height: number } {
+    return { width: el.hud!.offsetWidth, height: el.hud!.offsetHeight };
+  }
   function layout(): void {
     if (!el.hud) return;
-    const box = el.hud.getBoundingClientRect();
+    const box = hudSize();
     const want = pinned || { x: (innerWidth - box.width) / 2, y: 16 };
     const left = Math.round(Math.max(8, Math.min(Math.max(8, innerWidth - box.width - 8), want.x)));
     const top = Math.round(Math.max(8, Math.min(Math.max(8, innerHeight - box.height - 8), want.y)));
@@ -299,7 +306,7 @@ export function overlayClient(cfg: OverlayClientConfig): void {
     }
   }
   function place(x: number, y: number): void {
-    const box = el.hud!.getBoundingClientRect();
+    const box = hudSize();
     pinned = {
       x: Math.round(Math.max(8, Math.min(Math.max(8, innerWidth - box.width - 8), Number(x) || 0))),
       y: Math.round(Math.max(8, Math.min(Math.max(8, innerHeight - box.height - 8), Number(y) || 0))),
@@ -449,10 +456,11 @@ export function overlayClient(cfg: OverlayClientConfig): void {
   function select(rect: { x: number; y: number; width: number; height: number }): void {
     const t = el.target!;
     t.classList.add("on");
-    t.style.left = rect.x - 4 + "px";
-    t.style.top = rect.y - 4 + "px";
-    t.style.width = rect.width + 8 + "px";
-    t.style.height = rect.height + 8 + "px";
+    // Whole pixels: crisp dashed edges, and no engine-dependent fractional serialisation.
+    t.style.left = Math.round(rect.x - 4) + "px";
+    t.style.top = Math.round(rect.y - 4) + "px";
+    t.style.width = Math.round(rect.width + 8) + "px";
+    t.style.height = Math.round(rect.height + 8) + "px";
   }
   function refElement(ref: string): Element | null {
     return document.querySelector('[data-laya-ref="' + String(ref).replace(/"/g, "") + '"]');
