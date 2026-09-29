@@ -1038,6 +1038,35 @@ export class BrowserSession {
   }
 
   /** Make the tab at `index` the active one that {@link getPage}/{@link resolveRef} act on. */
+  /**
+   * Show a manual (Assist) action on the HUD: the cursor glides to the target, the target is
+   * selected, and the action is captioned; `click` also plays the press ripple. Best-effort and
+   * a no-op when the overlay is off, so it never changes what the tool does.
+   */
+  async narrate(
+    target: string | undefined,
+    caption: string,
+    { click = false }: { click?: boolean } = {},
+  ): Promise<void> {
+    if (!this.overlay.isEnabled()) return;
+    const page = this.pages[this.activeIndex];
+    if (!page) return;
+    const ref = target?.trim();
+    if (ref && REF_PATTERN.test(ref)) {
+      const rect = await this.overlay.focus(page, ref, caption);
+      const wait = Math.min(280, rect?.arriveMs ?? 0);
+      if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
+      if (rect && click) {
+        await this.overlay.ripple(page, rect.x + Math.min(rect.width / 2, 40), rect.y + rect.height / 2);
+      }
+    }
+    await this.overlay.callBatch(page, [
+      ["setState", "acting"],
+      ["setStatus", caption],
+      ["log", caption],
+    ]);
+  }
+
   /** Make an already-tracked (or newly-seen) page the active tab. */
   activatePage(page: Page): void {
     this.registerPage(page, { activate: true });

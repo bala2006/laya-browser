@@ -17,6 +17,7 @@ export function makeHandler(ctx: ToolContext) {
       return textResult(verdict.reason ?? "Navigation blocked by the domain allow-list.", true);
     }
     const page = await ctx.session.getPage();
+    await ctx.session.narrate(undefined, `Navigating to ${args.url}`);
     try {
       await page.goto(args.url, { waitUntil: "domcontentloaded" });
     } catch (err) {

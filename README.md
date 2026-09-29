@@ -536,11 +536,33 @@ B1 redaction applied to the transcript also applies to everything exported or st
   small vanilla-JS player with a timeline scrubber (range slider + prev/next + arrow keys) that
   shows each step's screenshot, decision, confidence bars, timing, and snapshot text. It opens
   by double-clicking the file.
-- **One HUD for both modes.** The agentLens HUD looks the same whether you drive the page with
-  the Assist tools or with a goal run: the same pill (glass, ink, radius, shadow), the same
-  single-row shape (42px tall in both modes; the goal command's step counter, progress bar and
-  cost meter no longer wrap it onto a second row), and the four-corner gradient frame is armed
-  for every document the HUD is injected into instead of only during a goal run.
+- **Overlay design system.** Every part of the HUD's look is defined in `src/overlay-design.ts`:
+  - tokens for colour, glass, type, radius, motion and layering;
+  - the activity registry (Working, Thinking, Clicking, Typing, Opening, Reading, Searching,
+    Scrolling, Inspecting, Selecting, Navigating, Running, Waiting, Done, Error), each with a
+    label, icon and tone;
+  - the line-art icon set;
+  - one stylesheet generated from all of the above.
+
+  `src/overlay-client.ts` renders it inside an open shadow root on `<html>`. That keeps page CSS
+  and the HUD apart, keeps HUD text out of the page text the model and the success checks read,
+  and means a page rewriting `<body>` can't wipe it out.
+- **What you see.**
+  - A frosted-glass status pill, top centre and draggable by its grip. It shows an activity icon,
+    the verb, a live one-line narration that types in as it changes, a progress ring, and the
+    cost meter. It turns teal on Done and red on Error, and picks light or dark glass depending
+    on what's behind it.
+  - A glass cursor that glides along a slight arc (the run waits up to 280 ms for it to arrive),
+    with an action chip next to it ("Typing Email…", with typing dots).
+  - A dashed selection box with corner handles around the target.
+  - A two-ring click ripple with a cursor press, and a blinking caret while typing.
+  - A scroll track, toasts, a plain-language activity log, and the page-edge glow.
+  - The Assist tools (click, type, select, hover, fill form, navigate, go back, press key)
+    narrate the same way.
+- **Esc to take over.** During a run, a "Laya is in control · Esc to take over" chip sits at the
+  bottom centre. When the user presses Esc, the run stops at the next step with outcome
+  `taken_over` and the pill switches to "You have control". An Escape that Laya presses itself
+  doesn't count.
 - **Cursor trail + new overlay states (T3.2/T3.4).** The synthetic cursor leaves a fading
   breadcrumb trail between successive positions (`LAYA_BROWSER_OVERLAY_TRAIL`), so multi-field
   actions read as continuous motion; `browser_extract` shows a distinct "Reading page…" state,

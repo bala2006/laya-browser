@@ -69,7 +69,14 @@ import type {
  * progress and bailed early rather than burning the whole step budget. Every pre-existing
  * outcome string is unchanged.
  */
-export type RunOutcome = "done" | "blocked" | "max_steps" | "degraded" | "error" | "stuck";
+export type RunOutcome =
+  | "done"
+  | "blocked"
+  | "max_steps"
+  | "degraded"
+  | "error"
+  | "stuck"
+  | "taken_over";
 
 /**
  * (B2) A human-in-the-loop confirmation callback.
@@ -407,6 +414,9 @@ const DEFAULT_WAIT_MS = 500;
  */
 const FAST_WAIT_CAP_MS = 200;
 
+/** The longest the loop waits for the on-screen cursor to reach its target (overlay on only). */
+const CURSOR_SYNC_MAX_MS = 280;
+
 /** Characters of page text captured per step for success-marker checks (not sent to the model). */
 const MARKER_TEXT_LIMIT = 50_000;
 
@@ -696,11 +706,26 @@ class Narrator {
   /** (Perf) Reveal the cursor and light the session aura in one round-trip at run start. */
   async beginRun(): Promise<void> {
     if (!this.on) return;
-    // The four-corner session frame is NOT armed here. It is armed at overlay build time for
-    // every document the HUD is injected into, so the goal command and the Assist tools show
-    // the identical frame; a run-scoped toggle would make the goal HUD look different from the
-    // Assist HUD (and drop the frame the moment a run ended).
-    await this.overlay!.showCursor(this.page);
+    // Shows the takeover chip, arms Esc, resets the activity log and puts the cursor on screen.
+    await this.overlay!.beginRun(this.page);
+  }
+
+  /** The run ended: take the takeover chip and the transient cursor affordances down. */
+  async endRun(): Promise<void> {
+    if (!this.on) return;
+    await this.overlay!.endRun(this.page);
+  }
+
+  /** Whether the watching user pressed Esc to take over. */
+  async takeoverRequested(): Promise<boolean> {
+    if (!this.on) return false;
+    return this.overlay!.takeoverRequested(this.page);
+  }
+
+  /** Laya is about to press keys itself; an Escape now is not the user taking over. */
+  async expectKeys(ms: number): Promise<void> {
+    if (!this.on) return;
+    await this.overlay!.expectKeys(this.page, ms);
   }
 
   async toast(message: string, kind: ToastKind = "info"): Promise<void> {
@@ -748,11 +773,16 @@ class Narrator {
     if (!this.on) return null;
     // (Perf) One round-trip resolves the ref and aims the cursor + spotlight at it, instead of
     // three. `this.redactor` still masks the caption, exactly as before.
-    return this.overlay!.focus(
+    const rect = await this.overlay!.focus(
       this.page,
       ref,
       caption !== undefined ? this.redactor(caption) : caption,
     );
+    // Let the cursor arrive before the action lands, so the watcher sees the click where it
+    // happens. Bounded, and only paid when the overlay is on (a watched, headed run).
+    const wait = Math.min(CURSOR_SYNC_MAX_MS, rect?.arriveMs ?? 0);
+    if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
+    return rect;
   }
 
   async ripple(x: number, y: number): Promise<void> {
@@ -998,6 +1028,8 @@ async function execute(
     }
     case "PRESS_KEY": {
       const page = await session.getPage();
+      // Our own Escape must not read as the user taking over.
+      await narrator.expectKeys(1500);
       await page.keyboard.press(decision.key);
       return { detail: `PRESS_KEY ${JSON.stringify(decision.key)}` };
     }
@@ -1672,6 +1704,21 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
       // Tier 4 heartbeat + Tier 2 thinking HUD: announce the step and enter the thinking
       // state BEFORE the (potentially slow) decision pipeline runs.
       await narrator.beginStep(step, maxSteps);
+      // The watching user pressed Esc: hand the browser back instead of acting again.
+      if (await narrator.takeoverRequested()) {
+        transcript.push({
+          step,
+          operation: "BLOCKED",
+          operationConfidence: 1,
+          targetConfidence: 1,
+          source: "rule",
+          detail: "BLOCKED (user took over)",
+          note: "The user pressed Esc on the page to take control.",
+        });
+        recentActions.push("BLOCKED (user took over)");
+        outcome = "taken_over";
+        break;
+      }
       // The tab we drove may have closed itself (e.g. a popup flow); continue on the tab the
       // session fell back to rather than failing the next capture on a dead page.
       if (page.isClosed()) {
@@ -1840,7 +1887,7 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
           );
         }
         recentActions.push(decision.operation);
-        await narrator.log(decision.operation);
+        await narrator.log(decision.operation === "DONE" ? "Done" : "Blocked");
         outcome = decision.operation === "DONE" ? "done" : "blocked";
         break;
       }
@@ -1900,7 +1947,7 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
                 );
               }
               recentActions.push("BLOCKED (destructive-form guard)");
-              await narrator.log("BLOCKED (destructive-form guard)");
+              await narrator.log("Stopped before a destructive action");
               outcome = "blocked";
               break;
             }
@@ -1949,7 +1996,7 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
             };
             transcript.push(navRecord);
             recentActions.push("BLOCKED (navigation refused)");
-            await narrator.log("BLOCKED (navigation refused)");
+            await narrator.log("Stopped: navigation refused");
             outcome = "blocked";
             break;
           }
@@ -2054,9 +2101,9 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
         );
         historySnapshot = snapshot;
       }
-      // Tier 4: mirror the transcript line into the on-page activity-log feed (already
-      // redacted inside the narrator).
-      await narrator.log(executed.detail);
+      // Tier 4: the activity log narrates in plain words ("Clicking Search flights"), not the
+      // transcript's machine detail (redacted inside the narrator).
+      await narrator.log(actionFailed ? `Couldn't finish: ${lowerFirst(acting)}` : acting.replace(/\u2026$/, ""));
 
       // SCREENSHOT and VERIFY are terminal/verification steps: once one runs, the goal-run
       // ends (a VERIFY reports its result; a SCREENSHOT captures the final page).
@@ -2157,7 +2204,7 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
           recentActions.push("BLOCKED (stuck: no progress detected)");
           await narrator.setState("error", "Stuck - not progressing");
           await narrator.toast("Stuck - no progress detected", "error");
-          await narrator.log("BLOCKED (stuck: no progress detected)");
+          await narrator.log("Stuck: no progress detected");
           outcome = "stuck";
           break;
         }
@@ -2169,6 +2216,7 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
     await narrator.setState("error", "Stopped on error");
     await narrator.toast(`Error: ${(err as Error).message}`, "error");
     await narrator.hideSpotlight();
+    await narrator.endRun();
     return {
       goal,
       outcome,
@@ -2228,6 +2276,7 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
     );
   }
   await narrator.hideSpotlight();
+  await narrator.endRun();
 
   return {
     goal,

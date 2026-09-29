@@ -59,7 +59,9 @@ describe("T3.1/T3.4 overlay meter + cursor trail (real headless chromium, overla
 
     await overlay.meter(page, 3, 1, 1500);
     const meterText = await page.evaluate(
-      () => document.querySelector("[data-laya-meter]")?.textContent ?? "",
+      () =>
+        document.getElementById("__laya_overlay__")?.shadowRoot?.querySelector("[data-laya-meter]")
+          ?.textContent ?? "",
     );
     expect(meterText).toContain("3 steps");
     expect(meterText).toContain("1 LLM");
@@ -76,15 +78,10 @@ describe("T3.1/T3.4 overlay meter + cursor trail (real headless chromium, overla
     await overlay.moveCursor(page, 50, 50, "", 6);
     await overlay.moveCursor(page, 300, 300, "Filling field", 6);
     // Count trail dots present immediately after the move (they fade out over ~0.5s).
-    const dotCount = await page.evaluate(() => {
-      const root = document.getElementById("__laya_overlay__");
-      if (!root) return 0;
-      // Trail dots are small round divs appended to the overlay root during a move.
-      return Array.from(root.children).filter((el) => {
-        const s = (el as HTMLElement).style;
-        return s.borderRadius === "50%" && s.position === "fixed" && s.width === "6px";
-      }).length;
-    });
+    const dotCount = await page.evaluate(
+      () =>
+        document.getElementById("__laya_overlay__")?.shadowRoot?.querySelectorAll(".trail").length ?? 0,
+    );
     expect(dotCount).toBeGreaterThan(0);
   });
 });

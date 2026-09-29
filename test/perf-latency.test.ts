@@ -197,18 +197,18 @@ describe("P2 batched HUD narration (real headless chromium, overlay forced on)",
 
     // The batching must not change what the HUD ends up showing.
     const dom = await page.evaluate((sel) => {
-      const root = document.querySelector(sel) as HTMLElement | null;
-      const pill = root?.children[0] as HTMLElement | undefined;
+      const host = document.querySelector(sel) as HTMLElement | null;
+      const root = host?.shadowRoot;
       return {
-        text: pill?.textContent ?? "",
-        // The state label is the third child (icon badge, title, state, status, ...).
-        stateColor: pill ? getComputedStyle(pill.children[2]!).color : "",
+        narration: root?.querySelector(".hud .narration")?.getAttribute("data-text") ?? "",
+        progress: root?.querySelector(".hud .progress-text")?.textContent ?? "",
+        tone: host?.getAttribute("data-tone") ?? "",
       };
     }, OVERLAY_ROOT);
-    expect(dom.text).toContain("batched status line");
-    expect(dom.text).toContain("step 2/7");
-    // The 'error' state's ink is #b91c1c, proving the batched setState really ran.
-    expect(dom.stateColor).toBe("rgb(185, 28, 28)");
+    expect(dom.narration).toBe("batched status line");
+    expect(dom.progress).toBe("2/7");
+    // The error tone proves the batched setState really ran.
+    expect(dom.tone).toBe("error");
   });
 
   it("keeps a whole run inside the per-step round-trip budget", async () => {
