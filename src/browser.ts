@@ -402,9 +402,18 @@ function actOnNodeInPage(args: {
   const x = rect.x + rect.width / 2;
   const y = rect.y + rect.height / 2;
   // OCCLUSION hit-test: the element under the rect center must be (or contain) the target.
-  const hit = document.elementFromPoint(x, y);
+  // Our own HUD host is skipped: it is inert except for its drag grip, and that grip must not
+  // make a real target read as covered (or swallow the click below).
+  const HUD = "__laya_overlay__";
+  const stack = typeof document.elementsFromPoint === "function" ? document.elementsFromPoint(x, y) : [];
+  const hudOnTop = stack[0]?.id === HUD;
+  const hit = stack.find((n) => n.id !== HUD) ?? document.elementFromPoint(x, y);
   if (!hit || !el.contains(hit)) {
     return { ok: false, reason: "covered" };
+  }
+  if (hudOnTop) {
+    const hud = (window as unknown as { __layaOverlay?: { passthrough?: (ms: number) => void } }).__layaOverlay;
+    hud?.passthrough?.(800);
   }
   if (args.kind === "select") {
     const sel = el as unknown as HTMLSelectElement;
@@ -699,7 +708,11 @@ export class BrowserSession {
       }
     }
     const context = await browser.newContext({
-      viewport: this.options.viewport,
+      // Headed: the page follows the real window (`viewport: null`), so maximizing or resizing
+      // the window fills it instead of leaving a blank strip beside a fixed 1280x800 page. The
+      // configured viewport still sets the initial window size (--window-size above). Headless
+      // has no window, so it keeps the fixed, reproducible viewport.
+      viewport: this.effectiveHeadless ? this.options.viewport : null,
       ...(storageStateForContext ? { storageState: storageStateForContext } : {}),
     });
     // Bound action/navigation waits so a missing element surfaces as an error promptly

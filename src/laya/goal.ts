@@ -290,10 +290,17 @@ export function unfilledGoalFields(
   controls: readonly Control[],
 ): { control: Control; value: string }[] {
   const out: { control: Control; value: string }[] = [];
+  // A page can repeat a field (a header and a footer "Quick search"). The goal's value belongs
+  // in ONE of them, so a name+value pair is filled once. Differently named fields that take the
+  // same value (password / confirm password) are still both filled.
+  const seen = new Set<string>();
   for (const c of controls) {
     if (!isEditableTextLike(c)) continue;
     const value = fieldValueFromGoal(c, goal, controls);
     if (value === undefined) continue;
+    const key = `${norm(c.name)}\u0000${value}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
     if ((c.value ?? "").trim() === value.trim()) continue; // already filled
     out.push({ control: c, value });
   }

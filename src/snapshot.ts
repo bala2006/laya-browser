@@ -477,6 +477,14 @@ function domWalk(args: {
     if (r.width === 0 && r.height === 0) {
       const tag = el.tagName.toLowerCase();
       if (tag !== "input" && tag !== "select" && tag !== "textarea") return false;
+      // A zero-size text field is a collapsed copy (e.g. a responsive second search box), not
+      // something a user can type into: offering it made Autopilot fill every copy and aim the
+      // cursor at (0, 0). Styled checkboxes/radios/file inputs are often 0x0 behind a visible
+      // label, so those stay.
+      const type = ((el as HTMLInputElement).type || "").toLowerCase();
+      if (tag === "textarea" || (tag === "input" && !["checkbox", "radio", "file"].includes(type))) {
+        return false;
+      }
     }
     return true;
   }
@@ -1073,6 +1081,11 @@ function fastWalk(args: { visibleTextLimit: number }): unknown {
     if (rect.width === 0 && rect.height === 0) {
       const tag = el.tagName.toLowerCase();
       if (tag !== "input" && tag !== "select" && tag !== "textarea") return false;
+      // See the domWalk twin: a zero-size text field is a collapsed copy, not a usable field.
+      const type = ((el as HTMLInputElement).type || "").toLowerCase();
+      if (tag === "textarea" || (tag === "input" && !["checkbox", "radio", "file"].includes(type))) {
+        return false;
+      }
     }
     return true;
   }

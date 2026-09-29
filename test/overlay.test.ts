@@ -385,13 +385,17 @@ describe("agentLens overlay end-to-end (real headless chromium, overlay forced O
       return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
     }, HOST_ID);
     const before = (await hud(page))!;
+    // Default: bottom centre, with the takeover chip stacked just above it.
+    expect(800 - before.pillBox!.bottom).toBeGreaterThanOrEqual(12);
+    expect(800 - before.pillBox!.bottom).toBeLessThanOrEqual(28);
+    expect(before.takeoverBox!.bottom).toBeLessThanOrEqual(before.pillBox!.top);
     await page.mouse.move(grip.x, grip.y);
     await page.mouse.down();
-    await page.mouse.move(grip.x - 300, grip.y + 300, { steps: 8 });
+    await page.mouse.move(grip.x - 300, grip.y - 400, { steps: 8 });
     await page.mouse.up();
     const after = (await hud(page))!;
     expect(after.pillBox!.left).toBeLessThan(before.pillBox!.left - 200);
-    expect(after.pillBox!.top).toBeGreaterThan(before.pillBox!.top + 200);
+    expect(after.pillBox!.top).toBeLessThan(before.pillBox!.top - 300);
     expect(after.takeoverOn).toBe(true);
     expect(overlaps(after.pillBox!, after.takeoverBox!)).toBe(false);
     // The takeover chip is the inverse surface and clears AA on its own.
@@ -410,6 +414,22 @@ describe("agentLens overlay end-to-end (real headless chromium, overlay forced O
     expect(clamped.pillBox!.top).toBeGreaterThanOrEqual(0);
     await overlay.endRun(page);
     expect((await hud(page))!.takeoverOn).toBe(false);
+  });
+
+  it("never points the cursor at a zero-size target (it reports 0,0)", async () => {
+    await navigate.makeHandler(ctx)({ url: fixtures.url("login.html") });
+    const page = await session.getPage();
+    const overlay = session.getOverlay();
+    await page.evaluate(() => {
+      const i = document.createElement("input");
+      i.setAttribute("data-laya-ref", "e999");
+      i.style.cssText = "width:0;height:0;padding:0;border:0";
+      document.body.appendChild(i);
+    });
+    await overlay.moveCursor(page, 300, 300);
+    expect(await overlay.focus(page, "e999", "Typing ghost")).toBeNull();
+    const s = (await hud(page))!;
+    expect([s.cursorX, s.cursorY]).toEqual([300, 300]);
   });
 
   it("hands control back on the user's Esc, but not on Laya's own key presses", async () => {

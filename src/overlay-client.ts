@@ -59,6 +59,7 @@ export function overlayClient(cfg: OverlayClientConfig): void {
   let runActive = false;
   let keysExpectedUntil = 0;
   let logCount = 0;
+  let passthroughTimer = 0;
 
   // --- tiny DOM helpers ----------------------------------------------------------------
   function h(tag: string, cls?: string, parent?: Node | null): HTMLElement {
@@ -256,24 +257,26 @@ export function overlayClient(cfg: OverlayClientConfig): void {
   function layout(): void {
     if (!el.hud) return;
     const box = hudSize();
-    const want = pinned || { x: (innerWidth - box.width) / 2, y: 16 };
+    const want = pinned || { x: (innerWidth - box.width) / 2, y: innerHeight - box.height - 20 };
     const left = Math.round(Math.max(8, Math.min(Math.max(8, innerWidth - box.width - 8), want.x)));
     const top = Math.round(Math.max(8, Math.min(Math.max(8, innerHeight - box.height - 8), want.y)));
     el.hud.style.left = left + "px";
     el.hud.style.top = top + "px";
-    // The countdown rides under the pill; the takeover chip sits at the bottom centre, clear of
-    // the page's own controls (it used to sit on top of forms right under the pill).
-    const cd = el.countdown!;
-    if (getComputedStyle(cd).display !== "none") {
-      const nb = cd.getBoundingClientRect();
-      cd.style.left = Math.round(Math.max(8, left + box.width / 2 - nb.width / 2)) + "px";
-      cd.style.top = top + box.height + 8 + "px";
+    // The takeover chip and the WAIT countdown stack on the pill's far side from the screen
+    // edge: above it at the default bottom-centre spot, below it if dragged near the top.
+    const above = top + box.height / 2 > innerHeight / 2;
+    let edge = above ? top - 8 : top + box.height + 8;
+    for (const node of [el.takeover!, el.countdown!]) {
+      if (getComputedStyle(node).display === "none") continue;
+      const nb = { width: node.offsetWidth, height: node.offsetHeight };
+      node.style.left = Math.round(Math.max(8, left + box.width / 2 - nb.width / 2)) + "px";
+      node.style.top = Math.round(above ? edge - nb.height : edge) + "px";
+      edge = above ? edge - nb.height - 6 : edge + nb.height + 6;
     }
-    const tk = el.takeover!;
-    if (getComputedStyle(tk).display !== "none") {
-      const nb = tk.getBoundingClientRect();
-      tk.style.left = Math.round(Math.max(8, (innerWidth - nb.width) / 2)) + "px";
-      tk.style.top = Math.round(innerHeight - nb.height - 18) + "px";
+    // The activity card lives bottom-left; on a window too narrow for both it gives way.
+    if (el.log && el.log.style.display !== "none" && logCount > 0) {
+      const logRight = 16 + el.log.offsetWidth;
+      el.log.style.visibility = above && logRight + 8 > left && top + box.height > innerHeight - 16 - el.log.offsetHeight ? "hidden" : "";
     }
     applyTheme();
   }
@@ -591,6 +594,15 @@ export function overlayClient(cfg: OverlayClientConfig): void {
       el.target!.classList.remove("on", "flash");
       layout();
     },
+    /** Let a real click land under the drag grip for a moment (Laya is clicking there). */
+    passthrough(ms: unknown): void {
+      if (!el.grip) return;
+      el.grip.style.pointerEvents = "none";
+      clearTimeout(passthroughTimer);
+      passthroughTimer = setTimeout(() => {
+        if (el.grip) el.grip.style.pointerEvents = "";
+      }, Math.max(50, Math.min(3000, Number(ms) || 600))) as unknown as number;
+    },
     /** Laya is about to press keys itself: an Escape in this window is not a takeover. */
     expectKeys(ms: unknown): void {
       keysExpectedUntil = Date.now() + Math.max(0, Math.min(5000, Number(ms) || 0));
@@ -716,8 +728,15 @@ export function overlayClient(cfg: OverlayClientConfig): void {
       const node = refElement(String(ref));
       if (!node) return null;
       const rect = rectOf(node);
+      // A zero-size box has no on-screen position (it reports 0,0): never send the cursor to the
+      // corner for it.
+      if (rect.width <= 0 || rect.height <= 0) return null;
       const text = caption == null ? "" : String(caption);
-      const arriveMs = api.moveCursor(rect.x + Math.min(rect.width / 2, 40), rect.y + rect.height / 2, text);
+      // Off-screen targets get scrolled into view by the action itself; until then, point at the
+      // nearest on-screen spot in their direction instead of off the edge.
+      const px = Math.max(12, Math.min(innerWidth - 12, rect.x + Math.min(rect.width / 2, 40)));
+      const py = Math.max(12, Math.min(innerHeight - 12, rect.y + rect.height / 2));
+      const arriveMs = api.moveCursor(px, py, text);
       select(rect);
       const act = inferActivity(text, "working");
       if (act === "typing") caretIn(node);

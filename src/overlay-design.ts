@@ -330,7 +330,7 @@ export function buildOverlayCss(accent: string): string {
     `.cursor{position:fixed;left:0;top:0;width:28px;height:28px;display:none;will-change:transform;` +
       `filter:drop-shadow(0 4px 8px rgba(15,23,42,0.35)) drop-shadow(0 0 10px rgba(var(--accent-rgb),0.45));}`,
     `.cursor.on{display:block;}`,
-    `.cursor svg{position:absolute;left:-4px;top:-3px;width:28px;height:28px;overflow:visible;}`,
+    `.cursor svg{position:absolute;left:-5px;top:-3.2px;width:28px;height:28px;overflow:visible;}`,
     `.cursor .arrow{fill:rgba(255,255,255,0.94);stroke:var(--accent);stroke-width:1.6;stroke-linejoin:round;}`,
     `.cursor .shine{fill:rgba(var(--accent-rgb),0.16);}`,
     `.cursor.press svg{animation:laya-press 260ms var(--ease);}`,
