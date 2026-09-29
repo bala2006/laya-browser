@@ -118,6 +118,7 @@ export function buildState(
     visibleText: clamp(snapshot.visibleText, opts.maxVisibleText),
     controls,
     recentActions: recent,
+    ...(snapshot.canScroll !== undefined ? { canScroll: snapshot.canScroll } : {}),
   };
 }
 

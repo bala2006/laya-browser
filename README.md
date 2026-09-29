@@ -8,8 +8,9 @@ LLM is invoked far less often. When the local model is not confident, Autopilot 
 single step to the client's own LLM via **MCP sampling**.
 
 The on-device decision is one signal behind the `0.85` escalation gate, not a sub-100ms
-fast path: measured on CPU, `LayaEngine.decide` takes hundreds of ms per step (median ~407 ms
-web-agent / ~810-870 ms reference; see [Weights](#weights)). It picks the best available
+fast path on CPU: the current 421M-parameter checkpoints cost ~2.3 ms per input token per
+forward row on an 8-core CPU, so a model-decided step takes ~1.5-4 s (see [Weights](#weights)).
+Deterministic rule steps cost no model call at all. It picks the best available
 onnxruntime execution provider automatically (CUDA on Linux x64, DirectML on Windows x64/arm64,
 else CPU; WebGPU is experimental and override-only); on a machine
 with a supported GPU the per-decide cost is expected to drop, but that speedup is
@@ -883,11 +884,10 @@ MEASURED per-step costs:
 - **Fewer steps via batching (VERIFIED on the stub).** laya batches multiple goal-stated fields
   into one `FILL_FORM` step; the head-to-head benchmark shows the multi-field autopilot goals
   completing in 2 to 3 Autopilot round trips versus 6 to 8 Assist calls for the same outcome.
-- **The trade (honest).** jev's fan-out speculatively decides several operations against several
-  target heads in parallel; laya's engine asks operation and target as one shared question in a
-  single pass (see the Phase 0 spike note in `docs/PLAN.md`), so it does not express jev's
-  per-operation target fan-out. That is a genuine architectural difference, independent of the
-  four fast-loop levers above.
+- **Per-operation target heads.** Like jev, the engine offers one target head per operation, so
+  an operation can only be paired with an element that supports it. Unlike jev's hosted API,
+  each head costs a local forward row, so the engine asks the operation first and then only the
+  chosen head (identical decisions, fewer rows).
 
 ## Execution provider selection
 
@@ -1066,17 +1066,31 @@ scripts/prepare-model.sh web-agent
 LAYA_MODEL_DIR=.cache/laya-work/webagent-onnx pnpm test
 ```
 
-**Measured on device (CPU, this repo).** Both bundles load through `@receptron/laya` and run
-real inference. The product's `LayaEngine.decide` asks two narrow `choice` questions per step:
-~810–870 ms/step for the reference model, ~440–490 ms/step for the web-agent (roughly 2× faster).
-On the structured-form benchmark, however, the deterministic rule layer (confidence `0.97`)
-clears the `0.85` gate and decides every step, so the source breakdown is `rule/laya/stub/llm =
-3/0/0/0` for **both** models (100% fully autonomous: all local, no LLM round-trip), driven by
-the rules, not the weights, with the independent final-page verification passing (4/4). Neither
-checkpoint reliably picks the correct web operation on ambiguous single steps on its own, so the
-local model is best used as a low-confidence signal behind the gate that escalates to the client
-LLM when unsure. The **reference model is the drop-in default** (prebuilt bundle, no export); the
-**web-agent** is available for ambiguous/real-site steps via the documented export.
+**Input format.** The web-agent checkpoint was trained on jev_ultrafast's request shape, so
+`LayaEngine.decide` sends exactly that (`src/laya/jev-format.ts`): a JSON page state
+(`page`/`elements`/`recent_actions`), an `operation` question offering only the operations the
+page supports, and one target head per operation (`click_target`, `type_text_target`,
+`select_target`) offering only elements that operation can act on. Serialization matches the
+Python reference byte for byte. The operation is asked first and only the chosen operation's
+head second, because every question is a separate forward row over the whole state; a head
+with a single candidate is never asked.
+
+**Measured on device (8-core CPU, this repo, `abedinia/laya-web-agent` as of Sep 2026,
+ModernBERT-large 421M).** Six local fixture tasks (`search`, `login`, `flights`, `wiki-open`,
+`hotels`, `catalog`), no client LLM, one run each (decisions are deterministic):
+
+| Setup | Tasks verified | Notes |
+| --- | --- | --- |
+| Model only, previous text rendering | 0/6 | picks SELECT on buttons, scrolls forever |
+| Model only, jev_ultrafast format | 3/6 | same decisions one-pass or two-pass |
+| Full Autopilot (rules + model), before | 2/6 | rules decide every step; model never consulted |
+| Full Autopilot (rules + model), after | 6/6 | 8 model-decided steps; the reference bundle also 6/6 |
+
+Two-pass vs one-pass: median decide 6.6 s -> 4.2 s on the same states. Reusing speculative
+decides instead of discarding low-confidence ones cut engine calls 14 -> 8 (engine time
+38.9 s -> 22.3 s) with identical decisions. The model is still a signal behind the gate, not
+an oracle: most of its correct choices land at 0.4-0.75, below `0.85`, so with a client LLM
+those steps escalate, and without one Autopilot continues on the model's choice.
 
 ### Web-agent export spike (VERIFIED)
 

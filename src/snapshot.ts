@@ -62,6 +62,8 @@ export interface Snapshot {
   controls: Control[];
   /** Compact human-readable snapshot with `[ref=eN]` markers. */
   text: string;
+  /** Whether the page can scroll further down. Absent when the backend does not measure it. */
+  canScroll?: boolean;
 }
 
 /** Default cap on the amount of visible text returned, in characters. */
@@ -831,6 +833,7 @@ interface RawFastSnapshot {
   text: string;
   pageKey: string;
   marker: string;
+  canScroll: boolean;
 }
 
 /**
@@ -884,6 +887,7 @@ export async function captureFast(
     text: rawSnap.text,
     pageKey: rawSnap.pageKey,
     marker: rawSnap.marker,
+    canScroll: rawSnap.canScroll === true,
   };
 }
 
@@ -1413,5 +1417,7 @@ function fastWalk(args: { visibleTextLimit: number }): unknown {
     text,
     pageKey,
     marker,
+    canScroll:
+      window.scrollY + window.innerHeight < document.documentElement.scrollHeight - 2,
   } satisfies RawFastSnapshot;
 }

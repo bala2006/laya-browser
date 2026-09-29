@@ -26,8 +26,10 @@ import {
   goalAssignments,
   goalSuccessMarkerPresent,
   goalSuccessMarkers,
+  goalToggles,
   isSubmitControl,
   unfilledGoalFields,
+  unsetGoalSelects,
 } from "../laya/goal.js";
 import { checkDestructiveSubmit } from "../safety.js";
 
@@ -101,6 +103,23 @@ function lastActionTouched(state: PageState, ref: string): boolean {
 }
 
 /**
+ * Whether `submit` was already clicked after the most recent fill/select. The fields stay
+ * filled after a submit (a search box keeps its query), so without this Rule 3 re-clicks the
+ * same submit every step until the loop detector gives up. Matched by role + name, because
+ * `eN` refs are renumbered on every capture.
+ */
+function submittedSinceLastFill(state: PageState, submit: Control): boolean {
+  let lastFill = -1;
+  state.recentActions.forEach((a, i) => {
+    if (/^(?:TYPE_TEXT|FILL_FORM|SELECT)\b/.test(a)) lastFill = i;
+  });
+  const tag = `(${submit.role} ${JSON.stringify(submit.name)})`;
+  return state.recentActions
+    .slice(lastFill + 1)
+    .some((a) => a.startsWith("CLICK ") && a.includes(tag));
+}
+
+/**
  * Compute the deterministic seed decision for the current state, if any rule fires.
  *
  * Returns `undefined` when no rule is confident enough to seed/override (in which case the
@@ -108,8 +127,10 @@ function lastActionTouched(state: PageState, ref: string): boolean {
  * order so that filling precedes choosing-from-appeared-options precedes submitting.
  */
 export function policySeed(state: PageState): PolicySeed | undefined {
-  // Rule 0: if the goal's success marker already shows on the page, we are DONE.
-  if (goalSuccessMarkerPresent(state)) {
+  // Rule 0: if the goal's EXPLICIT success marker already shows on the page, we are DONE. The
+  // implicit search-echo marker is deliberately excluded: a results page echoes the query
+  // long before a goal like `search for "X", then open X` is done, so that call is the model's.
+  if (goalSuccessMarkerPresent(state, { explicitOnly: true })) {
     return {
       decision: {
         operation: "DONE",
@@ -157,7 +178,9 @@ export function policySeed(state: PageState): PolicySeed | undefined {
   // unambiguous submit control and the goal has a submit intent, that next-step CLICK is fully
   // determined ({@link unambiguousSubmit} + {@link goalHasSubmitIntent}); we do NOT emit it here
   // because each emitted Decision must be individually valid against the CURRENT observed page.
-  const unfilled = unfilledGoalFields(state.goal, state.controls);
+  // Goal-stated dropdown values ride in the same batch: a submit must never race ahead of them.
+  const selects = unsetGoalSelects(state.goal, state.controls);
+  const unfilled = [...unfilledGoalFields(state.goal, state.controls), ...selects];
   if (unfilled.length >= 2) {
     const fields: FieldFill[] = unfilled.map((f) => ({ target: f.control.ref, value: f.value }));
     return {
@@ -195,6 +218,37 @@ export function policySeed(state: PageState): PolicySeed | undefined {
     };
   }
 
+  // Rule 1c: a single goal-stated dropdown value is still unset -> select just it.
+  if (selects.length === 1) {
+    const { control, value } = selects[0]!;
+    return {
+      decision: {
+        operation: "SELECT",
+        operationConfidence: RULE_CONFIDENCE,
+        target: control.ref,
+        targetConfidence: RULE_CONFIDENCE,
+        value,
+        source: "rule",
+      },
+      reason: `Selecting goal-stated option ${JSON.stringify(value)} on ${control.ref}.`,
+    };
+  }
+
+  // Rule 1d: a checkbox/radio the goal names is still unchecked -> check it before submitting.
+  const toggle = goalToggles(state.goal, state.controls)[0];
+  if (toggle) {
+    return {
+      decision: {
+        operation: "CLICK",
+        operationConfidence: RULE_CONFIDENCE,
+        target: toggle.ref,
+        targetConfidence: RULE_CONFIDENCE,
+        source: "rule",
+      },
+      reason: `Checking goal-named ${JSON.stringify(toggle.name)} (${toggle.ref}).`,
+    };
+  }
+
   // Rule 3: submit once the goal's fields are filled.
   //
   // This is deliberately robust so that a low-confidence run (where typing was driven by the
@@ -209,7 +263,7 @@ export function policySeed(state: PageState): PolicySeed | undefined {
   // this point already implies no goal-mapped field is unfilled, so submitting here never
   // races ahead of filling.
   const submit = state.controls.find(isSubmitControl);
-  if (submit) {
+  if (submit && !submittedSinceLastFill(state, submit)) {
     const goalFields = state.controls.filter(
       (c) => isTextField(c) && fieldValueFromGoal(c, state.goal, state.controls) !== undefined,
     );

@@ -346,7 +346,14 @@ function actOnNodeInPage(args: {
   nodeId: number;
   kind: "click" | "fill" | "select";
   value: string | null;
-}): { ok: boolean; reason?: "stale" | "covered" | "gone" } {
+}): {
+  ok: boolean;
+  reason?: "stale" | "covered" | "gone";
+  /** For a click: the verified, unoccluded point the caller must press with a real pointer. */
+  point?: { x: number; y: number };
+  /** For a contenteditable fill: the text is selected and must be replaced by real input. */
+  insert?: boolean;
+} {
   interface LayaFastCache {
     ids: WeakMap<Element, number>;
     nodes: Map<number, Element>;
@@ -403,7 +410,13 @@ function actOnNodeInPage(args: {
       (o) => (o.value === want || o.label === want) && !o.disabled,
     );
     if (!match) return { ok: false, reason: "stale" };
-    sel.value = match.value;
+    // The prototype setter, not `sel.value =`: frameworks (React) shadow the instance setter to
+    // track the value, and an instance write marks the change as already seen, so the input
+    // event below would be swallowed and the app state never updates.
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")!.set!.call(
+      sel,
+      match.value,
+    );
     sel.dispatchEvent(new Event("input", { bubbles: true }));
     sel.dispatchEvent(new Event("change", { bubbles: true }));
     return { ok: true };
@@ -417,18 +430,28 @@ function actOnNodeInPage(args: {
       // Some editable elements have no select(); ignore.
     }
     const text = args.value ?? "";
-    if ("value" in input) {
-      input.value = text;
+    if (el.tagName === "INPUT" || el.tagName === "TEXTAREA") {
+      // Prototype setter for the same React value-tracker reason as the select path.
+      const proto = el.tagName === "INPUT" ? HTMLInputElement.prototype : HTMLTextAreaElement.prototype;
+      Object.getOwnPropertyDescriptor(proto, "value")!.set!.call(input, text);
     } else if (el.isContentEditable) {
-      el.textContent = text;
+      // Rich editors ignore a textContent write; select everything and let the caller replace
+      // it with real (trusted) text input.
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+      return { ok: true, insert: true };
     }
     el.dispatchEvent(new Event("input", { bubbles: true }));
     el.dispatchEvent(new Event("change", { bubbles: true }));
     return { ok: true };
   }
-  // click
-  (el as HTMLElement).click();
-  return { ok: true };
+  // click: the hit-test above proved this point lands on the target, so the caller presses it
+  // with a real pointer (trusted pointerdown/mousedown/mouseup/click, like a user), instead of
+  // a synthetic el.click() that menus/widgets listening on pointer events never see.
+  return { ok: true, point: { x, y } };
 }
 
 /**
@@ -1011,6 +1034,11 @@ export class BrowserSession {
   }
 
   /** Make the tab at `index` the active one that {@link getPage}/{@link resolveRef} act on. */
+  /** Make an already-tracked (or newly-seen) page the active tab. */
+  activatePage(page: Page): void {
+    this.registerPage(page, { activate: true });
+  }
+
   async selectTab(index: number): Promise<void> {
     await this.getPage();
     if (index < 0 || index >= this.pages.length) {
@@ -1623,12 +1651,11 @@ export class BrowserSession {
    * covered/off-viewport control BEFORE input), then perform the input. Returns a structured
    * result so the loop can re-observe on `stale`/`covered`/`gone` instead of throwing.
    *
-   * For `fill` the value is focused + selected + set + input/change dispatched; for `select`
-   * the option value is set + input/change dispatched; for `click` a synthetic `el.click()` is
-   * fired on the target AFTER the rect-center occlusion hit-test passes (the center coordinate
-   * gates the action but is not used to synthesise a pointer gesture, so no full
-   * pointerdown/mousedown/mouseup sequence is dispatched the way a real pointer click would).
-   * NO fresh selector query happens.
+   * For `fill`/`select` the value is written through the element prototype's setter (so
+   * framework value trackers such as React's see the change) and input/change are dispatched;
+   * a contenteditable is selected and replaced with real keyboard input. For `click` the
+   * verified, unoccluded rect center is pressed with a real pointer (`page.mouse.click`), so
+   * the full trusted pointer/mouse event sequence fires. NO fresh selector query happens.
    */
   async actOnNode(
     page: Page,
@@ -1642,9 +1669,17 @@ export class BrowserSession {
         nodeId,
         kind,
         value: opts.value ?? null,
-      })) as { ok: boolean; reason?: "stale" | "covered" | "gone" } | null;
+      })) as ReturnType<typeof actOnNodeInPage> | null;
       if (outcome === null) return { ok: false, reason: "gone" };
-      if (outcome.ok) return { ok: true };
+      if (outcome.ok) {
+        if (outcome.point) await page.mouse.click(outcome.point.x, outcome.point.y);
+        if (outcome.insert) {
+          const text = opts.value ?? "";
+          if (text === "") await page.keyboard.press("Delete");
+          else await page.keyboard.insertText(text);
+        }
+        return { ok: true };
+      }
       return { ok: false, reason: outcome.reason ?? "stale" };
     } catch {
       // A mid-navigation rejection: the node is effectively gone for this decision.

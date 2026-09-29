@@ -154,6 +154,8 @@ export interface FastSnapshot {
   pageKey: string;
   /** Whole-page freshness token, compared when a per-node guard does not apply. */
   marker: string;
+  /** Whether the page can scroll further down (gates the SCROLL_DOWN option). */
+  canScroll: boolean;
 }
 
 /**
@@ -176,6 +178,24 @@ export interface PageState {
   controls: Control[];
   /** Human-readable log of the most recent actions taken this task. */
   recentActions: string[];
+  /** Whether the page can scroll further down. Absent means unknown (SCROLL_DOWN is offered). */
+  canScroll?: boolean;
+  /**
+   * Structured action history in the jev_ultrafast `recent_actions` shape, which is what the
+   * web-agent checkpoint reads. Optional: states built outside the loop have none.
+   */
+  history?: ActionRecord[];
+}
+
+/** One executed action, as the jev_ultrafast `recent_actions` entry the checkpoint was trained on. */
+export interface ActionRecord {
+  /** The acted-on element's label (`Open <label>` for a click on an editable field). */
+  action: string;
+  kind: "click" | "fill" | "select" | "scroll" | "wait";
+  /** Text typed, for `fill`; else null. */
+  text: string | null;
+  /** Whether the next observation differed; null until that observation happens. */
+  pageChanged: boolean | null;
 }
 
 /**
@@ -357,6 +377,12 @@ export interface LayaDecisionEngine {
   readonly available: boolean;
   /** Release any underlying model/session resources. */
   close(): Promise<void>;
+  /**
+   * Optional: the model's best ACTIONABLE step (never DONE/BLOCKED/WAIT) for `state`. Used when
+   * a terminal answer was not earned and no client LLM can be asked. Undefined when nothing
+   * actionable is offered.
+   */
+  decideActionable?(state: PageState): Promise<Decision | undefined>;
 }
 
 /**

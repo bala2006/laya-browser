@@ -34,6 +34,7 @@ import { capture, captureFast, type CaptureOptions, type Snapshot } from "../sna
 import { diffSnapshots, hasChanges } from "../snapshot-diff.js";
 import { buildState, renderState, type BuildStateOptions } from "../state-builder.js";
 import { fieldValueFromGoal, goalSuccessMarkers } from "../laya/goal.js";
+import { actionRecords } from "../laya/jev-format.js";
 import { applyFieldValue, type FieldKind } from "../tools/fill.js";
 import { bestSafeProgress, policySeed, refineWithGoalValue } from "./policy.js";
 import { escalate, type EscalationOptions, type SampleFn } from "./escalation.js";
@@ -49,6 +50,7 @@ import {
   type SnapshotBackend,
 } from "../config.js";
 import type {
+  ActionRecord,
   Control,
   Decision,
   FastControl,
@@ -1134,6 +1136,7 @@ function projectFast(fast: FastSnapshot): { snapshot: Snapshot; ctx: FastContext
     visibleText: fast.visibleText,
     controls: fast.controls,
     text: fast.text,
+    canScroll: fast.canScroll,
   };
   return { snapshot, ctx: { byRef, pageKey: fast.pageKey, marker: fast.marker } };
 }
@@ -1151,10 +1154,9 @@ interface SpeculativeDecision {
 }
 
 /**
- * (F4) Compute the decision the pipeline WOULD produce for `state`, but ONLY for the cases that
- * never need the client-LLM escalation (a rule seed, or a high-confidence non-BLOCKED engine
- * decision). Returns undefined when the ordinary pipeline would escalate/block/degrade, so the
- * real iteration takes its normal (observable) escalation path and speculation stays invisible.
+ * (F4) Compute the local part of the pipeline for `state` (rule seed, else the model's answer)
+ * ahead of the step that will use it. Escalation is NOT done here: the real iteration feeds the
+ * cached answer through its own confidence check, so escalation stays observable there.
  *
  * This mirrors the loop's own pipeline order (policySeed -> engine.decide -> refine) EXACTLY,
  * so a cached decision equals the one the un-speculated step would have made. It performs NO
@@ -1164,21 +1166,18 @@ interface SpeculativeDecision {
 async function computeSpeculativeDecision(
   state: PageState,
   engine: LayaDecisionEngine,
-  confidenceThreshold: number,
 ): Promise<SpeculativeDecision | undefined> {
   const seed = policySeed(state);
   if (seed) {
     return { decision: seed.decision, note: `rule: ${seed.reason}` };
   }
   if (!engine.available) return undefined;
+  // Cache the model's answer WHATEVER its confidence. A reused decision re-enters the pipeline
+  // at the confidence check, so a low-confidence one still escalates, observably, on the real
+  // step. Discarding low-confidence answers here (as this once did) threw away the forward
+  // pass and recomputed it identically on the next step: measured 14 decides for 8 model
+  // steps on the local fixtures, ~43% of engine time.
   const decision = refineWithGoalValue(await engine.decide(state), state);
-  // Only cache a decision the confidence gate would accept WITHOUT escalating; anything the
-  // real step would escalate/block is deliberately not speculated (its escalation is observable
-  // and must run on the real iteration).
-  const lowConfidence =
-    decision.operationConfidence < confidenceThreshold ||
-    decision.targetConfidence < confidenceThreshold;
-  if (lowConfidence || decision.operation === "BLOCKED") return undefined;
   return { decision, note: undefined };
 }
 
@@ -1221,6 +1220,29 @@ async function speculativeTargetFresh(
       // Non-targeted operation: the whole page must be unchanged.
       return session.freshGuard(page, undefined, { marker: ctx.marker });
   }
+}
+
+/**
+ * Whether the step signatures show no progress: the last `window` are identical, OR the last
+ * `2 * window` alternate between two signatures (A-B-A-B...), e.g. re-typing a field a submit
+ * keeps clearing. An all-identical check alone never sees the two-step cycle.
+ */
+export function isStuck(signatures: readonly string[], window: number): boolean {
+  const n = signatures.length;
+  const last = signatures[n - 1];
+  if (n >= window && signatures.slice(-window).every((s) => s === last)) return true;
+  const span = 2 * window;
+  if (window < 2 || n < span) return false;
+  const tail = signatures.slice(-span);
+  return tail[0] !== tail[1] && tail.every((s, i) => s === tail[i % 2]);
+}
+
+/** Whether the page refutes a DONE: the goal declares explicit success markers and one is absent. */
+function doneRefuted(state: PageState): boolean {
+  const markers = goalSuccessMarkers(state.goal, { explicitOnly: true });
+  if (markers.length === 0) return false;
+  const haystack = `${state.title} ${state.visibleText}`.toLowerCase();
+  return markers.some((m) => !haystack.includes(m.toLowerCase()));
 }
 
 /** Inputs the per-step decision pipeline needs (see {@link resolveStepDecision}). */
@@ -1277,8 +1299,18 @@ async function resolveStepDecision(ctx: DecisionContext): Promise<ResolvedDecisi
       decision = seed.decision;
       note = `rule: ${seed.reason}`;
     } else if (engine.available) {
-      // Laya answers the narrow question; fill goal-stated values it did not supply.
-      decision = refineWithGoalValue(await engine.decide(state), state);
+      // Laya answers the narrow question; fill goal-stated values it did not supply. An engine
+      // failure (e.g. an ONNX error) is one bad step, not a dead run: it becomes a
+      // zero-confidence BLOCKED, which the escalation path below resolves.
+      decision = await engine
+        .decide(state)
+        .then((d) => refineWithGoalValue(d, state))
+        .catch(
+          (err: unknown): Decision => {
+            note = `Local model failed (${(err as Error)?.message ?? String(err)})`;
+            return { operation: "BLOCKED", operationConfidence: 0, targetConfidence: 0, source: "laya" };
+          },
+        );
     } else {
       // (R2) LLM-planned step. With no local weights there is nothing to ask, so the step is
       // deliberately left below the confidence threshold with a BLOCKED placeholder: the
@@ -1291,6 +1323,22 @@ async function resolveStepDecision(ctx: DecisionContext): Promise<ResolvedDecisi
         source: "laya",
       };
     }
+  }
+
+  // A step the model chose but cannot actually be executed as meant is not a confident step:
+  //  - TYPE_TEXT with no value would type "" (a no-op the model then repeats);
+  //  - DONE while the goal's explicit success marker is absent is refuted by the page itself.
+  const unusable =
+    decision.source !== "rule" &&
+    ((decision.operation === "TYPE_TEXT" && decision.value === undefined) ||
+      (decision.operation === "DONE" && doneRefuted(state)));
+  if (unusable) {
+    decision = {
+      operation: "BLOCKED",
+      operationConfidence: 0,
+      targetConfidence: 0,
+      source: decision.source,
+    };
   }
 
   // 4. Confidence check: escalate on low confidence or BLOCKED (never for rule seeds, which are
@@ -1333,9 +1381,30 @@ async function resolveStepDecision(ctx: DecisionContext): Promise<ResolvedDecisi
     ...(lowConfidenceBlocked ? { bestSafeProgress: () => bestSafeProgress(state) } : {}),
   };
   const result = await escalate(state, sample, escalationOptions);
+  let resolved = refineWithGoalValue(result.decision, state);
+  let resolvedNote = result.note;
+
+  // Nobody better could be asked, and the fallback is a terminal the model did not earn (a
+  // low-confidence DONE, or a BLOCKED). Ask the model what it would DO instead: its own
+  // ranking of the actionable operations. Bounded by the loop detector and the step budget,
+  // and the destructive guard still vets any CLICK.
+  const unearnedTerminal =
+    lowConfidence &&
+    !result.escalated &&
+    resolved.source !== "rule" &&
+    (resolved.operation === "BLOCKED" ||
+      (resolved.operation === "DONE" && resolved.operationConfidence < confidenceThreshold));
+  if (unearnedTerminal && engine.available && engine.decideActionable) {
+    const alt = await engine.decideActionable(state).catch(() => undefined);
+    const refined = alt ? refineWithGoalValue(alt, state) : undefined;
+    if (refined && !(refined.operation === "TYPE_TEXT" && refined.value === undefined)) {
+      resolvedNote = `${resolvedNote} Not stopping on an unearned ${resolved.operation}; taking the model's best actionable step (${refined.operation}).`;
+      resolved = refined;
+    }
+  }
   return {
-    decision: refineWithGoalValue(result.decision, state),
-    note: result.note,
+    decision: resolved,
+    note: resolvedNote,
     escalated: result.escalated,
     // (T3.1) Only a real (client-answered) escalation contributes prompt tokens; the degraded
     // path does not. renderState length is measured here so the caller can meter it.
@@ -1450,7 +1519,7 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
     };
   }
 
-  const page = await session.getPage();
+  let page = await session.getPage();
   // (R3) A warning the relaxed hard stops surfaced, echoed on the HUD once the run starts and
   // carried into the transcript's recent-actions log so it reaches the escalation prompt too.
   let runWarning: string | undefined;
@@ -1499,6 +1568,18 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
   await narrator.beginRun();
 
   const recentActions: string[] = [];
+  // The jev-shaped history the checkpoint reads. `pageChanged` of the newest entry is resolved
+  // against the first observation after it (see settleHistory).
+  const history: ActionRecord[] = [];
+  let historySnapshot: Snapshot | undefined;
+  const settleHistory = (next: Snapshot): ActionRecord[] => {
+    const last = history.at(-1);
+    if (last && last.pageChanged === null && historySnapshot) {
+      last.pageChanged =
+        next.url !== historySnapshot.url || next.text !== historySnapshot.text;
+    }
+    return history.map((h) => ({ ...h }));
+  };
   const warnings: string[] = [];
   if (runWarning !== undefined) {
     await narrator.notice(runWarning, "uncertain");
@@ -1541,6 +1622,13 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
       // Tier 4 heartbeat + Tier 2 thinking HUD: announce the step and enter the thinking
       // state BEFORE the (potentially slow) decision pipeline runs.
       await narrator.beginStep(step, maxSteps);
+      // The tab we drove may have closed itself (e.g. a popup flow); continue on the tab the
+      // session fell back to rather than failing the next capture on a dead page.
+      if (page.isClosed()) {
+        page = await session.getPage();
+        prefetchedFast = undefined;
+        speculativeDecision = undefined;
+      }
 
       // (D1) Start-of-step wall clock, used for the per-step timing artifact.
       const stepStart = Date.now();
@@ -1601,7 +1689,10 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
           stepScreenshot = undefined;
         }
       }
-      const state = buildState(goal, snapshot, recentActions, stateOptions);
+      const state: PageState = {
+        ...buildState(goal, snapshot, recentActions, stateOptions),
+        history: settleHistory(snapshot),
+      };
 
       // (C2) Diff this snapshot against the previous step's snapshot. When new controls
       // appeared, surface it as a first-class overlay toast / activity-log event. The diff is
@@ -1827,6 +1918,18 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
       }
       // Capture the pre-action URL so the settle probe can tell whether we navigated.
       const beforeUrl = page.url();
+      // A click may open the next page in a NEW tab (target=_blank, window.open). Follow it:
+      // the goal continues there, and observing the stale opener would stall the run.
+      let popup: Page | undefined;
+      const onPopup = (p: Page): void => {
+        popup ??= p;
+      };
+      page.on("popup", onPopup);
+      // A failed action (timeout, element gone after self-heal, wrong element kind) is one bad
+      // step, not a dead run: record it, re-observe, and let the next decision recover. The
+      // loop detector and step budget still bound a run that keeps failing; a closed page or
+      // crashed browser still ends the run, via the next capture.
+      let actionFailed = false;
       const executed = await execute(
         decision,
         state,
@@ -1842,7 +1945,13 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
         },
         session,
         narrator,
-      );
+      ).catch((err: unknown): ExecuteResult => {
+        actionFailed = true;
+        const reason = String((err as Error)?.message ?? err).split("\n")[0]!.slice(0, 160);
+        return {
+          detail: `FAILED ${decision.operation}${decision.target ? ` ${decision.target}` : ""}: ${reason}`,
+        };
+      });
       const record: StepRecord = {
         step,
         operation: decision.operation,
@@ -1874,6 +1983,21 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
       // B1: keep the recent-action log (which is rendered back into the next PageState and
       // can reach the escalation LLM prompt) masked too, so no secret leaks downstream.
       recentActions.push(redact(executed.detail));
+      if (actionFailed) {
+        warnings.push(redact(executed.detail));
+        await narrator.notice("Action failed \u2014 re-observing", "uncertain");
+      } else {
+        history.push(
+          ...actionRecords(
+            decision.operation === "TYPE_TEXT"
+              ? { ...decision, value: resolveValue(decision, state) ?? "" }
+              : decision,
+            state.controls,
+            redact,
+          ),
+        );
+        historySnapshot = snapshot;
+      }
       // Tier 4: mirror the transcript line into the on-page activity-log feed (already
       // redacted inside the narrator).
       await narrator.log(executed.detail);
@@ -1881,6 +2005,7 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
       // SCREENSHOT and VERIFY are terminal/verification steps: once one runs, the goal-run
       // ends (a VERIFY reports its result; a SCREENSHOT captures the final page).
       if (decision.operation === "VERIFY" || decision.operation === "SCREENSHOT") {
+        page.off("popup", onPopup);
         if (recordArtifacts) {
           artifacts.push(
             buildArtifact(record, redact(snapshot.text), stepScreenshot, Date.now() - stepStart),
@@ -1918,18 +2043,28 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
           prefetchedFast = speculativeFast;
           // Pre-compute the next decision against the settled speculative state. Skipped
           // silently on any failure so speculation never affects the run.
-          const specState = buildState(
-            goal,
-            speculativeFast.snapshot,
-            recentActions,
-            stateOptions,
+          // Same history the next step will build from this very snapshot, so a reused
+          // speculative decision saw identical input.
+          const specState: PageState = {
+            ...buildState(goal, speculativeFast.snapshot, recentActions, stateOptions),
+            history: settleHistory(speculativeFast.snapshot),
+          };
+          speculativeDecision = await computeSpeculativeDecision(specState, engine).catch(
+            () => undefined,
           );
-          speculativeDecision = await computeSpeculativeDecision(
-            specState,
-            engine,
-            confidenceThreshold,
-          ).catch(() => undefined);
         }
+      }
+
+      page.off("popup", onPopup);
+      if (popup !== undefined && !popup.isClosed()) {
+        const opened: Page = popup;
+        await opened.waitForLoadState("domcontentloaded").catch(() => undefined);
+        session.activatePage(opened);
+        page = opened;
+        prefetchedFast = undefined;
+        speculativeDecision = undefined;
+        recentActions.push("Switched to the newly opened tab");
+        await narrator.notice("Following the new tab", "info");
       }
 
       // (D1) Record the per-step artifact for a continuing step (terminal steps recorded
@@ -1953,12 +2088,7 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
           decision.target ?? ""
         }\u0000${value ?? ""}`;
         signatures.push(`${state.url}\u0002${controlSig}\u0002${decisionSig}`);
-        if (
-          signatures.length >= loopWindow &&
-          signatures
-            .slice(-loopWindow)
-            .every((sig) => sig === signatures[signatures.length - 1])
-        ) {
+        if (isStuck(signatures, loopWindow)) {
           transcript.push({
             step: step + 1,
             operation: "BLOCKED",
@@ -1966,7 +2096,7 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
             targetConfidence: 1,
             source: decision.source,
             detail: "BLOCKED (stuck: no progress detected)",
-            note: `Loop detector: the last ${loopWindow} steps were identical (no progress).`,
+            note: `Loop detector: the recent steps repeat (the last ${loopWindow} identical, or a two-step cycle) with no progress.`,
           });
           recentActions.push("BLOCKED (stuck: no progress detected)");
           await narrator.setState("error", "Stuck - not progressing");
