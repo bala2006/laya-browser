@@ -120,7 +120,8 @@ variables:
 | `LAYA_BROWSER_HEADLESS` | headed | `true` forces headless (a headed launch with no display auto-falls-back to headless). |
 | `LAYA_ENGINE` | `auto` | Autopilot engine selection: `auto` (weights if present, else stub) or `stub`. |
 | `LAYA_MODEL_DIR` | (none) | Path to a local ONNX bundle; skips any download. |
-| `LAYA_CONFIDENCE_THRESHOLD` | `0.85` | Escalate to the client LLM when the operation OR target confidence is below this (see [Autopilot decision pipeline](#autopilot-decision-pipeline)). |
+| `LAYA_CONFIDENCE_THRESHOLD` | `0.85` | Uniform gate: escalate to the client LLM when the operation OR target confidence is below this. Setting it turns off the calibrated per-operation defaults. |
+| `LAYA_OPERATION_THRESHOLDS` | calibrated | Per-operation gates, e.g. `CLICK=0.8,TYPE_TEXT=0.6`. Defaults: `TYPE_TEXT`/`SELECT` 0.6, `CLICK` 0.75, `DONE`/`SCROLL_DOWN` 0.7, `WAIT` never local (see [Model evaluation](#model-evaluation)). |
 | `LAYA_MAX_STEPS` | `15` | Autopilot step budget per goal. |
 | `LAYA_AUTO_DISMISS` | `false` | Auto-dismiss cookie/consent banners and blocking modals during Autopilot. |
 | `LAYA_ALLOWED_DOMAINS` | (allow all) | Comma list of domains the run may navigate to. |
@@ -1091,6 +1092,33 @@ decides instead of discarding low-confidence ones cut engine calls 14 -> 8 (engi
 38.9 s -> 22.3 s) with identical decisions. The model is still a signal behind the gate, not
 an oracle: most of its correct choices land at 0.4-0.75, below `0.85`, so with a client LLM
 those steps escalate, and without one Autopilot continues on the model's choice.
+
+### Model evaluation
+
+`pnpm run build && pnpm run eval -- --model <LAYA_MODEL_DIR>` runs `benchmark/eval`: 19 local
+page types (forms, filters, dropdowns, radios, wizard, autocomplete, cart, completed and
+impossible tasks, long pages, a 55-link store, a 23-field form, loading results) with the
+correct step known at every state. The model is asked at each state, scored, and then the
+correct step is executed, so every step is scored from a correct history. No rules, no LLM.
+It prints step/operation accuracy, a calibration table, and coverage vs accuracy per gate.
+
+Measured with `abedinia/laya-web-agent` (63 scored steps, 8-core CPU):
+
+| Change | Step accuracy | Notes |
+| --- | --- | --- |
+| jev_ultrafast format (previous release) | 65.1% | 3 steps' correct target never offered |
+| + relevance shortlist | 69.8% | correct target always offered |
+| + password/file inputs kept out of the model input | 71.4% | |
+| + on-screen text only | **73.0%** | newline-joined text was tried and lost (reverted) |
+
+Calibration is monotonic (accuracy 0% / 46% / 67% / 73% / 92% across confidence bins
+<0.3 / <0.5 / <0.7 / <0.85 / >=0.85), so confidence is a usable signal. The per-operation gate
+runs 27/63 steps locally at 96.3% accuracy, against 12/63 at the uniform 0.85. The main
+remaining error: on a finished page the model often answers WAIT instead of DONE.
+
+**Typed text.** The model picks which field to type into but never produces text. When the
+goal grammar states no value for that field, Autopilot asks the client LLM (MCP sampling) for
+that one field's value, jev-style (`{"text": ...}`, reused only for an identical request).
 
 ### Web-agent export spike (VERIFIED)
 

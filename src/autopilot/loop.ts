@@ -39,6 +39,7 @@ import { applyFieldValue, type FieldKind } from "../tools/fill.js";
 import { bestSafeProgress, policySeed, refineWithGoalValue } from "./policy.js";
 import { escalate, type EscalationOptions, type SampleFn } from "./escalation.js";
 import { autoDismissOverlays } from "./dismiss.js";
+import { textValueSource } from "./text-value.js";
 import { checkDestructiveSubmit, checkDomainAllowed } from "../safety.js";
 import { isSecretField, redactText } from "../redact.js";
 import {
@@ -1271,6 +1272,8 @@ interface DecisionContext {
   engine: LayaDecisionEngine;
   /** The confidence a decision of this operation needs to run without escalating. */
   thresholdFor: (operation: Decision["operation"]) => number;
+  /** Asks the client LLM for a field's text when the goal grammar has none (absent: no LLM). */
+  textValue: ((state: PageState, field: Control) => Promise<string | undefined>) | undefined;
   sample: SampleFn | undefined;
   narrator: Narrator;
   /** A cached speculative decision (F4) already confirmed fresh for THIS step, or undefined. */
@@ -1289,6 +1292,8 @@ interface ResolvedDecision {
   escalated: boolean;
   /** Chars of the state text sent on escalation (0 when no escalation happened), for metering. */
   promptChars: number;
+  /** Whether the typed text came from the client LLM (one extra round-trip, for metering). */
+  textFromLlm: boolean;
 }
 
 /**
@@ -1306,6 +1311,18 @@ interface ResolvedDecision {
  */
 async function resolveStepDecision(ctx: DecisionContext): Promise<ResolvedDecision> {
   const { state, engine, thresholdFor, sample, narrator, reused } = ctx;
+  let textFromLlm = false;
+  // The model chose a field but the goal grammar states no value for it: ask the client LLM
+  // for just that field's text (jev's text helper). No value -> the step stays unusable.
+  const withText = async (d: Decision): Promise<Decision> => {
+    if (d.operation !== "TYPE_TEXT" || d.value !== undefined || d.source === "rule") return d;
+    const field = state.controls.find((c) => c.ref === d.target);
+    if (!field || !ctx.textValue) return d;
+    const value = await ctx.textValue(state, field).catch(() => undefined);
+    if (value === undefined) return d;
+    textFromLlm = true;
+    return { ...d, value };
+  };
 
   // 1./2./3. Seed the decision: reuse a fresh speculative one, then a deterministic rule, then
   // the local model, then (no weights) a BLOCKED placeholder that step 4 routes to escalation.
@@ -1346,6 +1363,8 @@ async function resolveStepDecision(ctx: DecisionContext): Promise<ResolvedDecisi
     }
   }
 
+  decision = await withText(decision);
+
   // A step the model chose but cannot actually be executed as meant is not a confident step:
   //  - TYPE_TEXT with no value would type "" (a no-op the model then repeats);
   //  - DONE while the goal's explicit success marker is absent is refuted by the page itself.
@@ -1367,7 +1386,7 @@ async function resolveStepDecision(ctx: DecisionContext): Promise<ResolvedDecisi
   const gate = thresholdFor(decision.operation);
   const lowConfidence = decision.operationConfidence < gate || decision.targetConfidence < gate;
   if (decision.source === "rule" || !(lowConfidence || decision.operation === "BLOCKED")) {
-    return { decision, note, escalated: false, promptChars: 0 };
+    return { decision, note, escalated: false, promptChars: 0, textFromLlm };
   }
 
   // Tier 3: colour the HUD amber to signal low-confidence escalation to the LLM.
@@ -1416,7 +1435,7 @@ async function resolveStepDecision(ctx: DecisionContext): Promise<ResolvedDecisi
       (resolved.operation === "DONE" && resolved.operationConfidence < thresholdFor("DONE")));
   if (unearnedTerminal && engine.available && engine.decideActionable) {
     const alt = await engine.decideActionable(state).catch(() => undefined);
-    const refined = alt ? refineWithGoalValue(alt, state) : undefined;
+    const refined = alt ? await withText(refineWithGoalValue(alt, state)) : undefined;
     if (refined && !(refined.operation === "TYPE_TEXT" && refined.value === undefined)) {
       resolvedNote = `${resolvedNote} Not stopping on an unearned ${resolved.operation}; taking the model's best actionable step (${refined.operation}).`;
       resolved = refined;
@@ -1429,6 +1448,7 @@ async function resolveStepDecision(ctx: DecisionContext): Promise<ResolvedDecisi
     // (T3.1) Only a real (client-answered) escalation contributes prompt tokens; the degraded
     // path does not. renderState length is measured here so the caller can meter it.
     promptChars: result.escalated ? renderState(state).length : 0,
+    textFromLlm,
   };
 }
 
@@ -1642,6 +1662,8 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
   // of the escalation prompt (~the page-state text) and its reply at ~4 chars/token (a common
   // English heuristic); local-only steps add no LLM tokens. Purely observational.
   let escalationCount = 0;
+  // One cache per run (jev: reuse a value only while its whole request is identical).
+  const textValue = sample !== undefined ? textValueSource(sample) : undefined;
   let estimatedTokens = 0;
   const estimateTokens = (chars: number): number => Math.ceil(Math.max(0, chars) / 4);
 
@@ -1765,6 +1787,7 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
         state,
         engine,
         thresholdFor: (op) => operationThresholds[op] ?? confidenceThreshold,
+        textValue,
         sample,
         narrator,
         reused,
@@ -1780,6 +1803,11 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
       if (resolved.escalated) {
         escalationCount += 1;
         estimatedTokens += estimateTokens(resolved.promptChars) + 64;
+      }
+      if (resolved.textFromLlm) {
+        escalationCount += 1;
+        estimatedTokens += 400;
+        note = note ? `${note}; typed text from the client LLM` : "typed text from the client LLM";
       }
 
       // (T5) The decision is now final for this step; record how long deciding it took.
