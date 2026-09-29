@@ -384,19 +384,23 @@ function actOnNodeInPage(args: {
   ) {
     return { ok: false, reason: "stale" };
   }
-  const rect = el.getBoundingClientRect();
+  const outside = (r: DOMRect): boolean => {
+    const cx = r.x + r.width / 2;
+    const cy = r.y + r.height / 2;
+    return cx < 0 || cy < 0 || cx >= window.innerWidth || cy >= window.innerHeight;
+  };
+  let rect = el.getBoundingClientRect();
+  if (rect.width <= 0 || rect.height <= 0) return { ok: false, reason: "covered" };
+  // The model is offered controls anywhere on the page, not only on screen: bring an
+  // off-screen target into view (instantly, so geometry is final) before the hit-test, the
+  // way a user would scroll to it. Refusing it as "covered" only burned a self-heal retry.
+  if (outside(rect)) {
+    el.scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
+    rect = el.getBoundingClientRect();
+    if (outside(rect)) return { ok: false, reason: "covered" };
+  }
   const x = rect.x + rect.width / 2;
   const y = rect.y + rect.height / 2;
-  if (
-    rect.width <= 0 ||
-    rect.height <= 0 ||
-    x < 0 ||
-    y < 0 ||
-    x >= window.innerWidth ||
-    y >= window.innerHeight
-  ) {
-    return { ok: false, reason: "covered" };
-  }
   // OCCLUSION hit-test: the element under the rect center must be (or contain) the target.
   const hit = document.elementFromPoint(x, y);
   if (!hit || !el.contains(hit)) {
@@ -1629,14 +1633,16 @@ export class BrowserSession {
       }
     }
     // Targeted freshness: re-read [pageKey, guard(node)] and deep-equal it to the expected.
-    if (expected.guard === undefined || expected.pageKey === undefined) return false;
+    // Without a pageKey only the node's own guard is compared (used when the caller's own
+    // earlier writes in the same step are what changed the page's form state).
+    if (expected.guard === undefined) return false;
     try {
       const current = (await page.evaluate(currentGuardAndPageKey, nodeId)) as
         | { pageKey: string; guard: NodeGuard | null }
         | null;
       if (current === null || current.guard === null) return false;
       return (
-        current.pageKey === expected.pageKey &&
+        (expected.pageKey === undefined || current.pageKey === expected.pageKey) &&
         guardsEqual(current.guard, expected.guard)
       );
     } catch {

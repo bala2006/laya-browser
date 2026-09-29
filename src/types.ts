@@ -178,6 +178,11 @@ export interface PageState {
   title: string;
   /** Condensed visible text of the page (truncated to fit the model budget). */
   visibleText: string;
+  /**
+   * The page text as captured, NOT clamped to the model budget. Success-marker checks read
+   * this: a confirmation below the first 1200 characters is still on the page.
+   */
+  pageText?: string;
   /** Numbered, current-valued interactive controls. */
   controls: Control[];
   /** Human-readable log of the most recent actions taken this task. */

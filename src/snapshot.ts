@@ -244,6 +244,12 @@ export async function captureAria(
   };
   walk(tree);
 
+  // Refs are renumbered per capture; clear old stamps so none survives as a duplicate.
+  await page
+    .evaluate(() =>
+      document.querySelectorAll("[data-laya-ref]").forEach((e) => e.removeAttribute("data-laya-ref")),
+    )
+    .catch(() => undefined);
   const controls: Control[] = [];
   let counter = 0;
   for (const node of flat) {
@@ -631,6 +637,13 @@ function domWalk(args: {
     depth: number,
     out: Element[],
   ): void {
+    // Refs are renumbered per capture: clear this root's old stamps first, or an element that
+    // dropped out of the walk (hidden, disabled) keeps its old "eN" and duplicates the new one.
+    try {
+      root.querySelectorAll("[data-laya-ref]").forEach((e) => e.removeAttribute("data-laya-ref"));
+    } catch {
+      // A detached root has nothing to clear.
+    }
     let matched: Element[] = [];
     try {
       matched = Array.from(root.querySelectorAll(SELECTOR));
@@ -1034,6 +1047,8 @@ function fastWalk(args: { visibleTextLimit: number }): unknown {
   for (const [id, el] of cache.nodes) {
     if (!el.isConnected) cache.nodes.delete(id);
   }
+  // Refs are renumbered per capture; clear old stamps so none survives as a duplicate.
+  document.querySelectorAll("[data-laya-ref]").forEach((e) => e.removeAttribute("data-laya-ref"));
 
   const SELECTOR = [
     "a[href]",

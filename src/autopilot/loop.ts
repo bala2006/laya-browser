@@ -406,6 +406,12 @@ const DEFAULT_WAIT_MS = 500;
  */
 const FAST_WAIT_CAP_MS = 200;
 
+/** Characters of page text captured per step for success-marker checks (not sent to the model). */
+const MARKER_TEXT_LIMIT = 50_000;
+
+/** Characters of final-page text returned to the client (the snapshot module's default). */
+const CLIENT_TEXT_LIMIT = 2000;
+
 /** The Assist-mode hint returned when Autopilot cannot run (no weights). */
 export const DEGRADED_MESSAGE =
   "Laya weights are not present, so Autopilot cannot run. Use the Assist-mode tools instead: " +
@@ -805,6 +811,7 @@ async function execute(
     ref: string,
     kind: "click" | "fill" | "select",
     value: string | undefined,
+    { ownWrites = false }: { ownWrites?: boolean } = {},
   ): Promise<{ handled: boolean; soft?: "stale" | "covered" | "gone" }> => {
     const fast = options.fast;
     if (!fast) return { handled: false };
@@ -812,9 +819,13 @@ async function execute(
     if (!entry) return { handled: false };
     const page = await session.getPage();
     // Freshness re-check: [pageKey, guard(node)] must match what we observed at decision time.
+    // After this step's own earlier writes (a FILL_FORM batch) the page key has changed by
+    // design (it covers every form field's value, and a scroll-into-view moves it), so only the
+    // target's own guard is re-checked; otherwise every field after the first fell off the fast
+    // path.
     const fresh = await session.freshGuard(page, entry.nodeId, {
       guard: entry.guard,
-      pageKey: fast.ctx.pageKey,
+      ...(ownWrites ? {} : { pageKey: fast.ctx.pageKey }),
     });
     if (!fresh) return { handled: true, soft: "stale" };
     // Act on the OBSERVED node (no fresh selector query) with the pre-input occlusion hit-test.
@@ -971,7 +982,9 @@ async function execute(
           kind === "combobox" ? "select" : kind === "checkbox" || kind === "radio" ? undefined : "fill";
         let handledFast = false;
         if (fastKind !== undefined) {
-          const fa = await fastAct(field.target, fastKind, field.value);
+          const fa = await fastAct(field.target, fastKind, field.value, {
+            ownWrites: filled.length > 0,
+          });
           handledFast = fa.handled && fa.soft === undefined;
         }
         if (!handledFast) {
@@ -1248,7 +1261,7 @@ export function isStuck(signatures: readonly string[], window: number): boolean 
 function doneRefuted(state: PageState): boolean {
   const markers = goalSuccessMarkers(state.goal, { explicitOnly: true });
   if (markers.length === 0) return false;
-  const haystack = `${state.title} ${state.visibleText}`.toLowerCase();
+  const haystack = `${state.title} ${state.pageText ?? state.visibleText}`.toLowerCase();
   return markers.some((m) => !haystack.includes(m.toLowerCase()));
 }
 
@@ -1422,7 +1435,12 @@ async function resolveStepDecision(ctx: DecisionContext): Promise<ResolvedDecisi
 function redactSnapshot(snapshot: Snapshot, redact: (text: string) => string): Snapshot {
   return {
     ...snapshot,
-    visibleText: redact(snapshot.visibleText),
+    // Steps capture up to MARKER_TEXT_LIMIT for marker checks; the client gets the usual size.
+    visibleText: redact(
+      snapshot.visibleText.length > CLIENT_TEXT_LIMIT
+        ? snapshot.visibleText.slice(0, CLIENT_TEXT_LIMIT) + "\n... [truncated]"
+        : snapshot.visibleText,
+    ),
     text: redact(snapshot.text),
     controls: snapshot.controls.map((c) =>
       c.value !== undefined ? { ...c, value: redact(c.value) } : c,
@@ -1485,6 +1503,8 @@ export async function runGoal(options: RunGoalOptions): Promise<RunResult> {
     backend: snapshotBackend,
     viewportPriority,
     frameDepth,
+    // Marker checks read the whole captured text; the model input is clamped separately.
+    visibleTextLimit: MARKER_TEXT_LIMIT,
   };
 
   // (B1) The run-scoped set of ACTUAL secret values the loop typed into secret-looking

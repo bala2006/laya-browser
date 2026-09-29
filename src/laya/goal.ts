@@ -353,7 +353,7 @@ export function goalSuccessMarkerPresent(
 ): boolean {
   const markers = goalSuccessMarkers(state.goal, options);
   if (markers.length === 0) return false;
-  const haystack = norm(`${state.title} ${state.visibleText}`);
+  const haystack = norm(`${state.title} ${state.pageText ?? state.visibleText}`);
   return markers.every((mk) => haystack.includes(norm(mk)));
 }
 

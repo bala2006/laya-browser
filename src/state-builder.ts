@@ -129,6 +129,7 @@ export function buildState(
     url: snapshot.url,
     title: snapshot.title,
     visibleText: clamp(snapshot.visibleText, opts.maxVisibleText),
+    pageText: snapshot.visibleText,
     controls,
     recentActions: recent,
     ...(snapshot.canScroll !== undefined ? { canScroll: snapshot.canScroll } : {}),
